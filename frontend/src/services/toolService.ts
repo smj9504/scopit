@@ -9,6 +9,8 @@ import type {
   ToolSessionUpdate,
   CreateEstimateFromToolRequest,
   CreateEstimateFromToolResponse,
+  CreateInvoiceFromToolRequest,
+  CreateInvoiceFromToolResponse,
 } from '@/types/tools';
 
 const transformTool = (data: any): Tool => ({
@@ -81,6 +83,17 @@ export const toolService = {
     return {
       estimateId: response.data.estimate_id,
       estimateNumber: response.data.estimate_number,
+    };
+  },
+  // Tool → Invoice bridge
+  createInvoiceFromSession: async (
+    sessionId: string,
+    data?: CreateInvoiceFromToolRequest,
+  ): Promise<CreateInvoiceFromToolResponse> => {
+    const response = await api.post<any>(`/tools/sessions/${sessionId}/create-invoice`, data || {});
+    return {
+      invoiceId: response.data.invoice_id,
+      invoiceNumber: response.data.invoice_number,
     };
   },
 };

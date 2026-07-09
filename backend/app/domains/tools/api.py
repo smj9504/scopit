@@ -75,6 +75,17 @@ class CreateEstimateFromToolResponse(BaseModel):
     estimate_number: str
 
 
+class CreateInvoiceFromToolRequest(BaseModel):
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    title: Optional[str] = None
+
+
+class CreateInvoiceFromToolResponse(BaseModel):
+    invoice_id: str
+    invoice_number: str
+
+
 # ── Tool Registry Endpoints ──────────────────────────────────────────
 
 @router.get("", response_model=List[ToolResponse])
@@ -309,4 +320,125 @@ async def create_estimate_from_tool(
     return CreateEstimateFromToolResponse(
         estimate_id=str(estimate.id),
         estimate_number=estimate.estimate_number,
+    )
+
+
+# ── Tool → Invoice Bridge ──────────────────────────────────────────
+
+@router.post("/sessions/{session_id}/create-invoice", response_model=CreateInvoiceFromToolResponse)
+async def create_invoice_from_tool(
+    session_id: UUID,
+    req: CreateInvoiceFromToolRequest = CreateInvoiceFromToolRequest(),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Convert a tool session's result data into a new invoice.
+    Uses the tool's registered converter to transform session data
+    into sections/items, then creates an invoice directly.
+    """
+    from app.domains.invoice.models import Invoice, InvoiceSection, InvoiceItem, InvoiceStatus
+    from app.domains.invoice.api import recalculate_invoice, get_default_invoice_status
+    from app.domains.company.models import Company
+    from app.domains.customer.models import Customer
+    from decimal import Decimal
+    from datetime import date, timedelta
+
+    # 1. Get tool session
+    session_service = ToolSessionService(db)
+    tool_session = session_service.get_session(session_id, current_user.company_id)
+
+    # 2. Get converter for this tool
+    converter = get_converter(tool_session.tool_id)
+    if not converter:
+        tool = get_tool(tool_session.tool_id)
+        tool_name = tool.name if tool else tool_session.tool_id
+        raise BadRequestException(f"{tool_name} does not support invoice creation yet.")
+
+    # 3. Convert session data to payload (reuses the same converter as estimates)
+    payload = converter.to_estimate_payload(
+        tool_session.data,
+        customer_id=req.customer_id,
+        customer_name=req.customer_name,
+        title=req.title,
+    )
+
+    # 4. Create invoice
+    company = db.query(Company).filter(Company.id == current_user.company_id).first()
+    invoice_number = f"{company.invoice_prefix}-{company.next_invoice_number}"
+    company.next_invoice_number += 1
+
+    customer_name = payload.get("customer_name") or req.customer_name
+    customer_email = payload.get("customer_email")
+    customer_address = payload.get("customer_address")
+
+    if req.customer_id:
+        customer = db.query(Customer).filter(Customer.id == req.customer_id).first()
+        if customer:
+            customer_name = customer.name
+            customer_email = customer.email
+            customer_address = customer.full_address
+
+    default_status = get_default_invoice_status(db, current_user.company_id)
+    invoice_date = date.today()
+
+    invoice = Invoice(
+        company_id=current_user.company_id,
+        invoice_number=invoice_number,
+        status=InvoiceStatus.DRAFT,
+        status_id=default_status.id if default_status else None,
+        invoice_date=invoice_date,
+        due_date=invoice_date + timedelta(days=30),
+        customer_id=req.customer_id,
+        customer_name=customer_name,
+        customer_email=customer_email,
+        customer_address=customer_address,
+        title=payload.get("title") or req.title,
+        description=payload.get("description"),
+        tax_rate=payload.get("tax_rate") or company.default_tax_rate,
+        tax_label=company.default_tax_label,
+        notes=company.default_notes,
+        terms=company.default_terms,
+        created_by=current_user.id,
+    )
+    db.add(invoice)
+    db.flush()
+
+    sections = payload.get("sections", [])
+    for idx, section_data in enumerate(sections):
+        section = InvoiceSection(
+            invoice_id=invoice.id,
+            name=section_data.get("name", "General"),
+            order_index=section_data.get("order_index", idx),
+        )
+        db.add(section)
+        db.flush()
+
+        for item_idx, item_data in enumerate(section_data.get("items", [])):
+            quantity = Decimal(str(item_data.get("quantity", 1)))
+            unit_price = Decimal(str(item_data.get("unit_price", 0)))
+            item = InvoiceItem(
+                invoice_id=invoice.id,
+                section_id=section.id,
+                name=item_data.get("name", ""),
+                description=item_data.get("description"),
+                unit=item_data.get("unit"),
+                quantity=quantity,
+                unit_price=unit_price,
+                total=quantity * unit_price,
+                is_taxable=item_data.get("is_taxable", True),
+                order_index=item_data.get("order_index", item_idx),
+                notes=item_data.get("notes", []),
+            )
+            db.add(item)
+
+    db.commit()
+    db.refresh(invoice)
+
+    # Recalculate totals
+    recalculate_invoice(invoice, db)
+
+    return CreateInvoiceFromToolResponse(
+        invoice_id=str(invoice.id),
+        invoice_number=invoice.invoice_number,
     )

@@ -45,3 +45,14 @@ export interface CreateEstimateFromToolResponse {
   estimateId: string;
   estimateNumber: string;
 }
+
+export interface CreateInvoiceFromToolRequest {
+  customer_id?: string;
+  customer_name?: string;
+  title?: string;
+}
+
+export interface CreateInvoiceFromToolResponse {
+  invoiceId: string;
+  invoiceNumber: string;
+}

@@ -35,6 +35,7 @@ import {
   RightOutlined,
   FolderOpenOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { toolService } from '@/services/toolService';
 import type { ToolSession } from '@/types/tools';
 import ReportExportModal from './ReportExportModal';
@@ -689,9 +690,11 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 }) => {
   // ── Responsive ─────────────────────────────────────────────────────────────
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
 
   // ── Local state ────────────────────────────────────────────────────────────
   const [editing, setEditing] = useState<EditingState | null>(null);
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [taxRate, setTaxRate] = useState<number>(0);
 
   // Seed scheduling notes on first open if backend returned none
@@ -1158,6 +1161,31 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       message.error('Failed to export Excel');
     } finally {
       setExporting(null);
+    }
+  };
+
+  // ── Create Invoice handler ──────────────────────────────────────────────────
+
+  const handleCreateInvoice = async () => {
+    if (!activeSessionId) {
+      message.warning('Calculate estimate first');
+      return;
+    }
+    setCreatingInvoice(true);
+    try {
+      if (onSaveSession) await onSaveSession();
+      const res = await toolService.createInvoiceFromSession(activeSessionId, {
+        customer_name: clientInfo.name || undefined,
+        title: clientInfo.property_address
+          ? `Packing & Moving - ${clientInfo.property_address}`
+          : 'Packing & Moving Invoice',
+      });
+      message.success(`Invoice ${res.invoiceNumber} created`);
+      navigate(`/app/invoices/${res.invoiceId}`);
+    } catch {
+      message.error('Failed to create invoice');
+    } finally {
+      setCreatingInvoice(false);
     }
   };
 
@@ -2114,6 +2142,16 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           onClick={() => message.success('Estimate saved')}
         >
           Save
+        </Button>
+        <Button
+          type="primary"
+          loading={creatingInvoice}
+          onClick={handleCreateInvoice}
+          disabled={!activeSessionId}
+          size={isMobile ? 'small' : 'middle'}
+          style={{ background: colors.primary, borderColor: colors.primary }}
+        >
+          {isMobile ? 'Create Invoice' : 'Create Invoice'}
         </Button>
         {onCreateEstimate && (
           <Button
