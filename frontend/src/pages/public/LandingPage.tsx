@@ -1,13 +1,82 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 // ScopeIt Landing Page
 // Save as: frontend/src/pages/public/LandingPage.tsx
 
+function useInView<T extends HTMLElement>(options?: IntersectionObserverInit) {
+  const ref = useRef<T>(null);
+  const [inView, setInView] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setInView(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '-100px', ...options });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, inView };
+}
+
+function useCountUp(target: number, start: boolean, duration = 600) {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    if (!start) return;
+    let raf: number;
+    const startTime = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(target * eased);
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [start, target, duration]);
+
+  return value;
+}
+
+const formatCurrency = (n: number) =>
+  `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [email, setEmail] = useState('');
+  const [scrolled, setScrolled] = useState(false);
+
+  const packingReveal = useInView<HTMLDivElement>();
+  const problemReveal = useInView<HTMLDivElement>();
+  const featuresReveal = useInView<HTMLDivElement>();
+  const howItWorksReveal = useInView<HTMLDivElement>();
+  const betaReveal = useInView<HTMLDivElement>();
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Hero mockup "assembles itself" — rows land first, then totals tally up,
+  // echoing the product's own promise (an estimate finished in seconds).
+  const [mockupAssembled, setMockupAssembled] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setMockupAssembled(true), 1650);
+    return () => clearTimeout(t);
+  }, []);
+
+  const subtotalValue = useCountUp(1325, mockupAssembled, 650);
+  const taxValue = useCountUp(112.63, mockupAssembled, 650);
+  const totalValue = useCountUp(1437.63, mockupAssembled, 750);
 
   const handleJoinBeta = () => {
     navigate('/register');
@@ -17,12 +86,23 @@ const LandingPage: React.FC = () => {
     navigate('/login');
   };
 
+  const handleTryPackingDemo = () => {
+    navigate('/demo/packing');
+  };
+
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
     }
   };
+
+  const packingSteps = [
+    { num: '01', title: 'Upload photos', desc: 'Snap or upload photos of any room.' },
+    { num: '02', title: 'AI detects contents', desc: 'Sofa, TV, bookshelf — tagged automatically with confidence scores.' },
+    { num: '03', title: 'Edit if needed', desc: 'Adjust quantities, categories, or fragility in seconds.' },
+    { num: '04', title: 'Get a priced estimate', desc: 'Labor, materials, and packing costs calculated instantly.' },
+  ];
 
   const features = [
     { 
@@ -176,9 +256,122 @@ const LandingPage: React.FC = () => {
           padding: 24px 0;
           cursor: pointer;
         }
-        
+
         .faq-item:last-child { border-bottom: none; }
-        
+
+        .faq-answer {
+          display: grid;
+          grid-template-rows: 0fr;
+          transition: grid-template-rows 220ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .faq-answer-inner {
+          overflow: hidden;
+        }
+
+        .faq-answer-inner p {
+          margin: 0;
+          padding-top: 16px;
+          color: #6b7280;
+          line-height: 1.7;
+          font-size: 15px;
+          opacity: 0;
+          transition: opacity 180ms ease-out;
+        }
+
+        @keyframes materialize {
+          from { opacity: 0; transform: scale(0.96) translateY(14px); filter: blur(6px); }
+          to { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+        }
+
+        @keyframes materializeLg {
+          from { opacity: 0; transform: scale(0.92) translateY(28px); filter: blur(10px); box-shadow: 0 0 0 rgba(17, 24, 39, 0); }
+          to { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); box-shadow: 0 25px 50px -12px rgba(17, 24, 39, 0.18), 0 10px 20px -8px rgba(17, 24, 39, 0.1); }
+        }
+
+        @keyframes rowReveal {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes livePulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.35; }
+        }
+
+        @keyframes drawLine {
+          from { transform: scaleX(0); }
+          to { transform: scaleX(1); }
+        }
+
+        @keyframes glowIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        .hero-stagger {
+          animation: materialize 550ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .hero-stagger-lg {
+          animation: materializeLg 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .reveal {
+          opacity: 0;
+        }
+
+        .reveal-visible {
+          animation: materialize 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .beta-dot {
+          display: inline-block;
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #111827;
+          margin-right: 8px;
+          animation: livePulse 2.2s ease-in-out infinite;
+        }
+
+        .app-preview {
+          position: relative;
+        }
+
+        .app-preview::before {
+          content: '';
+          position: absolute;
+          inset: -60px;
+          background: radial-gradient(closest-side, rgba(17, 24, 39, 0.08), transparent 70%);
+          opacity: 0;
+          animation: glowIn 900ms ease-out 450ms both;
+          pointer-events: none;
+        }
+
+        .row-reveal {
+          animation: rowReveal 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .summary-divider {
+          transform-origin: left;
+          animation: drawLine 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .site-header {
+          transition: box-shadow 200ms ease-out, background-color 200ms ease-out;
+          backdrop-filter: blur(12px) saturate(180%);
+          -webkit-backdrop-filter: blur(12px) saturate(180%);
+        }
+
+        .site-header.scrolled {
+          box-shadow: 0 1px 3px rgba(17, 24, 39, 0.08), 0 8px 24px -12px rgba(17, 24, 39, 0.12);
+        }
+
+        @media (prefers-reduced-transparency: reduce) {
+          .site-header { background: rgba(255, 255, 255, 0.98) !important; backdrop-filter: none; -webkit-backdrop-filter: none; }
+        }
+
         .section { padding: 100px 20px; }
         .container { max-width: 1100px; margin: 0 auto; }
         
@@ -207,6 +400,7 @@ const LandingPage: React.FC = () => {
           .desktop-only { display: none !important; }
           .steps-grid { grid-template-columns: 1fr !important; gap: 32px !important; }
           .features-grid { grid-template-columns: 1fr !important; }
+          .packing-grid { grid-template-columns: 1fr !important; }
           .comparison-grid { grid-template-columns: 1fr !important; }
           .hero-section { padding-top: 100px !important; padding-bottom: 60px !important; }
           .hero-title { font-size: 2rem !important; }
@@ -242,12 +436,12 @@ const LandingPage: React.FC = () => {
       `}</style>
 
       {/* Header */}
-      <header style={{
+      <header className={`site-header${scrolled ? ' scrolled' : ''}`} style={{
         position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
-        background: 'rgba(255,255,255,0.98)',
+        background: 'rgba(255,255,255,0.72)',
         zIndex: 1000,
         borderBottom: '1px solid #e5e7eb',
       }}>
@@ -286,8 +480,9 @@ const LandingPage: React.FC = () => {
         background: '#ffffff',
       }}>
         <div className="container" style={{ textAlign: 'center', padding: '0 16px' }}>
-          <div style={{
-            display: 'inline-block',
+          <div className="hero-stagger" style={{
+            display: 'inline-flex',
+            alignItems: 'center',
             background: '#f3f4f6',
             color: '#374151',
             padding: '6px 14px',
@@ -297,33 +492,36 @@ const LandingPage: React.FC = () => {
             marginBottom: 24,
             letterSpacing: '0.5px',
           }}>
+            <span className="beta-dot" aria-hidden="true"></span>
             NOW IN BETA — FREE ACCESS
           </div>
-          
-          <h1 className="headline hero-title" style={{
-            fontSize: 'clamp(2.5rem, 5vw, 3.5rem)',
+
+          <h1 className="headline hero-title hero-stagger" style={{
+            fontSize: 'clamp(2.5rem, 6vw, 4rem)',
             fontWeight: 800,
             color: '#111827',
-            lineHeight: 1.15,
+            lineHeight: 1.1,
             marginBottom: 24,
-            letterSpacing: '-0.02em',
+            letterSpacing: '-0.03em',
+            animationDelay: '60ms',
           }}>
             Professional estimates<br />
             in minutes, not hours
           </h1>
 
-          <p className="hero-subtitle" style={{
+          <p className="hero-subtitle hero-stagger" style={{
             fontSize: 'clamp(1.1rem, 2vw, 1.25rem)',
             color: '#6b7280',
             maxWidth: 540,
             margin: '0 auto 40px',
             padding: '0 16px',
+            animationDelay: '120ms',
           }}>
             Simple estimating software for restoration contractors.
             Stop wasting time in Excel. Start looking professional.
           </p>
 
-          <div className="hero-buttons" style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', padding: '0 16px' }}>
+          <div className="hero-buttons hero-stagger" style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', padding: '0 16px', animationDelay: '180ms' }}>
             <button className="btn-primary" style={{ fontSize: 16, padding: '16px 32px' }} onClick={handleJoinBeta}>
               Join Free Beta
             </button>
@@ -331,17 +529,18 @@ const LandingPage: React.FC = () => {
               See how it works
             </button>
           </div>
-          
-          <p style={{
+
+          <p className="hero-stagger" style={{
             marginTop: 24,
             fontSize: 14,
             color: '#9ca3af',
+            animationDelay: '220ms',
           }}>
             No credit card required. All features included.
           </p>
 
           {/* App Preview */}
-          <div className="app-preview" style={{
+          <div className="app-preview hero-stagger-lg" style={{
             marginTop: 80,
             background: '#f9fafb',
             border: '1px solid #e5e7eb',
@@ -349,7 +548,7 @@ const LandingPage: React.FC = () => {
             padding: 24,
             maxWidth: 1000,
             margin: '80px auto 0',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)',
+            animationDelay: '280ms',
           }}>
             {/* Mockup Browser Frame */}
             <div style={{
@@ -398,40 +597,92 @@ const LandingPage: React.FC = () => {
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  alignItems: 'center',
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  gap: 16,
                   marginBottom: 24,
                 }}>
-                  <h2 style={{
-                    fontFamily: "'Plus Jakarta Sans', sans-serif",
-                    fontSize: 24,
-                    fontWeight: 700,
-                    color: '#111827',
-                    margin: 0,
-                    textAlign: 'left',
-                  }}>
-                    Estimate #EST-2026-001
-                  </h2>
-                  <div style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 12px',
-                    background: '#dbeafe',
-                    color: '#1e40af',
-                    borderRadius: 6,
-                    fontSize: 13,
-                    fontWeight: 500,
-                  }}>
-                    <div style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      background: '#3b82f6',
-                    }}></div>
-                    Viewed
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginLeft: 2 }}>
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                      <h2 style={{
+                        fontFamily: "'Plus Jakarta Sans', sans-serif",
+                        fontSize: 20,
+                        fontWeight: 700,
+                        color: '#111827',
+                        margin: 0,
+                        letterSpacing: '-0.01em',
+                        textAlign: 'left',
+                      }}>
+                        EST-1004
+                      </h2>
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '3px 10px',
+                        background: '#ede9fe',
+                        color: '#7c3aed',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 500,
+                      }}>
+                        Viewed
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, color: '#6b7280', textAlign: 'left' }}>
+                      Water Damage Restoration — Johnson Residence
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {['Download PDF', 'Send'].map((label) => (
+                      <span key={label} style={{
+                        padding: '6px 12px',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: '#374151',
+                        background: '#ffffff',
+                      }}>
+                        {label}
+                      </span>
+                    ))}
+                    <span style={{
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: '#ffffff',
+                      background: '#111827',
+                    }}>
+                      Record Payment
+                    </span>
+                    <span style={{
+                      padding: '6px 12px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: '#374151',
+                      background: '#ffffff',
+                    }}>
+                      Edit
+                    </span>
+                    <span style={{
+                      padding: '6px 10px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: '#374151',
+                      background: '#ffffff',
+                    }}>
+                      ···
+                    </span>
                   </div>
                 </div>
 
@@ -480,18 +731,27 @@ const LandingPage: React.FC = () => {
                       borderRadius: 12,
                       padding: 20,
                     }}>
-                      <h3 style={{
-                        fontFamily: "'Plus Jakarta Sans', sans-serif",
-                        fontSize: 16,
-                        fontWeight: 600,
-                        color: '#111827',
-                        margin: 0,
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
                         marginBottom: 16,
-                        textAlign: 'left',
                       }}>
-                        General
-                      </h3>
-                      
+                        <h3 style={{
+                          fontFamily: "'Plus Jakarta Sans', sans-serif",
+                          fontSize: 15,
+                          fontWeight: 600,
+                          color: '#111827',
+                          margin: 0,
+                          textAlign: 'left',
+                        }}>
+                          General
+                        </h3>
+                        <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 14, color: '#111827', letterSpacing: '-0.01em' }}>
+                          {formatCurrency(subtotalValue)}
+                        </span>
+                      </div>
+
                       {/* Table */}
                       <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -505,28 +765,28 @@ const LandingPage: React.FC = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            <tr className="row-reveal" style={{ borderBottom: '1px solid #f3f4f6', animationDelay: '950ms' }}>
                               <td style={{ padding: '12px', fontSize: 14, color: '#111827', textAlign: 'left' }}>Water Damage Restoration - Initial Assessment</td>
                               <td style={{ padding: '12px', textAlign: 'left', fontSize: 14, color: '#6b7280' }}>EA</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, color: '#111827' }}>1.00</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, color: '#111827' }}>$450.00</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, fontWeight: 600, color: '#111827' }}>$450.00</td>
                             </tr>
-                            <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            <tr className="row-reveal" style={{ borderBottom: '1px solid #f3f4f6', animationDelay: '1050ms' }}>
                               <td style={{ padding: '12px', fontSize: 14, color: '#111827', textAlign: 'left' }}>Structural Drying Equipment Setup</td>
                               <td style={{ padding: '12px', textAlign: 'left', fontSize: 14, color: '#6b7280' }}>EA</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, color: '#111827' }}>3.00</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, color: '#111827' }}>$125.00</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, fontWeight: 600, color: '#111827' }}>$375.00</td>
                             </tr>
-                            <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            <tr className="row-reveal" style={{ borderBottom: '1px solid #f3f4f6', animationDelay: '1150ms' }}>
                               <td style={{ padding: '12px', fontSize: 14, color: '#111827', textAlign: 'left' }}>Monitoring - Day 1</td>
                               <td style={{ padding: '12px', textAlign: 'left', fontSize: 14, color: '#6b7280' }}>EA</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, color: '#111827' }}>1.00</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, color: '#111827' }}>$100.00</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, fontWeight: 600, color: '#111827' }}>$100.00</td>
                             </tr>
-                            <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            <tr className="row-reveal" style={{ borderBottom: '1px solid #f3f4f6', animationDelay: '1250ms' }}>
                               <td style={{ padding: '12px', fontSize: 14, color: '#111827', textAlign: 'left' }}>Content Packout & Storage</td>
                               <td style={{ padding: '12px', textAlign: 'left', fontSize: 14, color: '#6b7280' }}>EA</td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, color: '#111827' }}>2.00</td>
@@ -535,18 +795,6 @@ const LandingPage: React.FC = () => {
                             </tr>
                           </tbody>
                         </table>
-                      </div>
-
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginTop: 16,
-                        paddingTop: 16,
-                        borderTop: '1px solid #e5e7eb',
-                      }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>Subtotal</span>
-                        <span style={{ fontSize: 16, fontWeight: 600, color: '#111827' }}>$1,325.00</span>
                       </div>
                     </div>
                   </div>
@@ -582,7 +830,21 @@ const LandingPage: React.FC = () => {
                         fontSize: 14,
                       }}>
                         <span style={{ color: '#6b7280' }}>Subtotal</span>
-                        <span style={{ color: '#111827', fontWeight: 500 }}>$1,325.00</span>
+                        <span style={{ color: '#111827', fontWeight: 500 }}>{formatCurrency(subtotalValue)}</span>
+                      </div>
+
+                      <div style={{
+                        width: '100%',
+                        marginBottom: 12,
+                        padding: '9px 0',
+                        border: '1px dashed #d1d5db',
+                        borderRadius: 6,
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: '#9ca3af',
+                        textAlign: 'center',
+                      }}>
+                        + Add Premium/Discount
                       </div>
 
                       <div style={{
@@ -591,14 +853,15 @@ const LandingPage: React.FC = () => {
                         marginBottom: 12,
                         fontSize: 14,
                       }}>
-                        <span style={{ color: '#6b7280' }}>Sales Tax (8.5%)</span>
-                        <span style={{ color: '#111827', fontWeight: 500 }}>$112.63</span>
+                        <span style={{ color: '#6b7280' }}>Tax (8.5%)</span>
+                        <span style={{ color: '#111827', fontWeight: 500 }}>{formatCurrency(taxValue)}</span>
                       </div>
 
-                      <div style={{
+                      <div className="summary-divider" style={{
                         height: 1,
                         background: '#e5e7eb',
                         margin: '16px 0',
+                        animationDelay: '1650ms',
                       }}></div>
 
                       <div style={{
@@ -608,7 +871,7 @@ const LandingPage: React.FC = () => {
                         fontSize: 16,
                       }}>
                         <span style={{ color: '#111827', fontWeight: 600 }}>Total</span>
-                        <span style={{ color: '#111827', fontWeight: 700, fontSize: 18 }}>$1,437.63</span>
+                        <span style={{ color: '#111827', fontWeight: 700, fontSize: 18 }}>{formatCurrency(totalValue)}</span>
                       </div>
 
                       <div style={{
@@ -620,7 +883,7 @@ const LandingPage: React.FC = () => {
                         fontSize: 14,
                       }}>
                         <span style={{ color: '#6b7280' }}>Amount Paid</span>
-                        <span style={{ color: '#6b7280' }}>$0.00</span>
+                        <span style={{ color: '#16a34a' }}>$0.00</span>
                       </div>
 
                       <div style={{
@@ -630,7 +893,7 @@ const LandingPage: React.FC = () => {
                         fontSize: 14,
                       }}>
                         <span style={{ color: '#111827', fontWeight: 600 }}>Balance Due</span>
-                        <span style={{ color: '#ef4444', fontWeight: 600 }}>$1,437.63</span>
+                        <span style={{ color: '#dc2626', fontWeight: 700 }}>{formatCurrency(totalValue)}</span>
                       </div>
                     </div>
                   </div>
@@ -641,12 +904,75 @@ const LandingPage: React.FC = () => {
         </div>
       </section>
 
+      {/* Packing Estimate Spotlight */}
+      <section id="packing-estimate" className="section" style={{ background: '#ffffff' }}>
+        <div
+          ref={packingReveal.ref}
+          className={`container reveal${packingReveal.inView ? ' reveal-visible' : ''}`}
+        >
+          <div style={{ textAlign: 'center', marginBottom: 48 }}>
+            <div style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: '#9ca3af',
+              marginBottom: 16,
+              letterSpacing: '0.5px',
+            }}>
+              SPOTLIGHT: PACKING ESTIMATOR
+            </div>
+            <h2 className="headline section-title" style={{ fontSize: 32, fontWeight: 700, color: '#111827', marginBottom: 12 }}>
+              From room photo to ready estimate — in 4 steps
+            </h2>
+            <p style={{ color: '#6b7280', fontSize: 17, maxWidth: 560, margin: '0 auto' }}>
+              Our AI-powered Packing Estimator reads room photos, tags the contents, and calculates a full packout estimate. Try it right now with a real sample room — no account needed.
+            </p>
+          </div>
+
+          <div className="packing-grid" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 20,
+            marginBottom: 40,
+          }}>
+            {packingSteps.map((step) => (
+              <div key={step.num} className="feature-card">
+                <div style={{
+                  fontSize: 32,
+                  fontWeight: 800,
+                  color: '#e5e7eb',
+                  marginBottom: 12,
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                }}>
+                  {step.num}
+                </div>
+                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6, color: '#111827' }}>
+                  {step.title}
+                </h3>
+                <p style={{ color: '#6b7280', fontSize: 14 }}>{step.desc}</p>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ textAlign: 'center' }}>
+            <button className="btn-primary" style={{ fontSize: 16, padding: '16px 32px' }} onClick={handleTryPackingDemo}>
+              Try the Packing Estimator — Live Demo →
+            </button>
+            <p style={{ marginTop: 16, fontSize: 13, color: '#9ca3af' }}>
+              No signup required · Real sample rooms
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Problem/Solution Section */}
       <section className="problem-section" style={{
         background: '#f9fafb',
         padding: '80px 20px',
       }}>
-        <div className="container">
+        <div
+          ref={problemReveal.ref}
+          className={`container reveal${problemReveal.inView ? ' reveal-visible' : ''}`}
+        >
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
             <h2 className="headline section-title" style={{ fontSize: 28, fontWeight: 700, color: '#111827', marginBottom: 12 }}>
               Still creating estimates in Excel?
@@ -726,13 +1052,17 @@ const LandingPage: React.FC = () => {
             </p>
           </div>
 
-          <div className="features-grid" style={{
+          <div className="features-grid" ref={featuresReveal.ref} style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
             gap: 20,
           }}>
             {features.map((feature, index) => (
-              <div key={index} className="feature-card">
+              <div
+                key={index}
+                className={`feature-card reveal${featuresReveal.inView ? ' reveal-visible' : ''}`}
+                style={featuresReveal.inView ? { animationDelay: `${index * 40}ms` } : undefined}
+              >
                 <div style={{ color: '#111827', marginBottom: 16 }}>{feature.icon}</div>
                 <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: '#111827' }}>
                   {feature.title}
@@ -746,7 +1076,10 @@ const LandingPage: React.FC = () => {
 
       {/* How It Works */}
       <section id="how-it-works" className="how-it-works-section" style={{ background: '#f9fafb', padding: '100px 20px' }}>
-        <div className="container">
+        <div
+          ref={howItWorksReveal.ref}
+          className={`container reveal${howItWorksReveal.inView ? ' reveal-visible' : ''}`}
+        >
           <div style={{ textAlign: 'center', marginBottom: 60 }}>
             <h2 className="headline section-title" style={{ fontSize: 32, fontWeight: 700, color: '#111827', marginBottom: 12 }}>
               How it works
@@ -791,7 +1124,11 @@ const LandingPage: React.FC = () => {
         borderTop: '1px solid #e5e7eb',
         borderBottom: '1px solid #e5e7eb',
       }}>
-        <div className="container" style={{ textAlign: 'center' }}>
+        <div
+          ref={betaReveal.ref}
+          className={`container reveal${betaReveal.inView ? ' reveal-visible' : ''}`}
+          style={{ textAlign: 'center' }}
+        >
           <h2 className="headline section-title" style={{
             fontSize: 32,
             fontWeight: 700,
@@ -876,11 +1213,13 @@ const LandingPage: React.FC = () => {
                     marginLeft: 16,
                   }}>+</span>
                 </div>
-                {openFaq === index && (
-                  <p style={{ marginTop: 16, color: '#6b7280', lineHeight: 1.7, fontSize: 15 }}>
-                    {faq.a}
-                  </p>
-                )}
+                <div className="faq-answer" style={{ gridTemplateRows: openFaq === index ? '1fr' : '0fr' }}>
+                  <div className="faq-answer-inner">
+                    <p style={{ opacity: openFaq === index ? 1 : 0 }}>
+                      {faq.a}
+                    </p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>

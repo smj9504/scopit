@@ -98,6 +98,8 @@ interface PhotoAITabProps {
   setCompanyOverride: React.Dispatch<React.SetStateAction<CompanyInfoOverride>>;
   onEstimateResult: (res: EstimateResponse) => void;
   activeSessionId?: string;
+  /** An estimate already exists for this session — generating again replaces it. */
+  hasExistingEstimate?: boolean;
 }
 
 // Inline edit state tracks which cell is being edited
@@ -1293,7 +1295,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
 
               {/* Detected items + field notes — AI mode only */}
               {hasItems && (
-                <div>
+                <div className="animate-result-reveal">
                   <div onClick={() => setItemsCollapsed((v) => !v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: itemsCollapsed ? 0 : 6, cursor: 'pointer', userSelect: 'none', padding: '4px 0' }} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setItemsCollapsed((v) => !v)}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       {itemsCollapsed ? <RightOutlined style={{ fontSize: 10, color: colors.textMuted }} /> : <DownOutlined style={{ fontSize: 10, color: colors.textMuted }} />}
@@ -1526,6 +1528,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
   setCompanyOverride,
   onEstimateResult,
   activeSessionId: _activeSessionId,
+  hasExistingEstimate,
 }) => {
   const gDrive = useGoogleDrive();
   const isNarrow = useIsNarrow();
@@ -2390,6 +2393,16 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           />
         )}
 
+        {hasExistingEstimate && analyzedRooms.length > 0 && (
+          <Alert
+            type="info"
+            showIcon
+            message="This will update your existing estimate"
+            description="Recalculating rebuilds every line from the current rooms. Manual edits made in the Estimate Editor will be replaced."
+            style={{ borderRadius: borderRadius.md, marginBottom: 20 }}
+          />
+        )}
+
         <Button
           type="primary"
           size="large"
@@ -2410,7 +2423,9 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
         >
           {generatingEstimate
             ? 'Generating…'
-            : `Generate Estimate (${analyzedRooms.length} room${analyzedRooms.length !== 1 ? 's' : ''})`}
+            : hasExistingEstimate
+              ? `Recalculate Estimate (${analyzedRooms.length} room${analyzedRooms.length !== 1 ? 's' : ''})`
+              : `Generate Estimate (${analyzedRooms.length} room${analyzedRooms.length !== 1 ? 's' : ''})`}
         </Button>
       </div>
     );

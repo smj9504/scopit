@@ -20,6 +20,7 @@ import {
   Alert,
 } from 'antd';
 import {
+  ArrowLeftOutlined,
   CloseOutlined,
   WarningOutlined,
   FilePdfOutlined,
@@ -224,8 +225,8 @@ function generateSchedulingNotes(
 // ── Interfaces ────────────────────────────────────────────────────────────────
 
 interface EstimateEditorModalProps {
-  open: boolean;
-  onClose: () => void;
+  /** Navigate back to the room/wizard view. Renamed from onClose — this is an inline panel, not a dialog. */
+  onBack: () => void;
   result: EstimateResponse | null;
   setResult: React.Dispatch<React.SetStateAction<EstimateResponse | null>>;
   mode: 'quick' | 'content' | 'packout';
@@ -239,6 +240,8 @@ interface EstimateEditorModalProps {
   onCalculate?: () => Promise<EstimateResponse | undefined>;
   photoRooms?: import('./types').PhotoRoom[];
   rooms?: import('./types').PackingRoom[];
+  /** Called whenever manual edits are made/cleared, so a parent-level "regenerate" can warn before overwriting them. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 interface EditingState {
@@ -751,8 +754,7 @@ const LaborHoursCard: React.FC<LaborHoursCardProps> = ({ result, onChangeHours }
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
-  open,
-  onClose,
+  onBack,
   result,
   setResult,
   mode,
@@ -766,6 +768,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   onCalculate,
   photoRooms,
   rooms,
+  onDirtyChange,
 }) => {
   // ── Responsive ─────────────────────────────────────────────────────────────
   const isMobile = useIsMobile();
@@ -778,14 +781,31 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   const [taxRate, setTaxRate] = useState<number>(0);
   const [showBreakdown, setShowBreakdown] = useState(false);
 
+  // ── Manual-edit tracking ──────────────────────────────────────────────────
+  // Tracks whether the user has hand-edited the current result (line edits,
+  // deletes, added lines/sections, labor hours, O&P, supplements) since the
+  // last fresh calculate. Only THEN is a "you'll lose your edits" confirm
+  // needed — a plain re-run (e.g. after re-analyzing one room's photos) should
+  // proceed without interrupting the user.
+  const [hasEdits, setHasEdits] = useState(false);
+  const markDirty = useCallback(() => {
+    setHasEdits(true);
+    onDirtyChange?.(true);
+  }, [onDirtyChange]);
+  const clearDirty = useCallback(() => {
+    setHasEdits(false);
+    onDirtyChange?.(false);
+  }, [onDirtyChange]);
+
   // ── Calculate handler ────────────────────────────────────────────────────
-  const handleCalculate = useCallback(async () => {
+  const runCalculate = useCallback(async () => {
     if (!onCalculate) return;
     setCalculating(true);
     try {
       const res = await onCalculate();
       if (res) {
         setResult(res);
+        clearDirty();
         message.success('Estimate calculated');
       }
     } catch {
@@ -793,7 +813,35 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     } finally {
       setCalculating(false);
     }
-  }, [onCalculate, setResult]);
+  }, [onCalculate, setResult, clearDirty]);
+
+  const handleCalculate = useCallback(() => {
+    // Recalculating rebuilds every line from the current room/settings data —
+    // only confirm if there are manual edits it would actually discard.
+    if (hasEdits) {
+      Modal.confirm({
+        title: 'Replace Current Estimate?',
+        content: 'Recalculating will replace all manual edits you made in the Estimate Editor. Continue?',
+        okText: 'Replace',
+        cancelText: 'Cancel',
+        onOk: runCalculate,
+      });
+    } else {
+      runCalculate();
+    }
+  }, [hasEdits, runCalculate]);
+
+  // ── Back handler ───────────────────────────────────────────────────────────
+  // Clear in-progress (uncommitted) edit drafts when leaving so coming back
+  // starts clean, but leave persisted settings like taxRate/showBreakdown
+  // alone — this panel stays mounted, so they carry over as expected.
+  const handleClose = useCallback(() => {
+    setEditing(null);
+    setNewLine(null);
+    setShowAddSection(false);
+    setNewSectionName('');
+    onBack();
+  }, [onBack]);
 
   // Seed scheduling notes on first open if backend returned none
   useEffect(() => {
@@ -868,6 +916,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   const handleSaveEdit = useCallback(() => {
     if (!editing) return;
+    markDirty();
     const { sectionName, lineIndex, name, detail, qty, unit, rate } = editing;
     const newAmount = Math.round(qty * rate * 100) / 100;
 
@@ -936,7 +985,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     });
 
     setEditing(null);
-  }, [editing, setResult]);
+  }, [editing, setResult, markDirty]);
 
   const handleCancelEdit = useCallback(() => setEditing(null), []);
 
@@ -944,6 +993,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   const handleLaborHoursChange = useCallback(
     (sectionName: string, lineIndex: number, newQty: number) => {
+      markDirty();
       setResult((prev) => {
         if (!prev) return prev;
         const details = { ...(prev.section_details ?? {}) };
@@ -1003,11 +1053,12 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         };
       });
     },
-    [setResult],
+    [setResult, markDirty],
   );
 
   const handleDeleteLine = useCallback(
     (sectionName: string, lineIndex: number) => {
+      markDirty();
       setResult((prev) => {
         if (!prev) return prev;
 
@@ -1079,7 +1130,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         };
       });
     },
-    [setResult],
+    [setResult, markDirty],
   );
 
   // ── Add line handlers ──────────────────────────────────────────────────────
@@ -1104,6 +1155,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
     const amount = newLine.qty * newLine.rate;
 
+    markDirty();
     setResult((prev) => {
       if (!prev) return prev;
       const details = prev.section_details ? { ...prev.section_details } : {};
@@ -1148,6 +1200,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       message.warning('Section name is required');
       return;
     }
+    markDirty();
     setResult((prev) => {
       if (!prev) return prev;
       if (prev.sections[newSectionName]) {
@@ -1192,6 +1245,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       const d = full.data as any;
       if (d?.result) {
         setResult(d.result);
+        clearDirty();
         if (d?.client_info) setClientInfo(d.client_info);
         message.success(`Loaded: ${session.name}`);
       }
@@ -1204,6 +1258,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   // ── O&P / Contingency handlers ─────────────────────────────────────────────
 
   const handleOpToggle = (checked: boolean) => {
+    markDirty();
     setResult((prev) => {
       if (!prev) return prev;
       const opAmount = checked ? prev.subtotal * (prev.op_rate / 100) : 0;
@@ -1221,6 +1276,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   const handleOpRateChange = (val: number | null) => {
     const rate = val ?? 0;
+    markDirty();
     setResult((prev) => {
       if (!prev) return prev;
       const opAmount = prev.include_op ? prev.subtotal * (rate / 100) : 0;
@@ -1534,29 +1590,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <Modal
-      open={open}
-      onCancel={onClose}
-      footer={null}
-      width="95vw"
-      style={{ top: 20, maxWidth: 1200 }}
-      styles={{
-        body: {
-          padding: 0,
-          height: 'calc(95vh - 40px)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        },
-        content: {
-          padding: 0,
-          borderRadius: borderRadius.lg,
-          overflow: 'hidden',
-        },
-      }}
-      closeIcon={null}
-      destroyOnHidden
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', background: colors.bgWhite }}>
       {/* Compact table styles */}
       <style>{`
         .estimate-compact-table .ant-table-thead > tr > th {
@@ -1597,8 +1631,17 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           gap: 16,
         }}
       >
-        {/* Left: title */}
+        {/* Left: back + title */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Button
+            type="text"
+            icon={<ArrowLeftOutlined />}
+            onClick={handleClose}
+            style={{ color: colors.textSecondary, fontWeight: 500 }}
+          >
+            Back to Rooms
+          </Button>
+          <div style={{ width: 1, height: 20, background: colors.border }} />
           <Title
             level={5}
             style={{
@@ -1620,6 +1663,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         {/* Stale result warning */}
         {(result as any)?._stale && (
           <div style={{
+            marginLeft: 'auto',
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '6px 12px', background: '#fffbeb', border: '1px solid #fde68a',
             borderRadius: borderRadius.base, fontSize: 12, color: '#92400e',
@@ -1628,21 +1672,13 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             Items were modified. Re-calculate to update the estimate.
           </div>
         )}
-
-        {/* Right: close button */}
-        <Button
-          type="text"
-          icon={<CloseOutlined />}
-          onClick={onClose}
-          style={{ marginLeft: 'auto', color: colors.textSecondary }}
-        />
       </div>
 
-      {/* ── Scrollable Body ─────────────────────────────────────────────────── */}
+      {/* ── Body ───────────────────────────────────────────────────────────── */}
       {!result ? (
         <div
           style={{
-            flex: 1,
+            minHeight: '60vh',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -1689,11 +1725,8 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         </div>
       ) : (
       <div
+        className="animate-result-reveal"
         style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: 'auto',
-          overflowX: 'hidden',
           padding: isMobile ? '16px 16px' : '32px 32px',
           background: colors.bgLight,
           display: 'flex',
@@ -1974,6 +2007,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                         <Checkbox
                           checked={s.enabled}
                           onChange={(e) => {
+                            markDirty();
                             setResult(prev => {
                               if (!prev) return prev;
                               const newSupplements = (prev.supplements || []).map(p =>
@@ -1999,6 +2033,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                           placeholder="Reason (shown on estimate)"
                           value={s.reason || ''}
                           onChange={(e) => {
+                            markDirty();
                             setResult(prev => {
                               if (!prev) return prev;
                               return {
@@ -2027,6 +2062,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                         prefix="$"
                         style={{ width: 100, fontSize: 13, opacity: s.enabled ? 1 : 0.4 }}
                         onChange={(val) => {
+                          markDirty();
                           setResult(prev => {
                             if (!prev) return prev;
                             const newSupplements = (prev.supplements || []).map(p =>
@@ -2088,7 +2124,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             <Divider style={{ margin: '12px 0' }} />
 
             {/* Grand Total */}
-            <Row justify="space-between" align="middle">
+            <Row justify="space-between" align="middle" className="animate-result-reveal" style={{ animationDelay: '150ms' }}>
               <Col>
                 <Text
                   strong
@@ -2286,7 +2322,10 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           padding: isMobile ? '10px 12px' : '12px 20px',
           borderTop: `1px solid ${colors.border}`,
           background: colors.bgWhite,
-          flexShrink: 0,
+          position: 'sticky',
+          bottom: 0,
+          zIndex: 5,
+          boxShadow: '0 -2px 8px rgba(0,0,0,0.04)',
         }}
       >
         {/* Left: Calculate / Recalculate */}
@@ -2484,7 +2523,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         }}
       />
       )}
-    </Modal>
+    </div>
   );
 };
 
