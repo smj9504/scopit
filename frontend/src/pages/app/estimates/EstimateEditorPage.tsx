@@ -65,7 +65,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import dayjs from 'dayjs';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { CustomerSelector, CustomerData } from '@/components/features/CustomerSelector';
 import { lineItemService } from '@/services/lineItemService';
@@ -155,8 +155,8 @@ const SortableLineItem: React.FC<{
         alignItems: 'center',
         gap: isNarrow ? 4 : 8,
         padding: '8px 12px',
-        background: isSelected ? '#eff6ff' : colors.bgWhite,
-        borderBottom: `1px solid ${colors.border}`,
+        background: isSelected ? colors.accentSubtle : colors.bgWhite,
+        borderBottom: `1px solid ${colors.borderLight}`,
         transition: 'background 0.15s ease',
       }}
     >
@@ -259,7 +259,7 @@ const SortableLineItem: React.FC<{
 
       {/* Total */}
       <div style={{ width: totalWidth, textAlign: 'right', flexShrink: 0 }}>
-        <div style={{ fontWeight: 600 }}>{formatCurrency(total)}</div>
+        <div style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>{formatCurrency(total)}</div>
         {!item.isTaxable && (
           <div style={{ fontSize: 10, color: colors.textMuted }}>Non-tax</div>
         )}
@@ -334,9 +334,10 @@ const Section: React.FC<{
     <div ref={setNodeRef} style={style}>
       <Card
         style={{
-          borderRadius: 8,
+          borderRadius: 10,
           marginBottom: 12,
           overflow: 'hidden',
+          boxShadow: shadows.card,
         }}
         styles={{ body: { padding: 0 } }}
       >
@@ -348,7 +349,7 @@ const Section: React.FC<{
             gap: 8,
             padding: '8px 12px',
             background: colors.bgLight,
-            borderBottom: `1px solid ${colors.border}`,
+            borderBottom: `1px solid ${colors.borderLight}`,
           }}
         >
           {/* Drag Handle */}
@@ -399,7 +400,7 @@ const Section: React.FC<{
           )}
 
           {/* Subtotal */}
-          <span style={{ marginLeft: 'auto', fontWeight: 600 }}>
+          <span style={{ marginLeft: 'auto', fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>
             {formatCurrency(subtotal)}
           </span>
 

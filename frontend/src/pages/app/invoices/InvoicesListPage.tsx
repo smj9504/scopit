@@ -14,7 +14,7 @@ import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { invoiceService } from '@/services/invoiceService';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { useInvoiceStatuses, getStatusDisplay } from '@/hooks/useSettings';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -145,11 +145,11 @@ const InvoicesListPage: React.FC = () => {
           justifyContent: 'space-between',
           alignItems: isMobile ? 'stretch' : 'center',
           flexDirection: isMobile ? 'column' : 'row',
-          marginBottom: 24,
+          marginBottom: 20,
           gap: 12,
         }}
       >
-        <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 24, fontWeight: 700, margin: 0 }}>
+        <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
           Invoices
         </h1>
         <Dropdown.Button
@@ -190,29 +190,34 @@ const InvoicesListPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <Card style={{ borderRadius: 12, marginBottom: 16 }} styles={{ body: { padding: '16px 20px' } }}>
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 12 }}>
-          <Input
-            placeholder="Search invoices..."
-            prefix={<SearchOutlined style={{ color: colors.textMuted }} />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ flex: isMobile ? undefined : 1, maxWidth: isMobile ? '100%' : 300 }}
-            allowClear
-          />
-          <Select
-            placeholder="All statuses"
-            value={statusFilter}
-            onChange={setStatusFilter}
-            style={{ width: isMobile ? '100%' : 160 }}
-            allowClear
-            options={(statusConfigs || []).map((status) => ({
-              value: status.name,
-              label: status.name.charAt(0).toUpperCase() + status.name.slice(1),
-            }))}
-          />
-        </div>
-      </Card>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: 10,
+          marginBottom: 16,
+        }}
+      >
+        <Input
+          placeholder="Search invoices..."
+          prefix={<SearchOutlined style={{ color: colors.textMuted }} />}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ flex: isMobile ? undefined : 1, maxWidth: isMobile ? '100%' : 320 }}
+          allowClear
+        />
+        <Select
+          placeholder="All statuses"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          style={{ width: isMobile ? '100%' : 160 }}
+          allowClear
+          options={(statusConfigs || []).map((status) => ({
+            value: status.name,
+            label: status.name.charAt(0).toUpperCase() + status.name.slice(1),
+          }))}
+        />
+      </div>
 
       {/* Mobile card view */}
       <div className="mobile-card-view">
@@ -310,7 +315,7 @@ const InvoicesListPage: React.FC = () => {
       </div>
 
       {/* Desktop table */}
-      <Card className="desktop-table" style={{ borderRadius: 12 }} styles={{ body: { padding: 0 } }}>
+      <Card className="desktop-table" style={{ borderRadius: 12, boxShadow: shadows.card, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
         <Table
           columns={columns}
           dataSource={invoices}

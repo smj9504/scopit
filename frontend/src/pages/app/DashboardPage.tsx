@@ -3,7 +3,7 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Button, Empty, Spin } from 'antd';
+import { Row, Col, Card, Button, Empty, Skeleton } from 'antd';
 import OnboardingWizard from '@/components/common/OnboardingWizard';
 import {
   FileTextOutlined,
@@ -11,12 +11,13 @@ import {
   UserOutlined,
   PlusOutlined,
   ArrowRightOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { dashboardService, DashboardData } from '@/services/dashboardService';
 
@@ -58,79 +59,93 @@ const DashboardPage: React.FC = () => {
     value,
     suffix,
     onClick,
+    accent,
   }: {
     icon: React.ReactNode;
     title: string;
     value: number | string;
     suffix?: string;
     onClick?: () => void;
+    accent?: string;
   }) => (
     <motion.div variants={itemVariants}>
-      <Card
-        hoverable
+      <div
         onClick={onClick}
         style={{
+          background: colors.bgWhite,
           borderRadius: 12,
+          border: `1px solid ${colors.border}`,
+          padding: isMobile ? '16px' : '20px',
           cursor: onClick ? 'pointer' : 'default',
+          boxShadow: shadows.card,
+          transition: 'box-shadow 0.2s ease, border-color 0.2s ease',
         }}
-        styles={{ body: { padding: isMobile ? 16 : 24 } }}
+        onMouseEnter={(e) => {
+          if (onClick) {
+            e.currentTarget.style.boxShadow = shadows.cardHover;
+            e.currentTarget.style.borderColor = colors.borderDark;
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = shadows.card;
+          e.currentTarget.style.borderColor = colors.border;
+        }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: isMobile ? 12 : 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <div
             style={{
-              width: isMobile ? 40 : 48,
-              height: isMobile ? 40 : 48,
-              borderRadius: 10,
-              background: colors.bgLight,
+              width: 36,
+              height: 36,
+              borderRadius: 9,
+              background: accent ? `${accent}10` : colors.bgSunken,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: isMobile ? 17 : 20,
-              color: colors.primary,
+              fontSize: 16,
+              color: accent || colors.textSecondary,
               flexShrink: 0,
             }}
           >
             {icon}
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 12,
-                color: colors.textSecondary,
-                marginBottom: 4,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {title}
-            </div>
-            <div
-              style={{
-                fontFamily: fonts.heading,
-                fontSize: isMobile ? 22 : 28,
-                fontWeight: 700,
-                color: colors.textPrimary,
-                lineHeight: 1.2,
-              }}
-            >
-              {value}
-              {suffix && (
-                <span
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 500,
-                    color: colors.textSecondary,
-                    marginLeft: 4,
-                  }}
-                >
-                  {suffix}
-                </span>
-              )}
-            </div>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: colors.textSecondary,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {title}
           </div>
         </div>
-      </Card>
+        <div
+          style={{
+            fontFamily: fonts.heading,
+            fontSize: isMobile ? 24 : 28,
+            fontWeight: 700,
+            color: colors.textPrimary,
+            lineHeight: 1.1,
+            letterSpacing: '-0.02em',
+          }}
+        >
+          {value}
+          {suffix && (
+            <span
+              style={{
+                fontSize: 14,
+                fontWeight: 500,
+                color: colors.textMuted,
+                marginLeft: 4,
+              }}
+            >
+              {suffix}
+            </span>
+          )}
+        </div>
+      </div>
     </motion.div>
   );
 
@@ -150,11 +165,34 @@ const DashboardPage: React.FC = () => {
     }
   };
 
-  // Loading state
+  // Loading state — skeleton preserves layout shape
   if (isLoading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <Spin size="large" />
+      <div>
+        <Skeleton.Input active style={{ width: 220, height: 28, marginBottom: 8 }} />
+        <Skeleton.Input active style={{ width: 300, height: 16, marginBottom: 24 }} />
+        <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+          <Skeleton.Button active style={{ width: 140, height: 36 }} />
+          <Skeleton.Button active style={{ width: 120, height: 36 }} />
+        </div>
+        <Row gutter={[16, 16]} style={{ marginBottom: 32 }}>
+          {[1, 2, 3, 4].map((i) => (
+            <Col xs={24} sm={12} lg={6} key={i}>
+              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20 }}>
+                <Skeleton active paragraph={{ rows: 1 }} />
+              </div>
+            </Col>
+          ))}
+        </Row>
+        <Row gutter={[16, 16]}>
+          {[1, 2].map((i) => (
+            <Col xs={24} lg={12} key={i}>
+              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: 24 }}>
+                <Skeleton active paragraph={{ rows: 4 }} />
+              </div>
+            </Col>
+          ))}
+        </Row>
       </div>
     );
   }
@@ -181,27 +219,28 @@ const DashboardPage: React.FC = () => {
         onClose={() => setShowOnboarding(false)}
       />
       {/* Header */}
-      <motion.div variants={itemVariants} style={{ marginBottom: isMobile ? 20 : 32 }}>
+      <motion.div variants={itemVariants} style={{ marginBottom: isMobile ? 20 : 28 }}>
         <h1
           style={{
             fontFamily: fonts.heading,
-            fontSize: isMobile ? 22 : 28,
+            fontSize: isMobile ? 22 : 26,
             fontWeight: 700,
             color: colors.textPrimary,
             margin: 0,
             marginBottom: 4,
+            letterSpacing: '-0.02em',
           }}
         >
           Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, {user?.fullName?.split(' ')[0] || 'there'}
         </h1>
-        <p style={{ color: colors.textSecondary, fontSize: isMobile ? 13 : 15, margin: 0 }}>
+        <p style={{ color: colors.textSecondary, fontSize: isMobile ? 13 : 14, margin: 0 }}>
           Here's what's happening with your business today.
         </p>
       </motion.div>
 
       {/* Quick Actions */}
       <motion.div variants={itemVariants} style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -210,6 +249,7 @@ const DashboardPage: React.FC = () => {
               background: colors.primary,
               fontWeight: 600,
               borderRadius: 8,
+              height: 36,
               flex: isMobile ? '1 1 auto' : undefined,
             }}
           >
@@ -221,6 +261,7 @@ const DashboardPage: React.FC = () => {
             style={{
               fontWeight: 600,
               borderRadius: 8,
+              height: 36,
               flex: isMobile ? '1 1 auto' : undefined,
             }}
           >
@@ -230,48 +271,52 @@ const DashboardPage: React.FC = () => {
       </motion.div>
 
       {/* Stats */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 32 }}>
-        <Col xs={24} sm={12} lg={6}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 28 }}>
+        <Col xs={12} sm={12} lg={6}>
           <StatCard
             icon={<FileTextOutlined />}
-            title="Estimates this month"
+            title="Estimates"
             value={stats.estimatesThisMonth}
+            accent={colors.accent}
             onClick={() => navigate('/app/estimates')}
           />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={12} sm={12} lg={6}>
           <StatCard
             icon={<DollarOutlined />}
-            title="Invoices this month"
+            title="Invoices"
             value={stats.invoicesThisMonth}
+            accent={colors.success}
             onClick={() => navigate('/app/invoices')}
           />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={12} sm={12} lg={6}>
           <StatCard
             icon={<UserOutlined />}
-            title="Total customers"
+            title="Customers"
             value={stats.totalCustomers}
+            accent="#7c3aed"
             onClick={() => navigate('/app/customers')}
           />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={12} sm={12} lg={6}>
           <StatCard
-            icon={<DollarOutlined />}
-            title="Pending payments"
+            icon={<ClockCircleOutlined />}
+            title="Pending"
             value={formatCurrency(stats.pendingPayments)}
+            accent={colors.warning}
           />
         </Col>
       </Row>
 
       {/* Recent Activity */}
-      <Row gutter={[16, 16]}>
+      <Row gutter={[12, 12]}>
         {/* Recent Estimates */}
         <Col xs={24} lg={12}>
           <motion.div variants={itemVariants}>
             <Card
               title={
-                <span style={{ fontFamily: fonts.heading, fontWeight: 600 }}>
+                <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 15 }}>
                   Recent Estimates
                 </span>
               }
@@ -279,32 +324,32 @@ const DashboardPage: React.FC = () => {
                 <Button
                   type="link"
                   onClick={() => navigate('/app/estimates')}
-                  style={{ color: colors.textSecondary, padding: 0 }}
+                  style={{ color: colors.textMuted, padding: 0, fontSize: 13, fontWeight: 500 }}
                 >
-                  View all <ArrowRightOutlined />
+                  View all <ArrowRightOutlined style={{ fontSize: 10, marginLeft: 4 }} />
                 </Button>
               }
-              style={{ borderRadius: 12 }}
-              styles={{ body: { padding: 0 } }}
+              style={{ borderRadius: 12, boxShadow: shadows.card }}
+              styles={{ body: { padding: 0 }, header: { borderBottom: `1px solid ${colors.borderLight}`, padding: '14px 20px' } }}
             >
               {stats.recentEstimates.length > 0 ? (
                 <div>
-                  {stats.recentEstimates.map((est) => (
+                  {stats.recentEstimates.map((est, idx) => (
                     <div
                       key={est.id}
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        padding: isMobile ? '12px 16px' : '16px 24px',
-                        borderBottom: `1px solid ${colors.border}`,
+                        padding: isMobile ? '10px 16px' : '12px 20px',
+                        borderBottom: idx < stats.recentEstimates.length - 1 ? `1px solid ${colors.borderLight}` : 'none',
                         cursor: 'pointer',
-                        transition: 'background 0.2s ease',
-                        gap: 8,
+                        transition: 'background 0.15s ease',
+                        gap: 12,
                       }}
                       onClick={() => navigate(`/app/estimates/${est.id}`)}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = colors.bgLight;
+                        e.currentTarget.style.background = colors.primarySubtle;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = 'transparent';
@@ -314,8 +359,9 @@ const DashboardPage: React.FC = () => {
                         <div
                           style={{
                             fontWeight: 600,
+                            fontSize: 14,
                             color: colors.textPrimary,
-                            marginBottom: 2,
+                            marginBottom: 1,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -323,16 +369,18 @@ const DashboardPage: React.FC = () => {
                         >
                           {est.estimate_number}
                         </div>
-                        <div style={{ fontSize: 13, color: colors.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 13, color: colors.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {est.customer_name || 'No customer'}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <div
                           style={{
+                            fontFamily: fonts.heading,
                             fontWeight: 600,
+                            fontSize: 14,
                             color: colors.textPrimary,
-                            marginBottom: 2,
+                            marginBottom: 1,
                           }}
                         >
                           {formatCurrency(est.total)}
@@ -367,7 +415,7 @@ const DashboardPage: React.FC = () => {
           <motion.div variants={itemVariants}>
             <Card
               title={
-                <span style={{ fontFamily: fonts.heading, fontWeight: 600 }}>
+                <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 15 }}>
                   Recent Invoices
                 </span>
               }
@@ -375,32 +423,32 @@ const DashboardPage: React.FC = () => {
                 <Button
                   type="link"
                   onClick={() => navigate('/app/invoices')}
-                  style={{ color: colors.textSecondary, padding: 0 }}
+                  style={{ color: colors.textMuted, padding: 0, fontSize: 13, fontWeight: 500 }}
                 >
-                  View all <ArrowRightOutlined />
+                  View all <ArrowRightOutlined style={{ fontSize: 10, marginLeft: 4 }} />
                 </Button>
               }
-              style={{ borderRadius: 12 }}
-              styles={{ body: { padding: 0 } }}
+              style={{ borderRadius: 12, boxShadow: shadows.card }}
+              styles={{ body: { padding: 0 }, header: { borderBottom: `1px solid ${colors.borderLight}`, padding: '14px 20px' } }}
             >
               {stats.recentInvoices.length > 0 ? (
                 <div>
-                  {stats.recentInvoices.map((inv) => (
+                  {stats.recentInvoices.map((inv, idx) => (
                     <div
                       key={inv.id}
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        padding: isMobile ? '12px 16px' : '16px 24px',
-                        borderBottom: `1px solid ${colors.border}`,
+                        padding: isMobile ? '10px 16px' : '12px 20px',
+                        borderBottom: idx < stats.recentInvoices.length - 1 ? `1px solid ${colors.borderLight}` : 'none',
                         cursor: 'pointer',
-                        transition: 'background 0.2s ease',
-                        gap: 8,
+                        transition: 'background 0.15s ease',
+                        gap: 12,
                       }}
                       onClick={() => navigate(`/app/invoices/${inv.id}`)}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = colors.bgLight;
+                        e.currentTarget.style.background = colors.primarySubtle;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = 'transparent';
@@ -410,8 +458,9 @@ const DashboardPage: React.FC = () => {
                         <div
                           style={{
                             fontWeight: 600,
+                            fontSize: 14,
                             color: colors.textPrimary,
-                            marginBottom: 2,
+                            marginBottom: 1,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -419,16 +468,18 @@ const DashboardPage: React.FC = () => {
                         >
                           {inv.invoice_number}
                         </div>
-                        <div style={{ fontSize: 13, color: colors.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 13, color: colors.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {inv.customer_name || 'No customer'}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <div
                           style={{
+                            fontFamily: fonts.heading,
                             fontWeight: 600,
+                            fontSize: 14,
                             color: colors.textPrimary,
-                            marginBottom: 2,
+                            marginBottom: 1,
                           }}
                         >
                           {formatCurrency(inv.total)}

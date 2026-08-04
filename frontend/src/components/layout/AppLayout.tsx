@@ -21,7 +21,7 @@ import {
   RightOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '@/stores/authStore';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { HeaderNavProvider, useHeaderNav } from '@/hooks/useHeaderNav';
 import { useIsMobile, useIsNarrow } from '@/hooks/useIsMobile';
 
@@ -152,7 +152,6 @@ const AppLayout: React.FC = () => {
           alignItems: 'center',
           justifyContent: collapsed && !useDrawer ? 'center' : 'flex-start',
           padding: collapsed && !useDrawer ? 0 : '0 24px',
-          borderBottom: `1px solid ${colors.border}`,
           flexShrink: 0,
         }}
       >
@@ -161,8 +160,9 @@ const AppLayout: React.FC = () => {
             style={{
               fontFamily: fonts.heading,
               fontSize: collapsed && !useDrawer ? 18 : 20,
-              fontWeight: 700,
+              fontWeight: 800,
               color: colors.primary,
+              letterSpacing: '-0.02em',
             }}
           >
             {collapsed && !useDrawer ? 'S' : 'ScopeIt'}
@@ -178,10 +178,11 @@ const AppLayout: React.FC = () => {
         onClick={({ key }) => handleMenuClick(key)}
         style={{
           border: 'none',
-          padding: '12px 8px',
+          padding: '16px 8px',
           flex: 1,
           overflowY: 'auto',
           overflowX: 'hidden',
+          fontSize: 14,
         }}
       />
 
@@ -349,8 +350,8 @@ const AppLayout: React.FC = () => {
           <Header
             style={{
               background: colors.bgWhite,
-              borderBottom: `1px solid ${colors.border}`,
-              // Left/right padding only; top safe area is handled via paddingTop below
+              borderBottom: `1px solid ${colors.borderLight}`,
+              boxShadow: shadows.xs,
               paddingLeft: useDrawer ? 16 : 24,
               paddingRight: useDrawer ? 16 : 24,
               paddingTop: 0,
@@ -361,9 +362,8 @@ const AppLayout: React.FC = () => {
               position: 'sticky',
               top: 0,
               zIndex: 99,
-              // Grow the header to accommodate the safe-area-inset-top on notched devices
               height: 'auto',
-              minHeight: 64,
+              minHeight: 56,
               lineHeight: 'normal',
             }}
           >
@@ -391,15 +391,15 @@ const AppLayout: React.FC = () => {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: isMobile ? 8 : 12,
+                  gap: 10,
                   cursor: 'pointer',
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  transition: 'background 0.2s ease',
+                  padding: '6px 10px',
+                  borderRadius: 10,
+                  transition: 'background 0.15s ease',
                   minHeight: 44,
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = colors.bgLight;
+                  e.currentTarget.style.background = colors.bgSunken;
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'transparent';
@@ -409,9 +409,11 @@ const AppLayout: React.FC = () => {
                   style={{
                     background: colors.primary,
                     color: colors.textWhite,
-                    width: isMobile ? 32 : 36,
-                    height: isMobile ? 32 : 36,
-                    lineHeight: isMobile ? '32px' : '36px',
+                    width: 32,
+                    height: 32,
+                    lineHeight: '32px',
+                    fontSize: 13,
+                    fontWeight: 600,
                     flexShrink: 0,
                   }}
                 >
@@ -421,6 +423,7 @@ const AppLayout: React.FC = () => {
                   <span
                     style={{
                       fontWeight: 500,
+                      fontSize: 14,
                       color: colors.textPrimary,
                     }}
                   >
@@ -435,11 +438,11 @@ const AppLayout: React.FC = () => {
           <Content
             style={{
               padding: isMobile ? 16 : 24,
-              minHeight: 'calc(100vh - 64px)',
+              minHeight: 'calc(100vh - 56px)',
               background: colors.bgLight,
               overflowX: 'hidden',
               paddingBottom: isMobile
-                ? 'calc(56px + 16px + env(safe-area-inset-bottom))'
+                ? 'calc(60px + 16px + env(safe-area-inset-bottom))'
                 : useDrawer
                 ? 'calc(16px + env(safe-area-inset-bottom))'
                 : 24,
@@ -461,17 +464,18 @@ const AppLayout: React.FC = () => {
             bottom: 0,
             left: 0,
             right: 0,
-            height: 56,
             background: colors.bgWhite,
-            borderTop: `1px solid ${colors.border}`,
+            borderTop: `1px solid ${colors.borderLight}`,
+            boxShadow: '0 -1px 8px rgba(0, 0, 0, 0.04)',
             display: 'flex',
             alignItems: 'stretch',
             zIndex: 100,
             paddingBottom: 'env(safe-area-inset-bottom)',
+            height: 60,
           }}
         >
           {[
-            { key: '/app/dashboard', icon: <HomeOutlined />, label: 'Dashboard' },
+            { key: '/app/dashboard', icon: <HomeOutlined />, label: 'Home' },
             { key: '/app/estimates', icon: <FileTextOutlined />, label: 'Estimates' },
             { key: '/app/invoices', icon: <DollarOutlined />, label: 'Invoices' },
             { key: '/app/customers', icon: <UserOutlined />, label: 'Customers' },
@@ -488,25 +492,41 @@ const AppLayout: React.FC = () => {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 3,
+                  gap: 2,
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
                   padding: '6px 0',
-                  color: isActive ? colors.primary : '#9ca3af',
-                  fontSize: isActive ? 20 : 18,
-                  fontWeight: isActive ? 700 : 400,
+                  color: isActive ? colors.primary : colors.textMuted,
+                  fontSize: 20,
                   transition: 'color 0.15s ease',
+                  position: 'relative',
                 }}
                 aria-label={tab.label}
                 aria-current={isActive ? 'page' : undefined}
               >
+                {/* Active indicator dot */}
+                {isActive && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: 2,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: 4,
+                      height: 4,
+                      borderRadius: '50%',
+                      background: colors.primary,
+                    }}
+                  />
+                )}
                 {tab.icon}
                 <span
                   style={{
                     fontSize: 10,
-                    fontWeight: isActive ? 600 : 400,
+                    fontWeight: isActive ? 600 : 500,
                     lineHeight: 1,
+                    letterSpacing: '0.01em',
                   }}
                 >
                   {tab.label}

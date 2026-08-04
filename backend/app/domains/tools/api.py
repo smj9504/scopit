@@ -337,11 +337,14 @@ async def create_invoice_from_tool(
     Uses the tool's registered converter to transform session data
     into sections/items, then creates an invoice directly.
     """
-    from app.domains.invoice.models import Invoice, InvoiceSection, InvoiceItem, InvoiceStatus
+    from app.domains.invoice.models import (
+        Invoice, InvoiceSection, InvoiceItem, InvoiceStatus,
+        InvoiceAdjustment, AdjustmentType,
+    )
     from app.domains.invoice.api import recalculate_invoice, get_default_invoice_status
     from app.domains.company.models import Company
     from app.domains.customer.models import Customer
-    from decimal import Decimal
+    from decimal import Decimal, ROUND_HALF_UP
     from datetime import date, timedelta
 
     # 1. Get tool session
@@ -382,6 +385,12 @@ async def create_invoice_from_tool(
     default_status = get_default_invoice_status(db, current_user.company_id)
     invoice_date = date.today()
 
+    # Store company override from tool session (e.g. moving estimate)
+    co = payload.get("company_override")
+    company_override_data = None
+    if co and any(co.get(k) for k in ("name", "address", "phone", "email")):
+        company_override_data = co
+
     invoice = Invoice(
         company_id=current_user.company_id,
         invoice_number=invoice_number,
@@ -399,6 +408,7 @@ async def create_invoice_from_tool(
         tax_label=company.default_tax_label,
         notes=company.default_notes,
         terms=company.default_terms,
+        company_override=company_override_data,
         created_by=current_user.id,
     )
     db.add(invoice)
@@ -417,6 +427,23 @@ async def create_invoice_from_tool(
         for item_idx, item_data in enumerate(section_data.get("items", [])):
             quantity = Decimal(str(item_data.get("quantity", 1)))
             unit_price = Decimal(str(item_data.get("unit_price", 0)))
+            # Use pre-computed amount from estimate when available.
+            # Back-derive unit_price so qty × price = amount exactly,
+            # preventing rounding drift when recalculate_invoice runs.
+            if "amount" in item_data and quantity > 0:
+                item_total = Decimal(str(item_data["amount"]))
+                unit_price = (item_total / quantity).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                # If back-derived price still doesn't reproduce exact total,
+                # adjust total to match (keeps invoice internally consistent)
+                item_total = (quantity * unit_price).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            else:
+                item_total = (quantity * unit_price).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
             item = InvoiceItem(
                 invoice_id=invoice.id,
                 section_id=section.id,
@@ -425,12 +452,35 @@ async def create_invoice_from_tool(
                 unit=item_data.get("unit"),
                 quantity=quantity,
                 unit_price=unit_price,
-                total=quantity * unit_price,
+                total=item_total,
                 is_taxable=item_data.get("is_taxable", True),
                 order_index=item_data.get("order_index", item_idx),
                 notes=item_data.get("notes", []),
             )
             db.add(item)
+
+    # Create adjustments (O&P, contingency, supplements)
+    for adj_idx, adj in enumerate(payload.get("adjustments", [])):
+        adj_value = Decimal(str(adj.get("value", 0)))
+        adj_type = adj.get("type", "premium")
+        # O&P uses percentage-based; supplements/contingency use fixed amount (percentage=0)
+        is_op = adj_type == "premium" and "overhead" in adj.get("name", "").lower()
+        if is_op:
+            # Extract percentage from name like "Overhead & Profit (20%)"
+            import re
+            pct_match = re.search(r'\((\d+(?:\.\d+)?)%\)', adj.get("name", ""))
+            pct = Decimal(pct_match.group(1)) if pct_match else Decimal(0)
+        else:
+            pct = Decimal(0)  # Fixed amount — recalculate_invoice will preserve it
+        adjustment = InvoiceAdjustment(
+            invoice_id=invoice.id,
+            type=AdjustmentType.PREMIUM,
+            name=adj.get("name", "Adjustment"),
+            percentage=pct,
+            amount=adj_value,
+            order_index=adj_idx,
+        )
+        db.add(adjustment)
 
     db.commit()
     db.refresh(invoice)

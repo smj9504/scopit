@@ -6,7 +6,7 @@ export type Floor = 'basement' | '1st' | '2nd' | '3rd' | '4th+';
 export type Region = 'mid_atlantic' | 'northeast' | 'west' | 'midwest' | 'southwest' | 'southeast';
 export type ContaminationLevel = 'clean' | 'gray_water' | 'black_water';
 export type StagingType = 'off_site' | 'on_site';
-export type PackingMode = 'quick' | 'content';
+export type PackingMode = 'quick' | 'content' | 'packout';
 export type SessionStatus = 'draft' | 'completed';
 
 // Content hint type (28 possible values)
@@ -86,6 +86,8 @@ export interface QuickEstimateRequest {
   include_op: boolean;
   op_rate: number;
   material_rate: number;
+  include_contingency?: boolean;
+  contingency_rate?: number;
   region: Region;
   special_items: string[];
   custom_special_items: CustomSpecialItem[];
@@ -195,11 +197,14 @@ export interface DetectedContentItem {
   special_instructions?: string;
   estimator_flags?: string[];
   match_confidence?: number;
+  confidence?: number;
 }
 
 export interface RoomAnalysisResponse {
   room_name: string;
   items: DetectedContentItem[];
+  /** Items with low AI confidence — shown for user review, not auto-added */
+  low_confidence_items: DetectedContentItem[];
   density: string;
   room_size: string;
   confidence_score: number;
@@ -313,6 +318,9 @@ export interface PackingSessionData {
   status?: SessionStatus;
   // Photo AI specific
   photo_rooms?: PhotoRoom[];
+  // Packout specific
+  packout_rooms?: PackoutRoom[];
+  packout_settings?: PackoutSettings;
 }
 
 /** Room for Quick Estimate mode (preset-based) */
@@ -343,6 +351,10 @@ export interface PhotoRoom {
   photo_keys: string[];   // storage keys (persisted across saves)
   photo_count?: number;   // legacy: preserved for old sessions without photo_keys
   items: DetectedContentItem[];
+  /** Items below confidence threshold — pending user review */
+  low_confidence_items: DetectedContentItem[];
+  /** Items removed by user — can be restored without re-analysis */
+  dismissed_items: DetectedContentItem[];
   analyzed: boolean;
   analyzing: boolean;
   confidence_score?: number;
@@ -366,6 +378,22 @@ export interface PackingSettings {
   include_op: boolean;
   op_rate: number;
   material_rate: number;
+  region: Region;
+  special_items: string[];
+  custom_special_items: CustomSpecialItem[];
+}
+
+export interface PackoutSettings {
+  detail_level: EstimateDetail;
+  storage_mode: StorageMode;
+  repair_duration_months: number;
+  on_property_pct: number;
+  crew_size: number;
+  include_packback: boolean;
+  include_op: boolean;
+  op_rate: number;
+  include_contingency: boolean;
+  contingency_rate: number;
   region: Region;
   special_items: string[];
   custom_special_items: CustomSpecialItem[];
@@ -468,6 +496,7 @@ export interface ReportExportRequest {
   include_field_notes: boolean;
   image_quality: number;
   max_image_width: number;
+  photos_per_page: number;
 }
 
 // ── Saved Estimate (History) ─────────────────────────────────────────────────
@@ -479,4 +508,106 @@ export interface SavedEstimateEntry {
   data: PackingSessionData;
   created_at: string;
   updated_at: string;
+}
+
+// ── Packout Types ──────────────────────────────────────────────────────────
+
+export type BoxType = 'small' | 'medium' | 'large' | 'wardrobe' | 'picture' | 'dish_pack' | 'specialty';
+export type StorageMode = 'on_site' | 'off_site';
+export type NonBoxableType =
+  | 'furniture_large'
+  | 'furniture_medium'
+  | 'appliance_large'
+  | 'appliance_small'
+  | 'outdoor'
+  | 'garage'
+  | 'specialty'
+  | 'sports'
+  | 'instruments'
+  | 'rugs_art'
+  | 'custom';
+export type VolumeSize = 'small' | 'medium' | 'large' | 'xlarge';
+export type WeightClassType = 'light' | 'moderate' | 'heavy' | 'extra_heavy';
+export type EstimateDetail = 'lump_sum' | 'detailed';
+
+export interface NonBoxableItem {
+  type: NonBoxableType;
+  custom_type_name?: string;
+  name: string;
+  quantity: number;
+  volume: VolumeSize;
+  weight: WeightClassType;
+  protection: string[];
+  labor_hours?: number;
+  needs_disassembly: boolean;
+  needs_crating: boolean;
+  special_instructions?: string;
+}
+
+export interface PackoutRoom {
+  id: string;
+  room_name: string;
+  room_size: RoomSize;
+  floor: Floor;
+  density: Density;
+  contamination: ContaminationLevel;
+  box_counts: Record<BoxType, number>;
+  non_boxable_items: NonBoxableItem[];
+  lump_large_item_count?: number;
+  floor_coverage_pct: number;
+  blanket_override?: number;
+  source_items: DetectedContentItem[];
+  special_items: string[];
+  custom_special_items: CustomSpecialItem[];
+}
+
+export interface PackoutEstimateRequest {
+  rooms: Array<{
+    room_name: string;
+    room_size: RoomSize;
+    floor: Floor;
+    density: Density;
+    contamination: ContaminationLevel;
+    box_counts: Record<string, number>;
+    non_boxable_items: NonBoxableItem[];
+    lump_large_item_count?: number;
+    floor_coverage_pct: number;
+    blanket_override?: number;
+    source_items?: DetectedContentItem[];
+    special_items?: string[];
+    custom_special_items?: CustomSpecialItem[];
+  }>;
+  detail_level: EstimateDetail;
+  crew_size: number;
+  storage_mode: StorageMode;
+  repair_duration_months: number;
+  on_property_pct: number;
+  include_packback: boolean;
+  include_op: boolean;
+  op_rate: number;
+  include_contingency?: boolean;
+  contingency_rate?: number;
+  region: Region;
+  special_items?: string[];
+  custom_special_items?: CustomSpecialItem[];
+}
+
+export interface PackoutEstimateResponse {
+  estimate: EstimateResponse;
+  total_non_boxable_items: number;
+  total_boxes: Record<string, number>;
+  total_blankets: number;
+  total_protection_materials: Record<string, number>;
+  storage_mode: StorageMode;
+  repair_duration_months: number;
+  effective_storage_months: number;
+  detail_level: EstimateDetail;
+}
+
+export interface PackoutClassification {
+  non_boxable_items: NonBoxableItem[];
+  lump_large_item_count: number;
+  box_counts: Record<string, number>;
+  blanket_count: number;
+  estimated_floor_coverage_pct: number;
 }

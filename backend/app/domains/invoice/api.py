@@ -86,6 +86,7 @@ class InvoiceCreate(BaseModel):
     tax_label: Optional[str] = Field(default=None, alias="taxLabel")
     notes: Optional[str] = None
     terms: Optional[str] = None
+    payment_schedule: Optional[List[dict]] = Field(default=None, alias="paymentSchedule")
     sections: List[InvoiceSectionCreate] = []
 
     model_config = {"populate_by_name": True}
@@ -182,6 +183,7 @@ class InvoiceResponse(BaseModel):
     balanceDue: Decimal
     notes: Optional[str] = None
     terms: Optional[str] = None
+    paymentSchedule: Optional[List[dict]] = None
     sections: List[InvoiceSectionResponse] = []
     payments: List[PaymentResponse] = []
     adjustments: List[AdjustmentResponse] = []
@@ -261,6 +263,8 @@ def serialize_invoice(invoice: Invoice) -> dict:
         "balanceDue": invoice.balance_due,
         "notes": invoice.notes,
         "terms": invoice.terms,
+        "paymentSchedule": invoice.payment_schedule,
+        "companyOverride": invoice.company_override,
         "createdBy": str(invoice.created_by) if invoice.created_by else None,
         "createdAt": invoice.created_at,
         "updatedAt": invoice.updated_at,
@@ -384,13 +388,18 @@ def recalculate_invoice(invoice: Invoice, db: Session):
     invoice.taxable_subtotal = taxable_subtotal
 
     # Calculate adjustments (premiums add, discounts subtract)
+    # percentage > 0  → recalculate amount from subtotal
+    # percentage == 0 → fixed amount, keep existing value as-is
     premium_total = Decimal(0)
     discount_total = Decimal(0)
     for adjustment in invoice.adjustments:
-        adjustment_amount = (subtotal * (adjustment.percentage / 100)).quantize(
-            CURRENCY_PRECISION, rounding=ROUND_HALF_UP
-        )
-        adjustment.amount = adjustment_amount
+        if adjustment.percentage and adjustment.percentage > 0:
+            adjustment_amount = (subtotal * (adjustment.percentage / 100)).quantize(
+                CURRENCY_PRECISION, rounding=ROUND_HALF_UP
+            )
+            adjustment.amount = adjustment_amount
+        else:
+            adjustment_amount = adjustment.amount or Decimal(0)
         if adjustment.type == AdjustmentType.PREMIUM:
             premium_total += adjustment_amount
         elif adjustment.type == AdjustmentType.DISCOUNT:
@@ -603,6 +612,7 @@ async def create_invoice(
         tax_label=data.tax_label or company.default_tax_label,
         notes=data.notes or company.default_notes,
         terms=data.terms or company.default_terms,
+        payment_schedule=data.payment_schedule,
         created_by=current_user.id,
     )
     db.add(invoice)
@@ -1146,17 +1156,24 @@ def _prepare_invoice_pdf_data(invoice: Invoice, company: Company, db: Session) -
     # Get customer info - prefer relationship, fall back to snapshot fields
     customer = invoice.customer
 
-    # Build company info dict
+    # Build company info dict — apply company_override if present
+    co = getattr(invoice, 'company_override', None) or {}
     company_info = {
-        "name": company.name or "",
+        "name": co.get("name") or company.name or "",
         "legal_name": company.legal_name or "",
-        "address_line1": company.address_line1 or "",
-        "address_line2": company.address_line2 or "",
-        "city": company.city or "",
-        "state": company.state or "",
-        "zipcode": company.zipcode or "",
-        "phone": company.phone or "",
-        "email": company.email or "",
+        "address_line1": (
+            co.get("address") or company.address_line1 or ""
+        ),
+        "address_line2": (
+            "" if co.get("address") else (company.address_line2 or "")
+        ),
+        "city": "" if co.get("address") else (company.city or ""),
+        "state": "" if co.get("address") else (company.state or ""),
+        "zipcode": (
+            "" if co.get("address") else (company.zipcode or "")
+        ),
+        "phone": co.get("phone") or company.phone or "",
+        "email": co.get("email") or company.email or "",
         "logo_url": company.logo_url or "",
     }
 
@@ -1235,6 +1252,7 @@ def _prepare_invoice_pdf_data(invoice: Invoice, company: Company, db: Session) -
         "balance_due": float(invoice.balance_due) if invoice.balance_due else 0,
         "notes": invoice.notes or "",
         "terms": invoice.terms or "",
+        "payment_schedule": invoice.payment_schedule or [],
         "primary_color": company.primary_color or "#111827",
         "secondary_color": company.secondary_color or "#6b7280",
     }
@@ -1349,17 +1367,24 @@ def _prepare_receipt_pdf_data(
     # Get customer info
     customer = invoice.customer
 
-    # Build company info dict
+    # Build company info dict — apply company_override if present
+    co = getattr(invoice, 'company_override', None) or {}
     company_info = {
-        "name": company.name or "",
+        "name": co.get("name") or company.name or "",
         "legal_name": company.legal_name or "",
-        "address_line1": company.address_line1 or "",
-        "address_line2": company.address_line2 or "",
-        "city": company.city or "",
-        "state": company.state or "",
-        "zipcode": company.zipcode or "",
-        "phone": company.phone or "",
-        "email": company.email or "",
+        "address_line1": (
+            co.get("address") or company.address_line1 or ""
+        ),
+        "address_line2": (
+            "" if co.get("address") else (company.address_line2 or "")
+        ),
+        "city": "" if co.get("address") else (company.city or ""),
+        "state": "" if co.get("address") else (company.state or ""),
+        "zipcode": (
+            "" if co.get("address") else (company.zipcode or "")
+        ),
+        "phone": co.get("phone") or company.phone or "",
+        "email": co.get("email") or company.email or "",
         "logo_url": company.logo_url or "",
     }
 

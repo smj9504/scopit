@@ -32,7 +32,7 @@ import {
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { lineItemService, LineItemNoteCreate } from '@/services/lineItemService';
 import { settingsService } from '@/services/settingsService';
@@ -446,7 +446,7 @@ const LineItemsListPage: React.FC = () => {
           gap: 12,
         }}
       >
-        <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 24, fontWeight: 700, margin: 0 }}>
+        <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
           Line Items
         </h1>
         <Button

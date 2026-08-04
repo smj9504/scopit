@@ -23,7 +23,7 @@ import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { estimateService } from '@/services/estimateService';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { useEstimateStatuses, getStatusDisplay } from '@/hooks/useSettings';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -73,10 +73,10 @@ const EstimatesListPage: React.FC = () => {
       title: 'Number',
       dataIndex: 'estimateNumber',
       key: 'estimateNumber',
-      width: 100,
+      width: 110,
       render: (text, record) => (
         <span
-          style={{ fontWeight: 600, color: colors.textPrimary, cursor: 'pointer' }}
+          style={{ fontWeight: 600, fontSize: 14, color: colors.textPrimary, cursor: 'pointer' }}
           onClick={() => navigate(`/app/estimates/${record.id}`)}
         >
           {text}
@@ -87,19 +87,26 @@ const EstimatesListPage: React.FC = () => {
       title: 'Customer',
       dataIndex: 'customerName',
       key: 'customerName',
-      width: 140,
+      width: 150,
       ellipsis: true,
-      render: (text) => text || <span style={{ color: colors.textMuted }}>-</span>,
+      render: (text) => (
+        <span style={{ color: text ? colors.textPrimary : colors.textMuted, fontSize: 14 }}>
+          {text || '\u2014'}
+        </span>
+      ),
     },
     {
       title: 'Title',
       dataIndex: 'title',
       key: 'title',
-      width: 150,
+      width: 160,
       ellipsis: true,
       responsive: ['md'] as const,
-      render: (text) =>
-        text || <span style={{ color: colors.textMuted }}>Untitled</span>,
+      render: (text) => (
+        <span style={{ color: text ? colors.textSecondary : colors.textMuted, fontSize: 14 }}>
+          {text || 'Untitled'}
+        </span>
+      ),
     },
     {
       title: 'Date',
@@ -107,13 +114,17 @@ const EstimatesListPage: React.FC = () => {
       key: 'estimateDate',
       width: 110,
       responsive: ['sm'] as const,
-      render: (date) => dayjs(date).format('MMM D, YYYY'),
+      render: (date) => (
+        <span style={{ color: colors.textSecondary, fontSize: 13 }}>
+          {dayjs(date).format('MMM D, YYYY')}
+        </span>
+      ),
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 90,
+      width: 100,
       render: (status: EstimateStatus) => {
         const config = getStatusDisplay(status, statusConfigs || []);
         return (
@@ -123,6 +134,7 @@ const EstimatesListPage: React.FC = () => {
               background: config.bg,
               border: 'none',
               fontWeight: 500,
+              fontSize: 12,
             }}
           >
             {config.label}
@@ -134,10 +146,12 @@ const EstimatesListPage: React.FC = () => {
       title: 'Total',
       dataIndex: 'total',
       key: 'total',
-      width: 100,
+      width: 110,
       align: 'right',
       render: (total) => (
-        <span style={{ fontWeight: 600 }}>{formatCurrency(total)}</span>
+        <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>
+          {formatCurrency(total)}
+        </span>
       ),
     },
   ];
@@ -157,17 +171,18 @@ const EstimatesListPage: React.FC = () => {
           justifyContent: 'space-between',
           alignItems: isMobile ? 'stretch' : 'center',
           flexDirection: isMobile ? 'column' : 'row',
-          marginBottom: 24,
+          marginBottom: 20,
           gap: 12,
         }}
       >
         <h1
           style={{
             fontFamily: fonts.heading,
-            fontSize: isMobile ? 20 : 24,
+            fontSize: isMobile ? 20 : 22,
             fontWeight: 700,
             color: colors.textPrimary,
             margin: 0,
+            letterSpacing: '-0.01em',
           }}
         >
           Estimates
@@ -210,32 +225,34 @@ const EstimatesListPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <Card
-        style={{ borderRadius: 12, marginBottom: 16 }}
-        styles={{ body: { padding: '16px 20px' } }}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: 10,
+          marginBottom: 16,
+        }}
       >
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 12 }}>
-          <Input
-            placeholder="Search estimates..."
-            prefix={<SearchOutlined style={{ color: colors.textMuted }} />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ flex: isMobile ? undefined : 1, maxWidth: isMobile ? '100%' : 300 }}
-            allowClear
-          />
-          <Select
-            placeholder="All statuses"
-            value={statusFilter}
-            onChange={setStatusFilter}
-            style={{ width: isMobile ? '100%' : 160 }}
-            allowClear
-            options={(statusConfigs || []).map((status) => ({
-              value: status.name,
-              label: status.name.charAt(0).toUpperCase() + status.name.slice(1),
-            }))}
-          />
-        </div>
-      </Card>
+        <Input
+          placeholder="Search estimates..."
+          prefix={<SearchOutlined style={{ color: colors.textMuted }} />}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ flex: isMobile ? undefined : 1, maxWidth: isMobile ? '100%' : 320 }}
+          allowClear
+        />
+        <Select
+          placeholder="All statuses"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          style={{ width: isMobile ? '100%' : 160 }}
+          allowClear
+          options={(statusConfigs || []).map((status) => ({
+            value: status.name,
+            label: status.name.charAt(0).toUpperCase() + status.name.slice(1),
+          }))}
+        />
+      </div>
 
       {/* Mobile card view */}
       <div className="mobile-card-view">
@@ -327,7 +344,7 @@ const EstimatesListPage: React.FC = () => {
       </div>
 
       {/* Desktop table */}
-      <Card className="desktop-table" style={{ borderRadius: 12 }} styles={{ body: { padding: 0 } }}>
+      <Card className="desktop-table" style={{ borderRadius: 12, boxShadow: shadows.card, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
         <Table
           columns={columns}
           dataSource={estimates}

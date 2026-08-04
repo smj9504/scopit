@@ -299,6 +299,11 @@ class DetectedContentItem(BaseModel):
 class RoomAnalysisResponse(BaseModel):
     room_name: str
     items: List[DetectedContentItem]
+    low_confidence_items: List[DetectedContentItem] = Field(
+        default_factory=list,
+        description="Items with confidence below threshold — "
+        "included for user review, not auto-added to estimate",
+    )
     density: str
     room_size: str
     confidence_score: float
@@ -423,6 +428,7 @@ class ExportRequest(BaseModel):
     session_id: str
     company_override: Optional[CompanyInfoOverride] = None
     tax_rate: float = Field(default=0.0, ge=0, le=100)
+    show_breakdown: bool = Field(default=False, description="Show labor hour calculation breakdown in detail lines")
 
 
 class ReportRoomPhoto(BaseModel):
@@ -465,6 +471,7 @@ class ReportExportRequest(BaseModel):
     include_field_notes: bool = Field(default=True, description="Include auto-generated handling notes per room")
     image_quality: int = Field(default=60, ge=20, le=90, description="JPEG quality for photos (lower = smaller file)")
     max_image_width: int = Field(default=800, ge=400, le=1200, description="Max image width in pixels")
+    photos_per_page: int = Field(default=2, description="Number of photos per row in the report (2 or 4)")
 
 
 # ============================================
@@ -523,3 +530,181 @@ class BatchCompleteEvent(BaseModel):
     succeeded: int
     failed: int
     failed_rooms: List[str] = Field(default_factory=list)
+
+
+# ============================================
+# PACKOUT ENUMS
+# ============================================
+
+class BoxType(str, Enum):
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+    WARDROBE = "wardrobe"
+    PICTURE = "picture"
+    DISH_PACK = "dish_pack"
+    SPECIALTY = "specialty"
+
+
+class StorageMode(str, Enum):
+    ON_SITE = "on_site"
+    OFF_SITE = "off_site"
+
+
+class NonBoxableType(str, Enum):
+    FURNITURE_LARGE = "furniture_large"
+    FURNITURE_MEDIUM = "furniture_medium"
+    APPLIANCE_LARGE = "appliance_large"
+    APPLIANCE_SMALL = "appliance_small"
+    OUTDOOR = "outdoor"
+    GARAGE = "garage"
+    SPECIALTY = "specialty"
+    SPORTS = "sports"
+    INSTRUMENTS = "instruments"
+    RUGS_ART = "rugs_art"
+    CUSTOM = "custom"
+
+
+class VolumeSize(str, Enum):
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+    XLARGE = "xlarge"
+
+
+class WeightClass(str, Enum):
+    LIGHT = "light"
+    MODERATE = "moderate"
+    HEAVY = "heavy"
+    EXTRA_HEAVY = "extra_heavy"
+
+
+class EstimateDetail(str, Enum):
+    LUMP_SUM = "lump_sum"
+    DETAILED = "detailed"
+
+
+# ============================================
+# PACKOUT MODELS
+# ============================================
+
+class NonBoxableItem(BaseModel):
+    """A single non-boxable item (furniture, appliance, specialty, custom, etc.)."""
+    type: NonBoxableType = Field(default=NonBoxableType.CUSTOM)
+    custom_type_name: Optional[str] = Field(
+        default=None,
+        description="User-defined type name when type == 'custom' (e.g., 'Hot tub', 'Commercial oven')"
+    )
+    name: str = Field(..., description="Descriptive label (e.g., 'King bed frame')")
+    quantity: int = Field(default=1, ge=1)
+    volume: VolumeSize = Field(
+        default=VolumeSize.MEDIUM,
+        description="Physical bulk — drives storage SF: small=4, medium=8, large=16, xlarge=24"
+    )
+    weight: WeightClass = Field(
+        default=WeightClass.MODERATE,
+        description="Weight class — drives labor multiplier: heavy=1.4x, extra_heavy=1.8x"
+    )
+    protection: List[str] = Field(
+        default_factory=list,
+        description="Auto-assigned protection materials (blanket, shrink_wrap, furniture_pad, etc.)"
+    )
+    labor_hours: Optional[float] = Field(
+        default=None, ge=0,
+        description="Per-item labor hours (auto from coefficients × weight, overridable)"
+    )
+    needs_disassembly: bool = Field(default=False)
+    needs_crating: bool = Field(default=False, description="High-value/fragile oversized items")
+    special_instructions: Optional[str] = None
+
+
+class PackoutRoomInput(BaseModel):
+    """Room input for packout estimation."""
+    room_name: str
+    room_size: RoomSize = Field(default=RoomSize.LARGE)
+    floor: Floor = Field(default=Floor.FIRST)
+    density: Density = Field(default=Density.NORMAL)
+    contamination: ContaminationLevel = Field(default=ContaminationLevel.CLEAN)
+
+    # Boxable items
+    box_counts: Dict[str, int] = Field(
+        default_factory=lambda: {
+            "small": 0, "medium": 0, "large": 0,
+            "wardrobe": 0, "picture": 0, "dish_pack": 0, "specialty": 0,
+        },
+        description="Box counts by type"
+    )
+
+    # Non-boxable items (detailed mode)
+    non_boxable_items: List[NonBoxableItem] = Field(
+        default_factory=list,
+        description="Itemized non-boxable items with volume/weight/protection"
+    )
+
+    # Lump sum fallback (lump_sum mode)
+    lump_large_item_count: Optional[int] = Field(
+        default=None, ge=0,
+        description="Simple large item count for lump_sum mode"
+    )
+
+    floor_coverage_pct: float = Field(
+        default=50.0, ge=0, le=100,
+        description="% of floor covered by contents"
+    )
+    blanket_override: Optional[int] = Field(
+        default=None, ge=0,
+        description="Manual blanket count override; if None, auto-calculated"
+    )
+
+    # AI origin tracking
+    source_items: List[DetectedContentItem] = Field(
+        default_factory=list,
+        description="Original AI-detected items used to derive counts"
+    )
+
+    special_items: List[str] = Field(default_factory=list)
+    custom_special_items: List[CustomSpecialItem] = Field(default_factory=list)
+
+
+class PackoutEstimateRequest(BaseModel):
+    """Request body for packout estimation."""
+    rooms: List[PackoutRoomInput]
+    detail_level: EstimateDetail = Field(
+        default=EstimateDetail.DETAILED,
+        description="Controls calculation granularity: lump_sum or detailed"
+    )
+    crew_size: int = Field(default=4, ge=2, le=6)
+    storage_mode: StorageMode = Field(default=StorageMode.OFF_SITE)
+    repair_duration_months: float = Field(
+        default=3.0, ge=0, le=24,
+        description="Expected repair time — drives storage period"
+    )
+    on_property_pct: float = Field(
+        default=0.0, ge=0, le=100,
+        description="% of items staying on-site (reduces storage need)"
+    )
+    include_packback: bool = Field(default=True)
+    include_op: bool = Field(default=True)
+    op_rate: int = Field(default=20, ge=0, le=30)
+    include_contingency: bool = Field(default=False)
+    contingency_rate: int = Field(default=0, ge=0, le=20)
+    region: Region = Field(default=Region.MID_ATLANTIC)
+    special_items: List[str] = Field(default_factory=list)
+    custom_special_items: List[CustomSpecialItem] = Field(default_factory=list)
+
+
+class PackoutEstimateResponse(BaseModel):
+    """Packout estimate response — wraps standard EstimateResponse with packout summary."""
+    estimate: EstimateResponse
+    # Packout-specific summary
+    total_non_boxable_items: int = 0
+    total_boxes: Dict[str, int] = Field(default_factory=dict)
+    total_blankets: int = 0
+    total_protection_materials: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Aggregate protection material counts across all rooms"
+    )
+    storage_mode: StorageMode = StorageMode.OFF_SITE
+    repair_duration_months: float = 0
+    effective_storage_months: int = 0
+    detail_level: EstimateDetail = EstimateDetail.DETAILED

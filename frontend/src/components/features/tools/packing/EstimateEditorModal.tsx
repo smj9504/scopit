@@ -34,6 +34,7 @@ import {
   DownOutlined,
   RightOutlined,
   FolderOpenOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { toolService } from '@/services/toolService';
@@ -68,7 +69,11 @@ function useIsMobile(breakpoint = 768): boolean {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(n: number) {
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtMoney(n: number) {
+  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -108,6 +113,44 @@ function isTransportSection(name: string): boolean {
   return /transport/i.test(name);
 }
 
+/** Check if material_details are individual items (not already category-grouped). */
+function isMaterialDetailsLegacy(details: { unit?: string; quantity?: number }[]): boolean {
+  return details.length > 3 || details.some((m) => m.unit !== 'LS' || (m.quantity ?? 1) !== 1);
+}
+
+const _SUPPLY_CODES = new Set([
+  '3026', '3025', '3027', '3028', '3024', '3030', '3032', '3089', '3088',
+]);
+const _SPECIALTY_CODES = new Set([
+  '3033', '3029', '3031', '3036', '3037', '3035', '3034',
+]);
+
+/** Group legacy individual material items into 3 categories. */
+function groupMaterialDetails(
+  details: { name: string; code?: string; quantity: number; unit: string; unit_price: number; total: number; detail?: string }[],
+): { name: string; detail: string; qty: number; unit: string; rate: number; amount: number }[] {
+  let supply = 0, protective = 0, specialty = 0;
+  const supplyNames: string[] = [], protectiveNames: string[] = [], specialtyNames: string[] = [];
+  for (const m of details) {
+    const code = m.code ?? '';
+    if (_SUPPLY_CODES.has(code)) {
+      supply += m.total;
+      supplyNames.push(m.name);
+    } else if (_SPECIALTY_CODES.has(code)) {
+      specialty += m.total;
+      specialtyNames.push(m.name);
+    } else {
+      protective += m.total;
+      protectiveNames.push(m.name);
+    }
+  }
+  const lines: { name: string; detail: string; qty: number; unit: string; rate: number; amount: number }[] = [];
+  if (supply > 0) lines.push({ name: 'Packing Supplies', detail: supplyNames.join(', '), qty: 1, unit: 'LS', rate: Math.round(supply * 100) / 100, amount: Math.round(supply * 100) / 100 });
+  if (protective > 0) lines.push({ name: 'Protective Wrapping', detail: protectiveNames.join(', '), qty: 1, unit: 'LS', rate: Math.round(protective * 100) / 100, amount: Math.round(protective * 100) / 100 });
+  if (specialty > 0) lines.push({ name: 'Specialty Packaging', detail: specialtyNames.join(', '), qty: 1, unit: 'LS', rate: Math.round(specialty * 100) / 100, amount: Math.round(specialty * 100) / 100 });
+  return lines;
+}
+
 /** Regenerate scheduling notes from current section_details + crew size. */
 function generateSchedulingNotes(
   sectionDetails: Record<string, { lines: SectionDetailLine[] }> | undefined,
@@ -141,6 +184,40 @@ function generateSchedulingNotes(
         `recommend scheduling ${workDays} day${workDays > 1 ? 's' : ''}.`,
     );
   }
+
+  // Labor hour breakdown — explain how each HR line item qty was calculated
+  const breakdownParts: string[] = [];
+  for (const secName of ['Pack-Out Labor', 'Pack-Back Labor']) {
+    const lines = sectionDetails?.[secName]?.lines ?? [];
+    for (const line of lines) {
+      if (line.unit !== 'HR' || line.qty <= 0) continue;
+      const detail = line.detail || '';
+      const isCrew = /crew/i.test(detail);
+      const hasElapsed = /[\d.]+\s*elapsed hr/i.test(detail);
+      if (isCrew && hasElapsed) {
+        // Quick mode: qty = person-hrs, rate = per-person rate
+        const m = detail.match(/([\d.]+)\s*elapsed hr/i);
+        const elapsed = m ? parseFloat(m[1]) : Math.round((line.qty / crewN) * 10) / 10;
+        breakdownParts.push(
+          `${line.name}: ${elapsed} elapsed hr × ${crewN} crew = ${line.qty} person-hrs × ${fmtMoney(line.rate)}/hr = ${fmtMoney(line.amount)}`,
+        );
+      } else if (isCrew) {
+        // Content mode: qty = elapsed hrs, rate = crew_rate
+        const perPerson = Math.round((line.rate / crewN) * 100) / 100;
+        breakdownParts.push(
+          `${line.name}: ${line.qty} hr × ${crewN} crew × ${fmtMoney(perPerson)}/hr = ${fmtMoney(line.amount)}`,
+        );
+      } else {
+        breakdownParts.push(
+          `${line.name}: ${line.qty} hr × ${fmtMoney(line.rate)}/hr = ${fmtMoney(line.amount)}`,
+        );
+      }
+    }
+  }
+  if (breakdownParts.length > 0) {
+    notes.push('Labor Hours Breakdown:\n' + breakdownParts.map((p) => `• ${p}`).join('\n'));
+  }
+
   return notes;
 }
 
@@ -149,9 +226,9 @@ function generateSchedulingNotes(
 interface EstimateEditorModalProps {
   open: boolean;
   onClose: () => void;
-  result: EstimateResponse;
+  result: EstimateResponse | null;
   setResult: React.Dispatch<React.SetStateAction<EstimateResponse | null>>;
-  mode: 'quick' | 'content';
+  mode: 'quick' | 'content' | 'packout';
   clientInfo: ClientInfo;
   setClientInfo: React.Dispatch<React.SetStateAction<ClientInfo>>;
   companyOverride: CompanyInfoOverride;
@@ -159,6 +236,7 @@ interface EstimateEditorModalProps {
   activeSessionId?: string;
   onCreateEstimate?: () => void;
   onSaveSession?: () => Promise<void>;
+  onCalculate?: () => Promise<EstimateResponse | undefined>;
   photoRooms?: import('./types').PhotoRoom[];
   rooms?: import('./types').PackingRoom[];
 }
@@ -685,6 +763,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   activeSessionId,
   onCreateEstimate,
   onSaveSession,
+  onCalculate,
   photoRooms,
   rooms,
 }) => {
@@ -695,7 +774,26 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   // ── Local state ────────────────────────────────────────────────────────────
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [calculating, setCalculating] = useState(false);
   const [taxRate, setTaxRate] = useState<number>(0);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  // ── Calculate handler ────────────────────────────────────────────────────
+  const handleCalculate = useCallback(async () => {
+    if (!onCalculate) return;
+    setCalculating(true);
+    try {
+      const res = await onCalculate();
+      if (res) {
+        setResult(res);
+        message.success('Estimate calculated');
+      }
+    } catch {
+      message.error('Calculation failed. Please try again.');
+    } finally {
+      setCalculating(false);
+    }
+  }, [onCalculate, setResult]);
 
   // Seed scheduling notes on first open if backend returned none
   useEffect(() => {
@@ -707,7 +805,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result?.id, result?.created_at]);
+  }, [result?.id, result?.created_at]); // safe: result null-checked at start of effect
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
   const [showCompanyOverride, setShowCompanyOverride] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -725,10 +823,24 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // ── Derived totals ─────────────────────────────────────────────────────────
+  const taxableBase = result ? result.subtotal + result.op_amount + result.contingency_amount + (result.supplements_total || 0) : 0;
+  const taxAmount = taxRate > 0 ? taxableBase * (taxRate / 100) : 0;
   const computedGrandTotal = useMemo(() => {
-    const tax = result.subtotal * (taxRate / 100);
-    return result.subtotal + result.op_amount + (result.supplements_total || 0) + result.contingency_amount + tax;
-  }, [result.subtotal, result.op_amount, result.supplements_total, result.contingency_amount, taxRate]);
+    if (!result) return 0;
+    const base = result.subtotal + result.op_amount + result.contingency_amount + (result.supplements_total || 0);
+    const tax = taxRate > 0 ? base * (taxRate / 100) : 0;
+    return base + tax;
+  }, [result?.subtotal, result?.op_amount, result?.supplements_total, result?.contingency_amount, taxRate]);
+
+  // Sync grand_total back into result whenever computedGrandTotal changes
+  // so exports/reports use the same value the editor displays
+  useEffect(() => {
+    if (!result) return;
+    const rounded = Math.round(computedGrandTotal * 100) / 100;
+    if (Math.abs((result.grand_total || 0) - rounded) > 0.01) {
+      setResult((prev) => prev ? { ...prev, grand_total: rounded } : prev);
+    }
+  }, [computedGrandTotal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Inline edit handlers ──────────────────────────────────────────────────
 
@@ -1132,7 +1244,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     try {
       // Save latest edits to session before exporting
       if (onSaveSession) await onSaveSession();
-      const blob = await packingApi.exportPdf(activeSessionId, companyOverride, taxRate);
+      const blob = await packingApi.exportPdf(activeSessionId, companyOverride, taxRate, showBreakdown);
       const addr = clientInfo.property_address?.trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
       const pdfName = addr ? `Pack_in_out Estimate - ${addr}.pdf` : `Pack_in_out Estimate-${activeSessionId}.pdf`;
       triggerDownload(blob, pdfName);
@@ -1152,7 +1264,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     setExporting('excel');
     try {
       if (onSaveSession) await onSaveSession();
-      const blob = await packingApi.exportExcel(activeSessionId, companyOverride, taxRate);
+      const blob = await packingApi.exportExcel(activeSessionId, companyOverride, taxRate, showBreakdown);
       const addr = clientInfo.property_address?.trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
       const xlsName = addr ? `Pack_in_out Estimate - ${addr}.xlsx` : `Pack_in_out Estimate-${activeSessionId}.xlsx`;
       triggerDownload(blob, xlsName);
@@ -1191,10 +1303,10 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   // ── Sections rendering ─────────────────────────────────────────────────────
 
-  const sortedSections = sortSections(result.sections);
+  const sortedSections = result ? sortSections(result.sections) : [];
 
   const sectionPanels = sortedSections.map(([sectionName, sectionTotal]) => {
-    const detail = result.section_details?.[sectionName];
+    const detail = result?.section_details?.[sectionName];
     const isAddingHere = newLine?.sectionName === sectionName;
     const isMaterialsSection = sectionName === 'Materials';
 
@@ -1212,7 +1324,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                   color: colors.textPrimary,
                 }}
               >
-                {sectionName}{isMaterialsSection && (result.material_details || detail?.lines) ? ` (${(result.material_details?.length ?? detail?.lines?.length ?? 0)} items)` : ''}
+                {sectionName}{isMaterialsSection && (result?.material_details || detail?.lines) ? ` (${(result?.material_details?.length ?? detail?.lines?.length ?? 0)} items)` : ''}
               </Text>
             </Col>
             <Col>
@@ -1232,18 +1344,22 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           overflow: 'hidden',
         }}
       >
-        {/* Materials section: convert material_details to standard line format */}
-        {isMaterialsSection && result.material_details && result.material_details.length > 0 && (
+        {/* Materials section: show as category groups */}
+        {isMaterialsSection && result?.material_details && result.material_details.length > 0 && (
           <SectionLineTable
             sectionName={sectionName}
-            lines={result.material_details.map((m) => ({
-              name: m.name,
-              detail: m.detail ?? m.code ?? '',
-              qty: m.quantity,
-              unit: m.unit,
-              rate: m.unit_price,
-              amount: m.total,
-            }))}
+            lines={
+              isMaterialDetailsLegacy(result.material_details)
+                ? groupMaterialDetails(result.material_details)
+                : result.material_details.map((m) => ({
+                    name: m.name,
+                    detail: m.detail ?? '',
+                    qty: m.quantity,
+                    unit: m.unit,
+                    rate: m.unit_price,
+                    amount: m.total,
+                  }))
+            }
             editing={editing}
             onStartEdit={handleStartEdit}
             onEditField={handleEditField}
@@ -1254,7 +1370,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         )}
 
         {/* Materials fallback: use section_details lines when material_details is absent */}
-        {isMaterialsSection && !result.material_details && detail && detail.lines.length > 0 && (
+        {isMaterialsSection && !result?.material_details && detail && detail.lines.length > 0 && (
           <SectionLineTable
             sectionName={sectionName}
             lines={detail.lines}
@@ -1365,7 +1481,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   // ── Room summaries ─────────────────────────────────────────────────────────
 
-  const roomSummaryPanels = result.room_summaries?.map((rs) => (
+  const roomSummaryPanels = result?.room_summaries?.map((rs) => (
     <Panel
       key={rs.room_name}
       header={
@@ -1523,6 +1639,55 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       </div>
 
       {/* ── Scrollable Body ─────────────────────────────────────────────────── */}
+      {!result ? (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 16,
+            padding: 32,
+            background: colors.bgLight,
+          }}
+        >
+          <div style={{
+            width: 64, height: 64, borderRadius: '50%',
+            background: colors.bgWhite, border: `2px solid ${colors.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <FileTextOutlined style={{ fontSize: 28, color: colors.textMuted }} />
+          </div>
+          <Title level={5} style={{ margin: 0, fontFamily: fonts.heading, color: colors.textPrimary }}>
+            No Estimate Yet
+          </Title>
+          <Text style={{ fontSize: 13, color: colors.textSecondary, textAlign: 'center', maxWidth: 320 }}>
+            Add rooms and configure settings in the wizard, then calculate to generate your estimate.
+          </Text>
+          {onCalculate && (
+            <Button
+              type="primary"
+              size="large"
+              icon={<ThunderboltOutlined />}
+              loading={calculating}
+              onClick={handleCalculate}
+              style={{
+                marginTop: 8,
+                background: colors.primary,
+                borderColor: colors.primary,
+                fontFamily: fonts.heading,
+                fontWeight: 600,
+                borderRadius: borderRadius.base,
+                height: 44,
+                paddingInline: 32,
+              }}
+            >
+              Calculate Estimate
+            </Button>
+          )}
+        </div>
+      ) : (
       <div
         style={{
           flex: 1,
@@ -1710,8 +1875,20 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
               {result.notes.map((note, i) => (
                 <Alert
                   key={i}
-                  message={note}
-                  type={note.startsWith('Scheduling:') ? 'info' : 'warning'}
+                  message={
+                    note.includes('\n') ? (
+                      <span style={{ whiteSpace: 'pre-line', fontSize: 12 }}>{note}</span>
+                    ) : (
+                      note
+                    )
+                  }
+                  type={
+                    note.startsWith('Labor Hours Breakdown')
+                      ? 'info'
+                      : note.startsWith('Scheduling:')
+                        ? 'info'
+                        : 'warning'
+                  }
                   showIcon
                   style={{ marginBottom: i < result.notes!.length - 1 ? 8 : 0 }}
                 />
@@ -1879,7 +2056,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
               <Col>
                 <Space size={8}>
                   <Text style={{ fontSize: 13, minWidth: 60, textAlign: 'right' }}>
-                    {taxRate > 0 ? fmt(result.subtotal * (taxRate / 100)) : '—'}
+                    {taxRate > 0 ? fmt(taxAmount) : '—'}
                   </Text>
                   <InputNumber
                     size="small"
@@ -1891,6 +2068,20 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                     style={{ width: 72 }}
                   />
                 </Space>
+              </Col>
+            </Row>
+
+            {/* Show Breakdown option */}
+            <Row align="middle" style={{ marginTop: 8, marginBottom: 2 }}>
+              <Col>
+                <Checkbox
+                  checked={showBreakdown}
+                  onChange={(e) => setShowBreakdown(e.target.checked)}
+                >
+                  <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                    Show labor hour breakdown in export
+                  </Text>
+                </Checkbox>
               </Col>
             </Row>
 
@@ -2084,85 +2275,105 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           </Card>
         </div>
       </div>
+      )}
 
       {/* ── Sticky Footer: action buttons ──────────────────────────────────── */}
       <div
         style={{
           display: 'flex',
-          justifyContent: 'flex-end',
+          justifyContent: 'space-between',
           alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 8,
           padding: isMobile ? '10px 12px' : '12px 20px',
           borderTop: `1px solid ${colors.border}`,
           background: colors.bgWhite,
           flexShrink: 0,
         }}
       >
-        <Button
-          icon={<FolderOpenOutlined />}
-          onClick={handleOpenLoadModal}
-          size={isMobile ? 'small' : 'middle'}
-          style={{ borderColor: colors.border, marginRight: 4 }}
-        >
-          {!isMobile && 'Load Saved'}
-        </Button>
-        <Button
-          icon={<FilePdfOutlined />}
-          loading={exporting === 'pdf'}
-          onClick={handleExportPdf}
-          disabled={!activeSessionId}
-          size={isMobile ? 'small' : 'middle'}
-          style={{ borderColor: colors.border }}
-        >
-          PDF
-        </Button>
-        <Button
-          icon={<FileExcelOutlined />}
-          loading={exporting === 'excel'}
-          onClick={handleExportExcel}
-          disabled={!activeSessionId}
-          size={isMobile ? 'small' : 'middle'}
-          style={{ borderColor: colors.border }}
-        >
-          Excel
-        </Button>
-        <Button
-          icon={<FileTextOutlined />}
-          onClick={() => setShowReportModal(true)}
-          disabled={!activeSessionId}
-          size={isMobile ? 'small' : 'middle'}
-          style={{ borderColor: colors.border }}
-        >
-          Report
-        </Button>
-        <Button
-          icon={<SaveOutlined />}
-          size={isMobile ? 'small' : 'middle'}
-          onClick={() => message.success('Estimate saved')}
-        >
-          Save
-        </Button>
-        <Button
-          type="primary"
-          loading={creatingInvoice}
-          onClick={handleCreateInvoice}
-          disabled={!activeSessionId}
-          size={isMobile ? 'small' : 'middle'}
-          style={{ background: colors.primary, borderColor: colors.primary }}
-        >
-          {isMobile ? 'Create Invoice' : 'Create Invoice'}
-        </Button>
-        {onCreateEstimate && (
+        {/* Left: Calculate / Recalculate */}
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          {onCalculate && (
+            <Button
+              icon={<ThunderboltOutlined />}
+              loading={calculating}
+              onClick={handleCalculate}
+              size={isMobile ? 'small' : 'middle'}
+              type={result ? 'default' : 'primary'}
+              style={result ? { borderColor: colors.border } : { background: colors.primary, borderColor: colors.primary }}
+            >
+              {result ? 'Recalculate' : 'Calculate'}
+            </Button>
+          )}
+        </div>
+
+        {/* Right: Export + Actions */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <Button
+            icon={<FolderOpenOutlined />}
+            onClick={handleOpenLoadModal}
+            size={isMobile ? 'small' : 'middle'}
+            style={{ borderColor: colors.border }}
+          >
+            {!isMobile && 'Load Saved'}
+          </Button>
+          <Button
+            icon={<FilePdfOutlined />}
+            loading={exporting === 'pdf'}
+            onClick={handleExportPdf}
+            disabled={!activeSessionId || !result}
+            size={isMobile ? 'small' : 'middle'}
+            style={{ borderColor: colors.border }}
+          >
+            PDF
+          </Button>
+          <Button
+            icon={<FileExcelOutlined />}
+            loading={exporting === 'excel'}
+            onClick={handleExportExcel}
+            disabled={!activeSessionId || !result}
+            size={isMobile ? 'small' : 'middle'}
+            style={{ borderColor: colors.border }}
+          >
+            Excel
+          </Button>
+          <Button
+            icon={<FileTextOutlined />}
+            onClick={() => setShowReportModal(true)}
+            disabled={!activeSessionId || !result}
+            size={isMobile ? 'small' : 'middle'}
+            style={{ borderColor: colors.border }}
+          >
+            Report
+          </Button>
+          <Button
+            icon={<SaveOutlined />}
+            size={isMobile ? 'small' : 'middle'}
+            disabled={!result}
+            onClick={() => message.success('Estimate saved')}
+          >
+            Save
+          </Button>
           <Button
             type="primary"
-            onClick={onCreateEstimate}
+            loading={creatingInvoice}
+            onClick={handleCreateInvoice}
+            disabled={!activeSessionId || !result}
             size={isMobile ? 'small' : 'middle'}
             style={{ background: colors.primary, borderColor: colors.primary }}
           >
-            {isMobile ? 'Create Estimate' : 'Create ScopeIt Estimate'}
+            {isMobile ? 'Invoice' : 'Create Invoice'}
           </Button>
-        )}
+          {onCreateEstimate && (
+            <Button
+              type="primary"
+              onClick={onCreateEstimate}
+              disabled={!result}
+              size={isMobile ? 'small' : 'middle'}
+              style={{ background: colors.primary, borderColor: colors.primary }}
+            >
+              {isMobile ? 'Estimate' : 'Create ScopeIt Estimate'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Load Saved Estimate Modal */}
@@ -2188,7 +2399,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
               const d = session.data as any;
               const mode: string = d?.mode ?? 'quick';
               const address: string = d?.client_info?.property_address ?? '';
-              const updatedAt = new Date(session.updatedAt).toLocaleDateString('en-US', {
+              const updatedAt = new Date(session.updatedAt || session.createdAt).toLocaleDateString('en-US', {
                 month: 'short', day: 'numeric', year: 'numeric',
               });
               return (
@@ -2240,6 +2451,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       </Modal>
 
       {/* Report Export Modal */}
+      {result && (
       <ReportExportModal
         open={showReportModal}
         onClose={() => setShowReportModal(false)}
@@ -2271,6 +2483,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           }
         }}
       />
+      )}
     </Modal>
   );
 };

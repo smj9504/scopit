@@ -25,7 +25,7 @@ import {
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { useEstimateStatuses, getStatusDisplay } from '@/hooks/useSettings';
 import { estimateService } from '@/services/estimateService';
@@ -293,7 +293,7 @@ const EstimateDetailPage: React.FC = () => {
       key: 'total',
       width: 120,
       align: 'right' as const,
-      render: (total: number) => <span style={{ fontWeight: 600 }}>{formatCurrency(Number(total || 0))}</span>,
+      render: (total: number) => <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>{formatCurrency(Number(total || 0))}</span>,
     },
   ];
 
@@ -372,8 +372,11 @@ const EstimateDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <Spin size="large" />
+      <div>
+        <div style={{ marginBottom: 20 }}>
+          <Spin size="small" style={{ marginRight: 8 }} />
+          <span style={{ color: colors.textMuted, fontSize: 14 }}>Loading estimate...</span>
+        </div>
       </div>
     );
   }
@@ -393,11 +396,11 @@ const EstimateDetailPage: React.FC = () => {
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ minWidth: 0, flex: '1 1 auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-              <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 24, fontWeight: 700, margin: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
+              <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
                 {estimate.estimateNumber}
               </h1>
               <Dropdown
@@ -484,7 +487,7 @@ const EstimateDetailPage: React.FC = () => {
         {/* Main Content */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Customer & Dates */}
-          <Card style={{ borderRadius: 12, marginBottom: 16, overflow: 'hidden' }}>
+          <Card style={{ borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: shadows.card }}>
             <Descriptions column={{ xs: 1, sm: 1, md: 1, lg: 2, xl: 3 }}>
               <Descriptions.Item label="Customer">
                 <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
@@ -599,12 +602,12 @@ const EstimateDetailPage: React.FC = () => {
           {/* Line Items by Section */}
           {sectionsWithItems.length > 0 ? (
             sectionsWithItems.map((section) => (
-              <Card key={section.id} style={{ borderRadius: 12, marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
-                  <h3 style={{ fontFamily: fonts.heading, fontSize: 16, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+              <Card key={section.id} style={{ borderRadius: 12, marginBottom: 12, boxShadow: shadows.card }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 12 }}>
+                  <h3 style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                     {section.name}
                   </h3>
-                  <span style={{ fontWeight: 600, flexShrink: 0 }}>{formatCurrency(Number(section.subtotal || 0))}</span>
+                  <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, flexShrink: 0, letterSpacing: '-0.01em' }}>{formatCurrency(Number(section.subtotal || 0))}</span>
                 </div>
                 <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <Table
@@ -636,8 +639,8 @@ const EstimateDetailPage: React.FC = () => {
         </div>
 
         {/* Summary Sidebar - Responsive */}
-        <Card style={{ borderRadius: 12, width: isNarrow ? '100%' : 'auto', flex: isNarrow ? '1 1 auto' : '0 0 300px', flexShrink: 0, alignSelf: 'flex-start', minWidth: isNarrow ? 'auto' : 300 }}>
-          <h3 style={{ fontFamily: fonts.heading, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Summary</h3>
+        <Card style={{ borderRadius: 12, width: isNarrow ? '100%' : 'auto', flex: isNarrow ? '1 1 auto' : '0 0 300px', flexShrink: 0, alignSelf: 'flex-start', minWidth: isNarrow ? 'auto' : 300, boxShadow: shadows.card }}>
+          <h3 style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 600, marginBottom: 16, letterSpacing: '-0.01em' }}>Summary</h3>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ color: colors.textSecondary }}>Subtotal</span>
@@ -689,8 +692,8 @@ const EstimateDetailPage: React.FC = () => {
           <Divider style={{ margin: '16px 0' }} />
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-            <span style={{ fontWeight: 600, fontSize: 16 }}>Total</span>
-            <span style={{ fontWeight: 700, fontSize: 20, fontFamily: fonts.heading }}>
+            <span style={{ fontWeight: 600, fontSize: 15 }}>Total</span>
+            <span style={{ fontWeight: 700, fontSize: 20, fontFamily: fonts.heading, letterSpacing: '-0.02em' }}>
               {formatCurrency(Number(estimate.total || 0))}
             </span>
           </div>

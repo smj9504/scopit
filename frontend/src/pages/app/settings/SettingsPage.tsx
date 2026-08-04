@@ -41,7 +41,7 @@ import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { settingsService } from '@/services/settingsService';
 import { companyService } from '@/services/companyService';
 import { authService } from '@/services/authService';
@@ -2622,7 +2622,7 @@ const SettingsPage: React.FC = () => {
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-      <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 24, fontWeight: 700, marginBottom: isMobile ? 16 : 24 }}>Settings</h1>
+      <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 22, fontWeight: 700, marginBottom: isMobile ? 16 : 20, letterSpacing: '-0.01em' }}>Settings</h1>
 
       <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 0 } }}>
         <Tabs

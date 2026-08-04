@@ -316,11 +316,19 @@ export interface Invoice {
   balanceDue: number;
   notes?: string;
   terms?: string;
+  paymentSchedule?: PaymentScheduleItem[];
   sections: InvoiceSection[];
   items: InvoiceItem[];
   payments: Payment[];
   adjustments: Adjustment[];
   createdAt: string;
+}
+
+export interface PaymentScheduleItem {
+  label: string;
+  percentage: number;
+  amount: number;
+  dueDescription?: string;
 }
 
 export interface InvoiceCreate {
@@ -335,6 +343,7 @@ export interface InvoiceCreate {
   taxLabel?: string;
   notes?: string;
   terms?: string;
+  paymentSchedule?: PaymentScheduleItem[] | null;
   sections?: {
     name: string;
     orderIndex: number;
@@ -355,6 +364,7 @@ export interface InvoiceUpdate {
   taxLabel?: string;
   notes?: string;
   terms?: string;
+  paymentSchedule?: PaymentScheduleItem[] | null;
   sections?: {
     name: string;
     orderIndex: number;

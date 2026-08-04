@@ -197,9 +197,32 @@ def prepare_invoice_data(invoice_data: Dict[str, Any]) -> Dict[str, Any]:
         "balance_due": float(invoice_data.get("balance_due", 0)),
         "notes": invoice_data.get("notes", ""),
         "terms": invoice_data.get("terms", ""),
+        "payment_schedule": invoice_data.get("payment_schedule") or [],
+        "next_due_description": _get_next_due_description(
+            invoice_data.get("payment_schedule") or [],
+            float(invoice_data.get("amount_paid", 0)),
+        ),
         "primary_color": invoice_data.get("primary_color", "#111827"),
         "secondary_color": invoice_data.get("secondary_color", "#6b7280"),
     }
+
+
+def _get_next_due_description(
+    schedule: list, amount_paid: float
+) -> str:
+    """Find the due description of the next unpaid payment step."""
+    if not schedule:
+        return ""
+    cumulative = 0.0
+    for step in schedule:
+        cumulative += float(step.get("amount", 0))
+        if cumulative > amount_paid + 0.01:
+            return (
+                step.get("due_description")
+                or step.get("dueDescription")
+                or ""
+            )
+    return ""
 
 
 def prepare_estimate_data(estimate_data: Dict[str, Any]) -> Dict[str, Any]:

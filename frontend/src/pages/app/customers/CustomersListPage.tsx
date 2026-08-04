@@ -16,7 +16,7 @@ import {
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { customerService } from '@/services/customerService';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import type { Customer, CustomerCreate } from '@/types/entities';
@@ -144,13 +144,13 @@ const CustomersListPage: React.FC = () => {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      width: 160,
+      width: 180,
       ellipsis: true,
       render: (text, record) => (
         <div>
-          <div style={{ fontWeight: 600, color: colors.textPrimary }}>{text}</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: colors.textPrimary }}>{text}</div>
           {record.contactName && (
-            <div style={{ fontSize: 13, color: colors.textSecondary }}>{record.contactName}</div>
+            <div style={{ fontSize: 13, color: colors.textMuted }}>{record.contactName}</div>
           )}
         </div>
       ),
@@ -158,19 +158,19 @@ const CustomersListPage: React.FC = () => {
     {
       title: 'Contact',
       key: 'contact',
-      width: 200,
+      width: 220,
       ellipsis: true,
       responsive: ['sm'] as const,
       render: (_, record) => (
         <div style={{ fontSize: 13 }}>
           {record.email && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: colors.textSecondary }}>
-              <MailOutlined /> {record.email}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: colors.textSecondary }}>
+              <MailOutlined style={{ fontSize: 12 }} /> {record.email}
             </div>
           )}
           {record.phone && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: colors.textSecondary, marginTop: 4 }}>
-              <PhoneOutlined /> {record.phone}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: colors.textSecondary, marginTop: 3 }}>
+              <PhoneOutlined style={{ fontSize: 12 }} /> {record.phone}
             </div>
           )}
         </div>
@@ -179,12 +179,12 @@ const CustomersListPage: React.FC = () => {
     {
       title: 'Location',
       key: 'location',
-      width: 140,
+      width: 150,
       ellipsis: true,
       responsive: ['md'] as const,
       render: (_, record) => (
-        <span style={{ color: colors.textSecondary }}>
-          {[record.city, record.state].filter(Boolean).join(', ') || '-'}
+        <span style={{ color: colors.textSecondary, fontSize: 13 }}>
+          {[record.city, record.state].filter(Boolean).join(', ') || '\u2014'}
         </span>
       ),
     },
@@ -201,34 +201,34 @@ const CustomersListPage: React.FC = () => {
           justifyContent: 'space-between',
           alignItems: isMobile ? 'stretch' : 'center',
           flexDirection: isMobile ? 'column' : 'row',
-          marginBottom: 24,
+          marginBottom: 20,
           gap: 12,
         }}
       >
-        <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 24, fontWeight: 700, margin: 0 }}>
+        <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
           Customers
         </h1>
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => handleOpenModal()}
-          style={{ background: colors.primary, fontWeight: 600, borderRadius: 8, width: isMobile ? '100%' : undefined }}
+          style={{ background: colors.primary, fontWeight: 600, borderRadius: 8, height: 36, width: isMobile ? '100%' : undefined }}
         >
           Add Customer
         </Button>
       </div>
 
       {/* Search */}
-      <Card style={{ borderRadius: 12, marginBottom: 16 }} styles={{ body: { padding: '16px 20px' } }}>
+      <div style={{ marginBottom: 16 }}>
         <Input
           placeholder="Search customers..."
           prefix={<SearchOutlined style={{ color: colors.textMuted }} />}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ width: isMobile ? '100%' : 300 }}
+          style={{ width: isMobile ? '100%' : 320 }}
           allowClear
         />
-      </Card>
+      </div>
 
       {/* Mobile card view */}
       <div className="mobile-card-view">
@@ -325,7 +325,7 @@ const CustomersListPage: React.FC = () => {
       </div>
 
       {/* Desktop table */}
-      <Card className="desktop-table" style={{ borderRadius: 12 }} styles={{ body: { padding: 0 } }}>
+      <Card className="desktop-table" style={{ borderRadius: 12, boxShadow: shadows.card, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
         <Spin spinning={isLoading}>
           <Table
             columns={columns}

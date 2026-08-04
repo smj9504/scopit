@@ -30,6 +30,8 @@ from app.domains.tools.modules.packing.schemas import (
     BatchRoomAnalysisRequest,
     BatchRoomEvent, BatchCompleteEvent,
     RoomAnalysisStatus,
+    PackoutEstimateRequest, PackoutEstimateResponse,
+    DetectedContentItem,
 )
 from app.domains.tools.modules.packing.presets import get_all_presets, get_presets_by_category
 
@@ -107,6 +109,31 @@ async def content_estimate(
         if warnings:
             result.notes = (result.notes or []) + [f"⚠ {w}" for w in warnings]
     return result
+
+
+@router.post("/packout-estimate", response_model=PackoutEstimateResponse)
+async def packout_estimate(
+    request: PackoutEstimateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Generate a packout estimate from room-level box/item counts."""
+    from app.domains.tools.modules.packing.packout_service import PackoutCalculator
+    calculator = PackoutCalculator(db, current_user.company_id)
+    return calculator.calculate_packout(request)
+
+
+@router.post("/classify-for-packout")
+async def classify_for_packout(
+    request: dict,
+    current_user: User = Depends(_gate),
+):
+    """Classify AI-detected items into packout categories (non-boxable + box counts)."""
+    from app.domains.tools.modules.packing.packout_classifier import classify_items_for_packout
+    items = [DetectedContentItem(**i) for i in request.get("items", [])]
+    detail_level = request.get("detail_level", "detailed")
+    room_size = request.get("room_size", "large")
+    return classify_items_for_packout(items, detail_level, room_size)
 
 
 @router.post("/analyze-room", response_model=RoomAnalysisResponse)
@@ -347,6 +374,7 @@ async def export_pdf(
         company_info=company_info,
         tax_rate=request.tax_rate,
         notes=notes_str,
+        show_breakdown=request.show_breakdown,
     )
 
     # Filename: Pack Out Estimate - 123 Main St, Dallas - EST-2025-AB1234.pdf
@@ -422,6 +450,7 @@ async def export_excel(
         company_info=company_info,
         tax_rate=request.tax_rate,
         notes=notes_str,
+        show_breakdown=request.show_breakdown,
     )
 
     addr_slug = _build_address_slug(property_address)
@@ -515,61 +544,10 @@ async def export_report(
 
         Returns (labor_hours, labor_notes_str).
         """
-        if not items:
-            return 0.0, ""
-
-        # Build lightweight item objects for the calculator
-        class _Obj:
-            pass
-        item_objs = []
-        for it in items:
-            obj = _Obj()
-            if isinstance(it, dict):
-                for k, v in it.items():
-                    setattr(obj, k, v)
-            else:
-                obj = it
-            item_objs.append(obj)
-
-        # Enrich items with packing details (labor, materials, etc.)
-        calc.enrich_items_for_estimate(item_objs)
-
-        # Sum per-item labor hours
-        total_labor = 0.0
-        fragile_count = 0
-        high_value_count = 0
-        heavy_count = 0
-        disassembly_count = 0
-        for obj in item_objs:
-            labor = getattr(obj, 'estimated_labor_hours', None) or 0
-            total_labor += labor
-            qty = getattr(obj, 'quantity', 1) or 1
-            if getattr(obj, 'is_fragile', False):
-                fragile_count += qty
-            if getattr(obj, 'is_high_value', False):
-                high_value_count += qty
-            if getattr(obj, 'weight', '') in ('heavy', 'extra_heavy'):
-                heavy_count += qty
-            if getattr(obj, 'needs_disassembly', False):
-                disassembly_count += qty
-
-        # Convert to elapsed hours (divide by crew)
-        elapsed = round(total_labor / max(1, crew_size), 1)
-
-        # Build descriptive notes
-        total_items = sum(getattr(o, 'quantity', 1) or 1 for o in item_objs)
-        parts = [f"{total_items} items"]
-        if fragile_count:
-            parts.append(f"{fragile_count} fragile")
-        if high_value_count:
-            parts.append(f"{high_value_count} high-value")
-        if heavy_count:
-            parts.append(f"{heavy_count} heavy (2-person lift)")
-        if disassembly_count:
-            parts.append(f"{disassembly_count} require disassembly")
-        notes = ", ".join(parts)
-
-        return elapsed, notes
+        result = calc.compute_room_labor_and_notes(
+            items, crew_size=crew_size, include_field_notes=False,
+        )
+        return result["labor_hours"], result["labor_notes"]
 
     if request.rooms:
         rooms_data = [r.model_dump() for r in request.rooms]
@@ -711,6 +689,7 @@ async def export_report(
         include_field_notes=request.include_field_notes,
         image_quality=request.image_quality,
         max_image_width=request.max_image_width,
+        photos_per_page=request.photos_per_page,
     )
 
     addr_slug = _build_address_slug(property_address)

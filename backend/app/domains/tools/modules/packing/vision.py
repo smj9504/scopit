@@ -62,8 +62,8 @@ except ImportError:
 # CONSTANTS
 # ============================================
 
-MAX_IMAGE_BYTES = 1_000_000   # 1 MB per image — 1024 px JPEG is sufficient
-MAX_IMAGE_DIM = 1024          # px — halving from 2048 cuts image tokens 4×
+MAX_IMAGE_BYTES = 5_000_000   # 5 MB per image — preserve quality for better analysis
+MAX_IMAGE_DIM = 1568          # px — Claude Vision optimal max dimension
 MAX_IMAGES_PER_ROOM = 6       # hard cap after deduplication
 CONFIDENCE_THRESHOLD = 0.8    # minimum confidence (0–1) to accept results
 
@@ -541,13 +541,14 @@ def _extract_tool_result(response) -> Optional[dict]:
 def _select_diverse_images(
     images: list,
     max_images: int = MAX_IMAGES_PER_ROOM,
-    threshold: float = 0.95,
+    threshold: float = 0.99,
 ) -> list:
-    """Return up to max_images photos, skipping near-duplicate shots.
+    """Return up to max_images photos, skipping exact-duplicate uploads.
 
     Resizes each image to a 32x32 grayscale thumbnail and compares cosine
-    similarity against already-selected thumbnails. Two images whose similarity
-    exceeds threshold are considered the same angle and the later one is dropped.
+    similarity against already-selected thumbnails.  Only truly identical
+    images (threshold=0.99) are dropped — different angles of the same room
+    are kept because Claude uses spatial reasoning to de-duplicate items.
 
     Falls back to a simple slice if Pillow is not available.
     """
@@ -824,8 +825,15 @@ def _build_room_analysis_response(
     result: dict,
     room_name: str,
 ) -> RoomAnalysisResponse:
-    """Convert raw Claude result dict into a RoomAnalysisResponse."""
+    """Convert raw Claude result dict into a RoomAnalysisResponse.
+
+    Items with confidence >= CONFIDENCE_THRESHOLD go into `items`
+    (auto-added to the estimate).  Items below that threshold go
+    into `low_confidence_items` so the frontend can prompt the user
+    to manually accept or reject them.
+    """
     items: List[DetectedContentItem] = []
+    low_confidence_items: List[DetectedContentItem] = []
     total_labor = 0.0
     fragile_count = 0
     high_value_count = 0
@@ -833,8 +841,6 @@ def _build_room_analysis_response(
 
     for item_data in result.get("items", []):
         item_confidence = item_data.get("confidence", 1.0)
-        if item_confidence < CONFIDENCE_THRESHOLD:
-            continue
 
         qty = item_data.get("quantity", 1)
 
@@ -845,34 +851,30 @@ def _build_room_analysis_response(
 
         if base_h is not None and per_unit_h is not None:
             computed_total = base_h + (per_unit_h * qty)
-            total_labor += computed_total
         elif legacy_labor is not None:
             computed_total = float(legacy_labor)
-            # Legacy: already total, do NOT multiply by qty
-            total_labor += computed_total
         else:
             computed_total = None
 
         is_frag = item_data.get("is_fragile", False)
         is_hv = item_data.get("is_high_value", False)
 
-        if is_frag:
-            fragile_count += qty
-        if is_hv:
-            high_value_count += qty
-
         flags = item_data.get("estimator_flags") or []
         instructions = item_data.get("special_instructions")
 
         if instructions and any(
             kw in instructions.upper()
-            for kw in ["2-MAN", "MOISTURE", "PHOTOGRAPH", "HAZMAT", "VERIFY"]
+            for kw in [
+                "2-MAN", "MOISTURE", "PHOTOGRAPH",
+                "HAZMAT", "VERIFY",
+            ]
         ):
             field_notes.append(
-                f"{item_data.get('name', 'Unknown')}: {instructions}"
+                f"{item_data.get('name', 'Unknown')}: "
+                f"{instructions}"
             )
 
-        items.append(DetectedContentItem(
+        detected = DetectedContentItem(
             name=item_data.get("name", "Unknown"),
             description=item_data.get("description"),
             size=item_data.get("size"),
@@ -882,29 +884,45 @@ def _build_room_analysis_response(
             is_high_value=is_hv,
             estimated_value=item_data.get("estimated_value"),
             is_fragile=is_frag,
-            needs_disassembly=item_data.get("needs_disassembly", False),
+            needs_disassembly=item_data.get(
+                "needs_disassembly", False,
+            ),
             packing_method=item_data.get("packing_method"),
-            required_materials=item_data.get("required_materials"),
+            required_materials=item_data.get(
+                "required_materials",
+            ),
             base_labor_hours=(
-                float(base_h) if base_h is not None else None
+                float(base_h) if base_h is not None
+                else None
             ),
             per_unit_labor_hours=(
-                float(per_unit_h) if per_unit_h is not None else None
+                float(per_unit_h) if per_unit_h is not None
+                else None
             ),
             estimated_labor_hours=computed_total,
             special_instructions=instructions,
             estimator_flags=flags if flags else None,
             confidence=item_confidence,
-        ))
+        )
 
-    # Post-process: bundle trivial small items into "Miscellaneous Small Items"
-    # Items that are individually too small to warrant a packing line
-    # (mouse pad, toy truck, coaster, candle, etc.)
+        if item_confidence >= CONFIDENCE_THRESHOLD:
+            items.append(detected)
+            if computed_total is not None:
+                total_labor += computed_total
+            if is_frag:
+                fragile_count += qty
+            if is_hv:
+                high_value_count += qty
+        else:
+            low_confidence_items.append(detected)
+
+    # Post-process: bundle trivial small items
     items = _bundle_trivial_items(items)
 
     return RoomAnalysisResponse(
         room_name=room_name,
         items=items,
+        low_confidence_items=low_confidence_items,
         density=result.get("density", "normal"),
         room_size=result.get("room_size", "large"),
         confidence_score=result.get("confidence", 0.7),
@@ -924,7 +942,7 @@ async def analyze_room_photos(
     images: List[str],
     existing_items: Optional[List[ExistingItem]] = None,
     max_images: int = MAX_IMAGES_PER_ROOM,
-    dedup_threshold: float = 0.95,
+    dedup_threshold: float = 0.99,
 ) -> RoomAnalysisResponse:
     """Analyze room photos and return an itemized content list.
 
@@ -976,15 +994,15 @@ async def analyze_room_photos(
 
     response = _build_room_analysis_response(result, room_name)
 
+    # Low overall confidence is no longer a hard reject.
+    # High-confidence items are in response.items; uncertain ones
+    # are in response.low_confidence_items for user review.
     if response.confidence_score < CONFIDENCE_THRESHOLD:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Analysis confidence too low "
-                f"({int(response.confidence_score * 100)}%). "
-                "Please provide clearer photos with better lighting and more "
-                "complete room coverage, then try again."
-            ),
+        response.field_notes.insert(
+            0,
+            f"Overall analysis confidence is "
+            f"{int(response.confidence_score * 100)}% "
+            f"— review flagged items below.",
         )
 
     return response

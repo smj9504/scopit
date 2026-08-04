@@ -1,37 +1,46 @@
 /**
  * ScopeIt Design Theme
- * Clean, minimal design system
+ * Clean, confident design system for restoration professionals
  */
 
 export const colors = {
   // Primary
   primary: '#111827',
-  primaryHover: '#374151',
-  
+  primaryHover: '#1f2937',
+  primarySubtle: '#f8fafc',
+
   // Background
   bgWhite: '#ffffff',
   bgLight: '#f9fafb',
   bgDark: '#111827',
-  
+  bgElevated: '#ffffff',
+  bgSunken: '#f3f4f6',
+
   // Border
   border: '#e5e7eb',
   borderDark: '#d1d5db',
   borderDarkMode: '#1f2937',
-  
+  borderLight: '#f3f4f6',
+
   // Text
   textPrimary: '#111827',
-  textSecondary: '#6b7280',
+  textSecondary: '#4b5563',
   textMuted: '#9ca3af',
   textWhite: '#ffffff',
-  
+
   // Status
-  success: '#10b981',
-  warning: '#f59e0b',
-  error: '#ef4444',
-  info: '#3b82f6',
-  
-  // Accent (for numbers, highlights)
-  accent: '#e5e7eb',
+  success: '#059669',
+  successBg: '#ecfdf5',
+  warning: '#d97706',
+  warningBg: '#fffbeb',
+  error: '#dc2626',
+  errorBg: '#fef2f2',
+  info: '#2563eb',
+  infoBg: '#eff6ff',
+
+  // Accent — used for interactive highlights and numeric emphasis
+  accent: '#2563eb',
+  accentSubtle: '#eff6ff',
 } as const;
 
 export const fonts = {
@@ -40,14 +49,14 @@ export const fonts = {
 } as const;
 
 export const fontSizes = {
-  xs: '13px',
-  sm: '14px',
-  base: '15px',
-  md: '16px',
-  lg: '17px',
-  xl: '20px',
-  '2xl': '24px',
-  '3xl': '28px',
+  xs: '12px',
+  sm: '13px',
+  base: '14px',
+  md: '15px',
+  lg: '16px',
+  xl: '18px',
+  '2xl': '22px',
+  '3xl': '26px',
   '4xl': '32px',
   '5xl': '48px',
 } as const;
@@ -58,6 +67,13 @@ export const fontWeights = {
   semibold: 600,
   bold: 700,
   extrabold: 800,
+} as const;
+
+export const lineHeights = {
+  tight: 1.2,
+  snug: 1.3,
+  normal: 1.5,
+  relaxed: 1.6,
 } as const;
 
 export const borderRadius = {
@@ -87,11 +103,18 @@ export const spacing = {
 
 export const shadows = {
   none: 'none',
-  sm: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-  base: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)',
-  md: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)',
-  lg: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)',
-  xl: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+  xs: '0 1px 2px rgba(0, 0, 0, 0.04)',
+  sm: '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+  base: '0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+  md: '0 4px 12px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.04)',
+  lg: '0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04)',
+  xl: '0 16px 40px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.05)',
+  // Cards at rest — visible but quiet
+  card: '0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02)',
+  // Cards on hover — lifted
+  cardHover: '0 4px 12px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.03)',
+  // Sticky headers and floating elements
+  sticky: '0 2px 8px rgba(0, 0, 0, 0.06)',
 } as const;
 
 export const transitions = {
@@ -116,59 +139,75 @@ export const antdTheme = {
     colorText: colors.textPrimary,
     colorTextSecondary: colors.textSecondary,
     fontFamily: fonts.body,
-    borderRadius: 6,
+    borderRadius: 8,
     wireframe: false,
+    colorSuccess: colors.success,
+    colorWarning: colors.warning,
+    colorError: colors.error,
+    colorInfo: colors.info,
+    boxShadow: shadows.base,
+    boxShadowSecondary: shadows.md,
   },
   components: {
     Button: {
-      borderRadius: 6,
+      borderRadius: 8,
       controlHeight: 36,
       fontWeight: 600,
       fontSize: 14,
     },
     Input: {
-      borderRadius: 6,
+      borderRadius: 8,
       controlHeight: 36,
       fontSize: 14,
+      activeShadow: `0 0 0 2px ${colors.accentSubtle}`,
     },
     InputNumber: {
-      borderRadius: 6,
+      borderRadius: 8,
       controlHeight: 36,
       fontSize: 14,
     },
     Select: {
-      borderRadius: 6,
+      borderRadius: 8,
       controlHeight: 36,
       fontSize: 14,
     },
     DatePicker: {
-      borderRadius: 6,
+      borderRadius: 8,
       controlHeight: 36,
       fontSize: 14,
     },
     Form: {
-      labelFontSize: 14,
+      labelFontSize: 13,
       fontSize: 14,
+      labelColor: colors.textSecondary,
     },
     Table: {
-      borderRadius: 8,
+      borderRadius: 12,
       headerBg: colors.bgLight,
+      headerColor: colors.textSecondary,
       fontSize: 14,
+      rowHoverBg: colors.primarySubtle,
     },
     Card: {
-      borderRadius: 12,
+      borderRadiusLG: 12,
     },
     Modal: {
-      borderRadius: 12,
+      borderRadiusLG: 14,
     },
     Menu: {
       itemSelectedBg: colors.primary,
       itemSelectedColor: colors.textWhite,
-      itemHoverBg: colors.bgLight,
+      itemHoverBg: colors.bgSunken,
       itemBorderRadius: 8,
       iconSize: 18,
       itemMarginInline: 0,
       itemPaddingInline: 16,
+    },
+    Tag: {
+      borderRadiusSM: 6,
+    },
+    Dropdown: {
+      borderRadiusLG: 10,
     },
   },
 };
@@ -178,6 +217,7 @@ export const theme = {
   fonts,
   fontSizes,
   fontWeights,
+  lineHeights,
   borderRadius,
   spacing,
   shadows,

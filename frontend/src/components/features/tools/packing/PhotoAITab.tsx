@@ -45,6 +45,7 @@ import {
   DownOutlined,
   RightOutlined,
   SwapOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { packingApi } from './packingApi';
 import { FolderImportModal } from './FolderImportModal';
@@ -134,6 +135,8 @@ function defaultPhotoRoom(roomName: string, presetId?: string): PhotoRoom {
     photos: [],
     photo_keys: [],
     items: [],
+    low_confidence_items: [],
+    dismissed_items: [],
     analyzed: false,
     analyzing: false,
     field_notes: [],
@@ -1321,7 +1324,164 @@ const RoomCard: React.FC<RoomCardProps> = ({
                           ))}
                         </div>
                       )}
+                      {/* Low-confidence items requiring manual review */}
+                      {room.low_confidence_items && room.low_confidence_items.length > 0 && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          icon={<WarningOutlined />}
+                          style={{ marginBottom: 8, fontSize: 12 }}
+                          message={`${room.low_confidence_items.length} item${room.low_confidence_items.length !== 1 ? 's' : ''} need your review`}
+                          description={
+                            <div style={{ marginTop: 4 }}>
+                              {room.low_confidence_items.map((item, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: idx < room.low_confidence_items.length - 1 ? `1px solid ${colors.border}` : undefined }}>
+                                  <div style={{ flex: 1 }}>
+                                    <span style={{ fontWeight: 500 }}>{item.name}</span>
+                                    <span style={{ color: colors.textMuted, marginLeft: 6, fontSize: 11 }}>
+                                      x{item.quantity} &middot; {item.category}
+                                      {item.confidence != null && ` · ${Math.round(item.confidence * 100)}%`}
+                                    </span>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 4 }}>
+                                    <Button
+                                      size="small"
+                                      type="link"
+                                      icon={<CheckOutlined />}
+                                      style={{ color: colors.success, fontSize: 11 }}
+                                      onClick={() => {
+                                        const accepted = room.low_confidence_items[idx];
+                                        onUpdate(room.id, {
+                                          items: [...room.items, accepted],
+                                          low_confidence_items: room.low_confidence_items.filter((_, i) => i !== idx),
+                                        });
+                                      }}
+                                    >
+                                      Add
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      type="link"
+                                      icon={<CloseOutlined />}
+                                      style={{ color: colors.textMuted, fontSize: 11 }}
+                                      onClick={() => {
+                                        const dismissed = room.low_confidence_items[idx];
+                                        onUpdate(room.id, {
+                                          low_confidence_items: room.low_confidence_items.filter((_, i) => i !== idx),
+                                          dismissed_items: [...(room.dismissed_items ?? []), dismissed],
+                                        });
+                                      }}
+                                    >
+                                      Dismiss
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                              <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
+                                <Button
+                                  size="small"
+                                  type="primary"
+                                  ghost
+                                  style={{ fontSize: 11 }}
+                                  onClick={() => {
+                                    onUpdate(room.id, {
+                                      items: [...room.items, ...room.low_confidence_items],
+                                      low_confidence_items: [],
+                                    });
+                                  }}
+                                >
+                                  Add All
+                                </Button>
+                                <Button
+                                  size="small"
+                                  style={{ fontSize: 11 }}
+                                  onClick={() => {
+                                    onUpdate(room.id, {
+                                      low_confidence_items: [],
+                                      dismissed_items: [...(room.dismissed_items ?? []), ...room.low_confidence_items],
+                                    });
+                                  }}
+                                >
+                                  Dismiss All
+                                </Button>
+                              </div>
+                            </div>
+                          }
+                        />
+                      )}
                       <Button type="dashed" icon={<PlusOutlined />} size="small" onClick={() => onAddItem(room.id)} style={{ width: '100%', fontSize: 12, marginBottom: 8 }}>Add Item Manually</Button>
+
+                      {/* Dismissed / deleted items — restorable */}
+                      {room.dismissed_items && room.dismissed_items.length > 0 && (
+                        <Collapse
+                          size="small"
+                          ghost
+                          style={{ marginBottom: 8 }}
+                          items={[{
+                            key: 'dismissed',
+                            label: (
+                              <span style={{ fontSize: 11, color: colors.textMuted }}>
+                                <UndoOutlined style={{ marginRight: 4 }} />
+                                Removed Items ({room.dismissed_items.length})
+                              </span>
+                            ),
+                            children: (
+                              <div>
+                                {room.dismissed_items.map((item, idx) => (
+                                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderBottom: idx < room.dismissed_items.length - 1 ? `1px solid ${colors.border}` : undefined }}>
+                                    <span style={{ fontSize: 12, color: colors.textMuted }}>
+                                      {item.name} <span style={{ fontSize: 11 }}>x{item.quantity}</span>
+                                    </span>
+                                    <Button
+                                      size="small"
+                                      type="link"
+                                      icon={<UndoOutlined />}
+                                      style={{ fontSize: 11 }}
+                                      onClick={() => {
+                                        onUpdate(room.id, {
+                                          items: [...room.items, item],
+                                          dismissed_items: room.dismissed_items.filter((_, i) => i !== idx),
+                                        });
+                                      }}
+                                    >
+                                      Restore
+                                    </Button>
+                                  </div>
+                                ))}
+                                {room.dismissed_items.length > 1 && (
+                                  <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
+                                    <Button
+                                      size="small"
+                                      type="primary"
+                                      ghost
+                                      style={{ fontSize: 11 }}
+                                      onClick={() => {
+                                        onUpdate(room.id, {
+                                          items: [...room.items, ...room.dismissed_items],
+                                          dismissed_items: [],
+                                        });
+                                      }}
+                                    >
+                                      Restore All
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      danger
+                                      type="text"
+                                      style={{ fontSize: 11 }}
+                                      onClick={() => {
+                                        onUpdate(room.id, { dismissed_items: [] });
+                                      }}
+                                    >
+                                      Clear All
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            ),
+                          }]}
+                        />
+                      )}
                     </>
                   )}
                 </div>
@@ -1497,9 +1657,11 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           },
           controller.signal,
         );
-        console.log('[PhotoAI] Analyze success', { items: result.items.length });
+        console.log('[PhotoAI] Analyze success', { items: result.items.length, lowConf: result.low_confidence_items?.length ?? 0 });
         updateRoom(roomId, {
           items: result.items,
+          low_confidence_items: result.low_confidence_items ?? [],
+          dismissed_items: [],
           density: (result.density as PhotoRoom['density']) ?? room.density,
           room_size: result.room_size,
           confidence_score: result.confidence_score,
@@ -1507,7 +1669,14 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           analyzed: true,
           analyzing: false,
         });
+        const lowCount = result.low_confidence_items?.length ?? 0;
         message.success(`Analyzed ${room.room_name}: ${result.items.length} items detected`);
+        if (lowCount > 0) {
+          message.warning(
+            `${lowCount} item${lowCount !== 1 ? 's' : ''} need manual review (low confidence)`,
+            5,
+          );
+        }
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED' || controller.signal.aborted) {
           message.info('Analysis cancelled.');
@@ -1610,6 +1779,8 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           if (evt.status === 'success' && evt.result) {
             updateRoom(targetRoom.id, {
               items: evt.result.items,
+              low_confidence_items: evt.result.low_confidence_items ?? [],
+              dismissed_items: [],
               density: (evt.result.density as PhotoRoom['density']) ?? 'normal',
               room_size: evt.result.room_size,
               confidence_score: evt.result.confidence_score,
@@ -1617,6 +1788,13 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
               analyzed: true,
               analyzing: false,
             });
+            const lowCount = evt.result.low_confidence_items?.length ?? 0;
+            if (lowCount > 0) {
+              message.warning(
+                `${targetRoom.room_name}: ${lowCount} item${lowCount !== 1 ? 's' : ''} need review`,
+                4,
+              );
+            }
           } else {
             // Error: leave room in previous state, mark not analyzing
             updateRoom(targetRoom.id, { analyzing: false });
@@ -1715,9 +1893,15 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
   const handleDeleteItem = useCallback(
     (roomId: string, itemIndex: number) => {
       setPhotoRooms((prev) =>
-        prev.map((r) =>
-          r.id === roomId ? { ...r, items: r.items.filter((_, i) => i !== itemIndex) } : r,
-        ),
+        prev.map((r) => {
+          if (r.id !== roomId) return r;
+          const removed = r.items[itemIndex];
+          return {
+            ...r,
+            items: r.items.filter((_, i) => i !== itemIndex),
+            dismissed_items: removed ? [...r.dismissed_items, removed] : r.dismissed_items,
+          };
+        }),
       );
     },
     [setPhotoRooms],

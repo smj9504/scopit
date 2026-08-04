@@ -65,7 +65,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import dayjs from 'dayjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { CustomerSelector, CustomerData } from '@/components/features/CustomerSelector';
 import { invoiceService } from '@/services/invoiceService';
@@ -166,7 +166,7 @@ const SortableLineItem: React.FC<{
         alignItems: 'center',
         gap: isNarrow ? 4 : 8,
         padding: '8px 12px',
-        background: isSelected ? '#eff6ff' : colors.bgWhite,
+        background: isSelected ? colors.accentSubtle : colors.bgWhite,
         borderBottom: `1px solid ${colors.border}`,
         transition: 'background 0.15s ease',
       }}
@@ -1292,6 +1292,14 @@ const InvoiceEditorPage: React.FC = () => {
   const [taxRate, setTaxRate] = useState(0);
   const [notes, setNotes] = useState('');
 
+  // Adjustments (premiums / fixed charges from estimate)
+  interface AdjustmentData { id: string; name: string; amount: number; percentage: number; type: 'premium' | 'discount' }
+  const [adjustments, setAdjustments] = useState<AdjustmentData[]>([]);
+
+  // Payment schedule (milestone-based installments)
+  interface ScheduleItem { label: string; percentage: number; amount: number; dueDescription: string }
+  const [paymentSchedule, setPaymentSchedule] = useState<ScheduleItem[]>([]);
+
   // Sections and Items
   const [sections, setSections] = useState<SectionData[]>([
     { id: generateId(), name: 'General', isCollapsed: false, orderIndex: 0 },
@@ -1395,6 +1403,27 @@ const InvoiceEditorPage: React.FC = () => {
       setTaxRate(Number(invoiceData.taxRate) || 0);
       setNotes(invoiceData.notes || '');
 
+      // Adjustments
+      if (invoiceData.adjustments && invoiceData.adjustments.length > 0) {
+        setAdjustments(invoiceData.adjustments.map((a) => ({
+          id: a.id,
+          name: a.name,
+          amount: Number(a.amount),
+          percentage: Number(a.percentage),
+          type: a.type,
+        })));
+      }
+
+      // Payment schedule
+      if (invoiceData.paymentSchedule) {
+        setPaymentSchedule(invoiceData.paymentSchedule.map((s: any) => ({
+          label: s.label || '',
+          percentage: s.percentage || 0,
+          amount: s.amount || 0,
+          dueDescription: s.dueDescription || s.due_description || '',
+        })));
+      }
+
       // Sections and items
       if (invoiceData.sections && invoiceData.sections.length > 0) {
         const loadedSections: SectionData[] = invoiceData.sections.map((section) => ({
@@ -1454,13 +1483,36 @@ const InvoiceEditorPage: React.FC = () => {
   const taxableSubtotal = round2(items
     .filter((item) => item.isTaxable)
     .reduce((sum, item) => sum + round2(item.quantity * item.unitPrice), 0));
-  const taxAmount = round2(taxableSubtotal * (taxRate / 100));
-  const total = round2(subtotal + taxAmount);
+  const adjustmentsTotal = round2(adjustments.reduce((sum, a) => {
+    if (a.percentage > 0) {
+      // Percentage-based (e.g., O&P)
+      return sum + round2(subtotal * (a.percentage / 100)) * (a.type === 'discount' ? -1 : 1);
+    }
+    // Fixed amount (e.g., supplements)
+    return sum + a.amount * (a.type === 'discount' ? -1 : 1);
+  }, 0));
+  const adjustedSubtotal = round2(subtotal + adjustmentsTotal);
+  const taxAmount = round2(taxableSubtotal > 0 && subtotal > 0
+    ? adjustedSubtotal * (taxableSubtotal / subtotal) * (taxRate / 100)
+    : 0);
+  const total = round2(adjustedSubtotal + taxAmount);
+
+  // Recalculate payment schedule amounts when total changes
+  // (but NOT when user manually edits an amount)
+  const prevTotalRef = useRef(total);
+  useEffect(() => {
+    if (prevTotalRef.current !== total && paymentSchedule.length > 0) {
+      setPaymentSchedule((prev) =>
+        prev.map((s) => ({ ...s, amount: Math.round(total * (s.percentage / 100) * 100) / 100 }))
+      );
+    }
+    prevTotalRef.current = total;
+  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Payment data from server
   const payments: Payment[] = invoiceData?.payments || [];
   const amountPaid = Number(invoiceData?.amountPaid ?? 0);
-  const balanceDue = invoiceData?.balanceDue != null ? Number(invoiceData.balanceDue) : total;
+  const balanceDue = round2(total - amountPaid);
 
   // Payment handlers
   const handleRecordPayment = async (values: any) => {
@@ -1944,6 +1996,7 @@ const InvoiceEditorPage: React.FC = () => {
         title: title || undefined,
         taxRate,
         notes: notes || undefined,
+        paymentSchedule: paymentSchedule.length > 0 ? paymentSchedule : null,
         sections: sections.map((section) => ({
           name: section.name,
           orderIndex: section.orderIndex,
@@ -1995,6 +2048,10 @@ const InvoiceEditorPage: React.FC = () => {
         localStorage.setItem('scopeit-save-custom-to-library', String(lastSaveState));
         setSaveToLibraryDefault(lastSaveState);
       }
+
+      // Invalidate cached invoice data so Detail page shows fresh data
+      queryClient.invalidateQueries({ queryKey: ['invoice', result.id] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
 
       navigate(`/app/invoices/${result.id}`);
     } catch (error: any) {
@@ -2233,7 +2290,36 @@ const InvoiceEditorPage: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            {/* Adjustments */}
+            {adjustments.length > 0 && (
+              <>
+                <Divider style={{ margin: '12px 0 8px' }} />
+                {adjustments.map((adj, idx) => (
+                  <div key={adj.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ color: colors.textSecondary, fontSize: 13, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {adj.name}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ color: adj.type === 'discount' ? '#dc2626' : '#16a34a', fontWeight: 500, fontSize: 13, whiteSpace: 'nowrap' }}>
+                        {adj.type === 'discount' ? '-' : '+'}{formatCurrency(
+                          adj.percentage > 0 ? round2(subtotal * (adj.percentage / 100)) : adj.amount
+                        )}
+                      </span>
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<CloseOutlined style={{ fontSize: 10 }} />}
+                        onClick={() => setAdjustments((prev) => prev.filter((_, i) => i !== idx))}
+                        style={{ padding: 0, height: 18, width: 18, minWidth: 18 }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, marginTop: adjustments.length > 0 ? 8 : 0 }}>
               <span style={{ color: colors.textSecondary }}>Tax Amount</span>
               <span>{formatCurrency(taxAmount)}</span>
             </div>
@@ -2245,6 +2331,150 @@ const InvoiceEditorPage: React.FC = () => {
               <span style={{ fontWeight: 700, fontSize: 20, fontFamily: fonts.heading }}>
                 {formatCurrency(total)}
               </span>
+            </div>
+
+            {/* Payment Schedule (installments) */}
+            <Divider style={{ margin: '16px 0' }} />
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: colors.textPrimary }}>Payment Schedule</span>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => {
+                    if (paymentSchedule.length === 0) {
+                      // Default: 2-step (50% deposit + 50% balance)
+                      setPaymentSchedule([
+                        { label: 'Deposit', percentage: 50, amount: Math.round(total * 0.5 * 100) / 100, dueDescription: 'Due upon signing' },
+                        { label: 'Final Payment', percentage: 50, amount: Math.round(total * 0.5 * 100) / 100, dueDescription: 'Due upon completion' },
+                      ]);
+                    } else {
+                      // Add new step
+                      setPaymentSchedule([...paymentSchedule, { label: `Payment ${paymentSchedule.length + 1}`, percentage: 0, amount: 0, dueDescription: '' }]);
+                    }
+                  }}
+                  style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                >
+                  {paymentSchedule.length === 0 ? '+ Add Schedule' : '+ Add Step'}
+                </Button>
+              </div>
+
+              {paymentSchedule.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {paymentSchedule.map((step, idx) => {
+                    const paidForStep = (payments || [])
+                      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+                    return (
+                      <div key={idx} style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 10px', border: `1px solid ${colors.border}` }}>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                          <AutoComplete
+                            value={step.label}
+                            onChange={(val) => {
+                              const dueMap: Record<string, string> = {
+                                'Deposit': 'Due upon signing',
+                                '1st Payment': 'Due upon signing',
+                                'Progress Payment': 'Due upon milestone completion',
+                                'Milestone Payment': 'Due upon milestone completion',
+                                '2nd Payment': 'Due upon progress',
+                                '3rd Payment': 'Due upon progress',
+                                'Final Payment': 'Due upon completion',
+                              };
+                              const updated = [...paymentSchedule];
+                              const autoDesc = dueMap[val];
+                              updated[idx] = {
+                                ...updated[idx],
+                                label: val,
+                                ...(autoDesc && (!step.dueDescription || Object.values(dueMap).includes(step.dueDescription))
+                                  ? { dueDescription: autoDesc }
+                                  : {}),
+                              };
+                              setPaymentSchedule(updated);
+                            }}
+                            options={[
+                              { value: 'Deposit' },
+                              { value: 'Progress Payment' },
+                              { value: 'Milestone Payment' },
+                              { value: 'Final Payment' },
+                              { value: '1st Payment' },
+                              { value: '2nd Payment' },
+                              { value: '3rd Payment' },
+                            ].filter((o) => !paymentSchedule.some((s, i) => i !== idx && s.label === o.value))}
+                            placeholder="Label"
+                            size="small"
+                            style={{ flex: 1 }}
+                          />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <InputNumber
+                              value={step.percentage}
+                              onChange={(val) => {
+                                const pct = val || 0;
+                                const updated = [...paymentSchedule];
+                                updated[idx] = { ...updated[idx], percentage: pct, amount: Math.round(total * (pct / 100) * 100) / 100 };
+                                setPaymentSchedule(updated);
+                              }}
+                              min={0}
+                              max={100}
+                              precision={0}
+                              style={{ width: 52 }}
+                              size="small"
+                            />
+                            <span style={{ fontSize: 12, color: colors.textSecondary }}>%</span>
+                          </div>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<CloseOutlined />}
+                            onClick={() => setPaymentSchedule(paymentSchedule.filter((_, i) => i !== idx))}
+                            style={{ color: colors.textMuted, padding: '0 4px' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Input
+                            value={step.dueDescription}
+                            onChange={(e) => {
+                              const updated = [...paymentSchedule];
+                              updated[idx] = { ...updated[idx], dueDescription: e.target.value };
+                              setPaymentSchedule(updated);
+                            }}
+                            placeholder="e.g. Due upon signing"
+                            size="small"
+                            variant="borderless"
+                            style={{ flex: 1, fontSize: 12, color: colors.textSecondary, padding: '0 4px' }}
+                          />
+                          <InputNumber
+                            value={step.amount}
+                            onChange={(val) => {
+                              const amt = val || 0;
+                              const updated = [...paymentSchedule];
+                              const pct = total > 0 ? Math.round((amt / total) * 100) : 0;
+                              updated[idx] = { ...updated[idx], amount: amt, percentage: pct };
+                              setPaymentSchedule(updated);
+                            }}
+                            min={0}
+                            precision={2}
+                            prefix="$"
+                            size="small"
+                            style={{ width: 110, fontWeight: 600, fontSize: 13 }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Remaining balance after schedule */}
+                  {(() => {
+                    const scheduleTotal = paymentSchedule.reduce((sum, s) => sum + s.amount, 0);
+                    const remaining = Math.round((total - scheduleTotal) * 100) / 100;
+                    if (Math.abs(remaining) > 0.01) {
+                      return (
+                        <div style={{ fontSize: 12, color: remaining > 0 ? colors.error : '#b45309', textAlign: 'right' }}>
+                          {remaining > 0 ? `Unallocated: ${formatCurrency(remaining)}` : `Over-allocated: ${formatCurrency(Math.abs(remaining))}`}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+              )}
             </div>
 
             {/* Payment Status (for editing existing invoices) */}

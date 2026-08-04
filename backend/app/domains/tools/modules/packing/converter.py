@@ -86,6 +86,7 @@ class PackingEstimateConverter(ToolEstimateConverter):
         result = session_data.get("result", {})
         client_info = session_data.get("client_info", {})
         settings = session_data.get("settings", {})
+        company_override = session_data.get("company_override") or {}
 
         sections_totals: dict = result.get("sections", {})
         section_details: dict = result.get("section_details", {})
@@ -101,17 +102,100 @@ class PackingEstimateConverter(ToolEstimateConverter):
             items = []
 
             if section_name == "Materials" and material_details:
-                # Materials section: one line per distinct material
-                for line_idx, mat in enumerate(material_details):
-                    items.append({
-                        "name": mat.get("name", "Material"),
-                        "description": f"Code: {mat['code']}" if mat.get("code") else "",
-                        "unit": mat.get("unit", "EA"),
-                        "quantity": float(mat.get("quantity", 1)),
-                        "unit_price": float(mat.get("unit_price", 0)),
-                        "is_taxable": True,
-                        "order_index": line_idx,
-                    })
+                # Check if already grouped into categories
+                # (Packing Supplies / Protective Wrapping / etc.)
+                is_category = all(
+                    m.get("unit") == "LS"
+                    and m.get("quantity", 1) == 1
+                    for m in material_details
+                )
+                if is_category:
+                    # Use category lines as-is
+                    for i, mat in enumerate(material_details):
+                        items.append({
+                            "name": mat.get("name", "Material"),
+                            "description": mat.get("detail", ""),
+                            "unit": "LS",
+                            "quantity": 1.0,
+                            "unit_price": float(
+                                mat.get("unit_price")
+                                or mat.get("total", 0)
+                            ),
+                            "amount": float(
+                                mat.get("total", 0)
+                            ),
+                            "is_taxable": True,
+                            "order_index": i,
+                        })
+                else:
+                    # Legacy individual items — group into
+                    # 3 categories matching estimate PDF
+                    _specialty_codes = {
+                        "3033", "3029", "3031",  # mirror, tv, lamp
+                        "3036", "3037",  # mattress
+                        "3035", "3034",  # sofa, chair cover
+                    }
+                    _supply_codes = {
+                        "3026", "3025", "3027", "3028",  # boxes
+                        "3024", "3030", "3032",  # book, dish, wardrobe
+                        "3089", "3088",  # packing paper, tape
+                    }
+                    supply_total = 0.0
+                    protective_total = 0.0
+                    specialty_total = 0.0
+                    for m in material_details:
+                        t = float(m.get("total", 0))
+                        code = m.get("code", "")
+                        if code in _supply_codes:
+                            supply_total += t
+                        elif code in _specialty_codes:
+                            specialty_total += t
+                        else:
+                            protective_total += t
+                    idx = 0
+                    if supply_total > 0:
+                        items.append({
+                            "name": "Packing Supplies",
+                            "description": "",
+                            "unit": "LS",
+                            "quantity": 1.0,
+                            "unit_price": round(supply_total, 2),
+                            "amount": round(supply_total, 2),
+                            "is_taxable": True,
+                            "order_index": idx,
+                        })
+                        idx += 1
+                    if protective_total > 0:
+                        items.append({
+                            "name": "Protective Wrapping",
+                            "description": "",
+                            "unit": "LS",
+                            "quantity": 1.0,
+                            "unit_price": round(
+                                protective_total, 2
+                            ),
+                            "amount": round(
+                                protective_total, 2
+                            ),
+                            "is_taxable": True,
+                            "order_index": idx,
+                        })
+                        idx += 1
+                    if specialty_total > 0:
+                        items.append({
+                            "name": "Specialty Packaging",
+                            "description": "",
+                            "unit": "LS",
+                            "quantity": 1.0,
+                            "unit_price": round(
+                                specialty_total, 2
+                            ),
+                            "amount": round(
+                                specialty_total, 2
+                            ),
+                            "is_taxable": True,
+                            "order_index": idx,
+                        })
             else:
                 detail = section_details.get(section_name, {})
                 lines: list = detail.get("lines", [])
@@ -123,6 +207,7 @@ class PackingEstimateConverter(ToolEstimateConverter):
                         "unit": line.get("unit", "EA"),
                         "quantity": float(line.get("qty", 1)),
                         "unit_price": float(line.get("rate", 0)),
+                        "amount": float(line.get("amount", 0)),
                         "is_taxable": True,
                         "order_index": line_idx,
                     })
@@ -149,12 +234,21 @@ class PackingEstimateConverter(ToolEstimateConverter):
         # Customer fields: prefer kwargs (caller may have looked up a customer record)
         # then fall back to whatever client_info was captured during the session.
         payload: dict = {
-            "title": kwargs.get("title") or "Packing & Moving Estimate",
+            "title": (
+                kwargs.get("title")
+                or "Packing & Moving Estimate"
+            ),
             "customer_id": kwargs.get("customer_id"),
-            "customer_name": kwargs.get("customer_name") or client_info.get("name"),
+            "customer_name": (
+                kwargs.get("customer_name")
+                or client_info.get("name")
+            ),
             "customer_email": client_info.get("email"),
-            "customer_address": client_info.get("property_address"),
+            "customer_address": (
+                client_info.get("property_address")
+            ),
             "sections": sections,
+            "company_override": company_override or None,
         }
 
         # O&P and contingency: surfaced as named premium adjustments so the

@@ -77,7 +77,15 @@ class Invoice(Base):
     description = Column(Text)
     notes = Column(Text)
     terms = Column(Text)
-    
+
+    # Payment Schedule (milestone-based installments)
+    # Format: [{"label": "Deposit", "percentage": 50, "amount": 2500.00, "due_description": "Due upon signing"}, ...]
+    payment_schedule = Column(JSONB, default=None)
+
+    # Company Info Override (for tool-generated invoices)
+    # Format: {"name": "...", "address": "...", "phone": "...", "email": "...", "license": "..."}
+    company_override = Column(JSONB, default=None)
+
     # Customer Info Snapshot
     customer_name = Column(String(255))
     customer_email = Column(String(255))

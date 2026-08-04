@@ -647,6 +647,17 @@ def _section_details_to_line_items(
 # PDF EXPORT - EXACT SOS FORMAT
 # ============================================
 
+def _strip_breakdown(detail: str) -> str:
+    """Strip the calculation breakdown from a detail string.
+
+    Detail format: "description · breakdown formula"
+    Returns only the description part before " · ".
+    """
+    if " · " in detail:
+        return detail.split(" · ")[0]
+    return detail
+
+
 def generate_estimate_pdf(
     estimate_data: Dict[str, Any],
     client_name: Optional[str] = None,
@@ -659,6 +670,7 @@ def generate_estimate_pdf(
     tax_rate: float = 0,
     area_breakdown: Optional[str] = None,
     prices: Optional[Dict[str, float]] = None,
+    show_breakdown: bool = False,
 ) -> bytes:
     """Generate professional PDF estimate matching SOS Moving format exactly"""
 
@@ -691,8 +703,10 @@ def generate_estimate_pdf(
     op_rate = estimate_data.get('op_rate', 10)
     include_contingency = estimate_data.get('include_contingency', False)
     contingency_rate = estimate_data.get('contingency_rate', 5)
-    subtotal = sum(
-        item['qty'] * item['price']
+    # Use saved subtotal to avoid float rounding drift across many line items;
+    # fall back to recomputing from line items when not available.
+    subtotal = estimate_data.get('subtotal') or sum(
+        round(item['qty'] * item['price'], 2)
         for section in sections
         for item in section['items']
     )
@@ -709,12 +723,23 @@ def generate_estimate_pdf(
     supplements_total = sum(
         s.get('amount', 0) for s in supplements if s.get('enabled', True)
     )
+
+    # Absorb O&P into line item prices — distribute proportionally so O&P
+    # does not appear as a separate line in the PDF output.
+    if include_op and op_amount > 0 and subtotal > 0:
+        op_multiplier = 1 + (op_amount / subtotal)
+        for section in sections:
+            for item in section['items']:
+                item['price'] = round(item['price'] * op_multiplier, 2)
+        subtotal = round(subtotal + op_amount, 2)
+        op_amount = 0  # already absorbed
+
     tax_amount = (
-        (subtotal + op_amount + contingency_amount + supplements_total)
+        (subtotal + contingency_amount + supplements_total)
         * (tax_rate / 100) if tax_rate > 0 else 0
     )
     grand_total = (
-        subtotal + op_amount + contingency_amount + supplements_total + tax_amount
+        subtotal + contingency_amount + supplements_total + tax_amount
     )
 
     # Custom document with footer (page info moved from header to footer)
@@ -914,9 +939,12 @@ Estimate date: {estimate_date}</font>""",
             total = item['qty'] * item['price']
 
             # Build item cell with number, name, and detail
-            if item.get('detail'):
+            detail_text = item.get('detail') or ''
+            if detail_text and not show_breakdown:
+                detail_text = _strip_breakdown(detail_text)
+            if detail_text:
                 item_cell = Paragraph(
-                    f"<b>{item_number}. {item['name']}</b><br/><font color='#666666'>{item['detail']}</font>",
+                    f"<b>{item_number}. {item['name']}</b><br/><font color='#666666'>{detail_text}</font>",
                     style_normal
                 )
             else:
@@ -927,8 +955,8 @@ Estimate date: {estimate_date}</font>""",
                 item_cell,
                 Paragraph(qty_str, style_right),
                 Paragraph(item['unit'], style_center),
-                Paragraph(f"${item['price']:.2f}", style_right),
-                Paragraph(f"${total:.2f}", style_right),
+                Paragraph(f"${item['price']:,.2f}", style_right),
+                Paragraph(f"${total:,.2f}", style_right),
             ])
             item_number += 1
 
@@ -968,7 +996,7 @@ Estimate date: {estimate_date}</font>""",
     totals_data = [
         [Paragraph('Items Subtotal', style_right), Paragraph(f"${subtotal:,.2f}", style_right)],
     ]
-    if include_op:
+    if include_op and op_amount > 0:
         totals_data.append([Paragraph(f'Overhead & Profit ({op_rate}%)', style_right), Paragraph(f"${op_amount:,.2f}", style_right)])
     if include_contingency:
         totals_data.append([
@@ -1115,6 +1143,7 @@ def generate_estimate_excel(
     estimate_number: Optional[str] = None,
     tax_rate: float = 0,
     prices: Optional[Dict[str, float]] = None,
+    show_breakdown: bool = False,
 ) -> bytes:
     """Generate professional Excel estimate"""
 
@@ -1209,8 +1238,10 @@ def generate_estimate_excel(
     op_rate = estimate_data.get('op_rate', 10)
     include_contingency = estimate_data.get('include_contingency', False)
     contingency_rate = estimate_data.get('contingency_rate', 5)
-    subtotal = sum(
-        item['qty'] * item['price']
+    # Use saved subtotal to avoid float rounding drift across many line items;
+    # fall back to recomputing from line items when not available.
+    subtotal = estimate_data.get('subtotal') or sum(
+        round(item['qty'] * item['price'], 2)
         for section in sections
         for item in section['items']
     )
@@ -1227,12 +1258,23 @@ def generate_estimate_excel(
     supplements_total = sum(
         s.get('amount', 0) for s in supplements if s.get('enabled', True)
     )
+
+    # Absorb O&P into line item prices — distribute proportionally so O&P
+    # does not appear as a separate line in the Excel output.
+    if include_op and op_amount > 0 and subtotal > 0:
+        op_multiplier = 1 + (op_amount / subtotal)
+        for section in sections:
+            for item in section['items']:
+                item['price'] = round(item['price'] * op_multiplier, 2)
+        subtotal = round(subtotal + op_amount, 2)
+        op_amount = 0  # already absorbed
+
     tax_amount = (
-        (subtotal + op_amount + contingency_amount + supplements_total)
+        (subtotal + contingency_amount + supplements_total)
         * (tax_rate / 100) if tax_rate > 0 else 0
     )
     grand_total = (
-        subtotal + op_amount + contingency_amount + supplements_total + tax_amount
+        subtotal + contingency_amount + supplements_total + tax_amount
     )
 
     # Total estimate box
@@ -1258,6 +1300,7 @@ def generate_estimate_excel(
         row += 1
 
         section_start = row
+        detail_font = Font(size=8, italic=True, color='666666')
         for item in section['items']:
             ws.cell(row=row, column=1, value=f"{item_number}. {item['name']}").font = normal_font
             ws.cell(row=row, column=2, value=item['qty']).font = normal_font
@@ -1275,6 +1318,17 @@ def generate_estimate_excel(
             item_number += 1
             row += 1
 
+            # Show detail/breakdown as a sub-row when enabled
+            raw_detail = item.get('detail') or ''
+            if raw_detail and show_breakdown:
+                ws.cell(row=row, column=1, value=f"    {raw_detail}").font = detail_font
+                row += 1
+            elif raw_detail and not show_breakdown:
+                stripped = _strip_breakdown(raw_detail)
+                if stripped:
+                    ws.cell(row=row, column=1, value=f"    {stripped}").font = detail_font
+                    row += 1
+
         # Section subtotal
         ws.cell(row=row, column=4, value='Subtotal:').font = Font(bold=True, size=9)
         ws.cell(row=row, column=4).alignment = Alignment(horizontal='right')
@@ -1289,7 +1343,7 @@ def generate_estimate_excel(
     ws.cell(row=row, column=5).number_format = '$#,##0.00'
     row += 1
 
-    if include_op:
+    if include_op and op_amount > 0:
         ws.cell(row=row, column=4, value=f'Overhead & Profit ({op_rate}%)').font = normal_font
         ws.cell(row=row, column=4).alignment = Alignment(horizontal='right')
         ws.cell(row=row, column=5, value=op_amount).font = normal_font
@@ -1792,6 +1846,7 @@ def generate_report_pdf(
     include_field_notes: bool = False,
     image_quality: int = 60,
     max_image_width: int = 800,
+    photos_per_page: int = 2,
 ) -> bytes:
     """Generate a clean, professional packing report PDF.
 
@@ -2090,6 +2145,7 @@ def generate_report_pdf(
                 _add_photo_grid(
                     story, general_photos, style_small,
                     max_width=max_image_width, quality=image_quality,
+                    cols=photos_per_page,
                 )
                 story.append(Spacer(1, 8))
 
@@ -2101,6 +2157,7 @@ def generate_report_pdf(
                 _add_photo_grid(
                     story, damage_photos, style_small,
                     max_width=max_image_width, quality=image_quality,
+                    cols=photos_per_page,
                 )
                 story.append(Spacer(1, 8))
 
@@ -2331,7 +2388,7 @@ def _add_photo_grid(
 
     cell_width = (7.0 * inch) / cols
     img_display_w = cell_width - 0.2 * inch
-    max_img_h = 2.2 * inch
+    max_img_h = 2.2 * inch if cols <= 2 else 1.6 * inch
 
     row_cells = []
     rows = []

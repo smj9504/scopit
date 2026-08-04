@@ -23,14 +23,11 @@ const ToolsPage: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-          <AppstoreOutlined style={{ fontSize: 24, color: colors.primary }} />
-          <Title level={2} style={{ margin: 0, fontFamily: fonts.heading }}>
-            Tools
-          </Title>
-        </div>
-        <Text style={{ color: colors.textSecondary }}>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontFamily: fonts.heading, fontSize: 22, fontWeight: 700, margin: '0 0 4px', letterSpacing: '-0.01em' }}>
+          Tools
+        </h1>
+        <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
           Specialized tools for restoration contractors
         </Text>
       </div>

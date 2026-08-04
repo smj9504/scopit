@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Button, Tag, Descriptions, Table, Dropdown, Space, Divider, App, Modal, Form, InputNumber, DatePicker, Select, Input, Tooltip } from 'antd';
+import { Card, Button, Tag, Descriptions, Table, Dropdown, Space, Divider, App, Modal, Form, InputNumber, DatePicker, Select, Input, Tooltip, Spin } from 'antd';
 import {
   EditOutlined,
   SendOutlined,
@@ -24,7 +24,7 @@ import {
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import dayjs from 'dayjs';
-import { colors, fonts } from '@/styles/theme';
+import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { invoiceService } from '@/services/invoiceService';
 import { useInvoiceStatuses, getStatusDisplay } from '@/hooks/useSettings';
@@ -241,8 +241,11 @@ const InvoiceDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <span>Loading...</span>
+      <div>
+        <div style={{ marginBottom: 20 }}>
+          <Spin size="small" style={{ marginRight: 8 }} />
+          <span style={{ color: colors.textMuted, fontSize: 14 }}>Loading invoice...</span>
+        </div>
       </div>
     );
   }
@@ -351,7 +354,7 @@ const InvoiceDetailPage: React.FC = () => {
       key: 'total',
       ...(isMobile ? {} : { width: 120 }),
       align: 'right' as const,
-      render: (total: number) => <span style={{ fontWeight: 600 }}>{formatCurrency(Number(total || 0))}</span>,
+      render: (total: number) => <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>{formatCurrency(Number(total || 0))}</span>,
     },
   ];
 
@@ -504,11 +507,11 @@ const InvoiceDetailPage: React.FC = () => {
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ minWidth: 0, flex: '1 1 auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-              <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 24, fontWeight: 700, margin: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
+              <h1 style={{ fontFamily: fonts.heading, fontSize: isMobile ? 20 : 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
                 {invoiceNumber}
               </h1>
               <Dropdown
@@ -603,7 +606,7 @@ const InvoiceDetailPage: React.FC = () => {
         {/* Main Content */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Customer & Dates */}
-          <Card style={{ borderRadius: 12, marginBottom: 16, overflow: 'hidden' }}>
+          <Card style={{ borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: shadows.card }}>
             <Descriptions column={{ xs: 1, sm: 1, md: 1, lg: 2, xl: 3 }}>
               <Descriptions.Item label="Customer">
                 <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
@@ -699,12 +702,12 @@ const InvoiceDetailPage: React.FC = () => {
           {/* Line Items by Section */}
           {sections.length > 0 ? (
             sections.map((section) => (
-              <Card key={section.id} style={{ borderRadius: 12, marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
-                  <h3 style={{ fontFamily: fonts.heading, fontSize: 16, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+              <Card key={section.id} style={{ borderRadius: 12, marginBottom: 12, boxShadow: shadows.card }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 12 }}>
+                  <h3 style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                     {section.name}
                   </h3>
-                  <span style={{ fontWeight: 600, flexShrink: 0 }}>{formatCurrency(Number(section.subtotal || 0))}</span>
+                  <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, flexShrink: 0, letterSpacing: '-0.01em' }}>{formatCurrency(Number(section.subtotal || 0))}</span>
                 </div>
                 <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <Table
@@ -728,8 +731,8 @@ const InvoiceDetailPage: React.FC = () => {
 
           {/* Payment History */}
           {payments.length > 0 && (
-            <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-              <h3 style={{ fontFamily: fonts.heading, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
+            <Card style={{ borderRadius: 12, marginBottom: 12, boxShadow: shadows.card }}>
+              <h3 style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 600, marginBottom: 14, letterSpacing: '-0.01em' }}>
                 Payment History
               </h3>
               <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -759,8 +762,8 @@ const InvoiceDetailPage: React.FC = () => {
         </div>
 
         {/* Summary Sidebar - Responsive */}
-        <Card style={{ borderRadius: 12, width: isNarrow ? '100%' : 'auto', flex: isNarrow ? '1 1 auto' : '0 0 300px', flexShrink: 0, alignSelf: 'flex-start', minWidth: isNarrow ? 'auto' : 300 }}>
-          <h3 style={{ fontFamily: fonts.heading, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Summary</h3>
+        <Card style={{ borderRadius: 12, width: isNarrow ? '100%' : 'auto', flex: isNarrow ? '1 1 auto' : '0 0 300px', flexShrink: 0, alignSelf: 'flex-start', minWidth: isNarrow ? 'auto' : 300, boxShadow: shadows.card }}>
+          <h3 style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 600, marginBottom: 16, letterSpacing: '-0.01em' }}>Summary</h3>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ color: colors.textSecondary }}>Subtotal</span>
@@ -774,7 +777,7 @@ const InvoiceDetailPage: React.FC = () => {
                 <div key={adj.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
                     <span style={{ color: colors.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {adj.name} ({adj.type === 'premium' ? '+' : '-'}{Number(adj.percentage).toFixed(1)}%)
+                      {adj.name}{Number(adj.percentage) > 0 ? ` (${adj.type === 'premium' ? '+' : '-'}${Number(adj.percentage).toFixed(1)}%)` : ''}
                     </span>
                     <Button
                       type="text"
@@ -812,11 +815,54 @@ const InvoiceDetailPage: React.FC = () => {
           <Divider style={{ margin: '16px 0' }} />
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-            <span style={{ fontWeight: 600, fontSize: 16 }}>Total</span>
-            <span style={{ fontWeight: 700, fontSize: 20, fontFamily: fonts.heading }}>
+            <span style={{ fontWeight: 600, fontSize: 15 }}>Total</span>
+            <span style={{ fontWeight: 700, fontSize: 20, fontFamily: fonts.heading, letterSpacing: '-0.02em' }}>
               {formatCurrency(total)}
             </span>
           </div>
+
+          {/* Payment Schedule */}
+          {invoice.paymentSchedule && invoice.paymentSchedule.length > 0 && (
+            <>
+              <Divider style={{ margin: '12px 0 8px' }} />
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: colors.textPrimary }}>Payment Schedule</div>
+                {invoice.paymentSchedule.map((step: any, idx: number) => {
+                  const stepAmount = Number(step.amount || 0);
+                  const stepPaid = amountPaid >= invoice.paymentSchedule!.slice(0, idx + 1).reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        padding: '6px 8px',
+                        marginBottom: 4,
+                        background: stepPaid ? '#f0fdf4' : '#f9fafb',
+                        borderRadius: 6,
+                        border: `1px solid ${stepPaid ? '#bbf7d0' : colors.border}`,
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>
+                          {step.label}
+                          <span style={{ color: colors.textMuted, fontWeight: 400, marginLeft: 4 }}>({step.percentage}%)</span>
+                        </div>
+                        {(step.dueDescription || step.due_description) && (
+                          <div style={{ fontSize: 11, color: colors.textMuted }}>{step.dueDescription || step.due_description}</div>
+                        )}
+                      </div>
+                      <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
+                        {formatCurrency(stepAmount)}
+                        {stepPaid && <span style={{ color: '#059669', fontSize: 11, marginLeft: 4 }}>Paid</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           <div
             style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, cursor: payments.length > 0 ? 'pointer' : 'default', padding: '4px 0', borderRadius: 4 }}

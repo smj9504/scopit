@@ -7,23 +7,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
-from app.core.database import engine, Base
-
-# Import all models to register them with SQLAlchemy
-from app.domains.user.models import User
-from app.domains.company.models import Company
-from app.domains.customer.models import Customer
-from app.domains.line_item.models import LineItem
-from app.domains.estimate.models import Estimate
-from app.domains.invoice.models import Invoice
-from app.domains.settings.models import (
-    EstimateStatusConfig, InvoiceStatusConfig, LineItemCategory, LineItemUnit
-)
-from app.domains.admin.models import LoginLog, UserActivity
-from app.domains.tools.models import ToolSession, ToolFile
-from app.domains.tools.modules.pdf_editor.models import (
-    PdfDocument, SignRequest, SignAuditEvent, CompanyDocument
-)
 
 # Import tool converters (registers them in the converter registry)
 import app.domains.tools.modules.roof_analyzer.converter  # noqa: F401
@@ -56,12 +39,6 @@ async def lifespan(app: FastAPI):
     print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     print(f"Environment: {settings.ENV}")
     print(f"Beta Mode: {settings.BETA_MODE}")
-
-    # Create database tables (for local development)
-    if settings.ENV == "local":
-        print("Creating database tables...")
-        Base.metadata.create_all(bind=engine)
-        print("Database tables created successfully")
 
     yield
     # Shutdown

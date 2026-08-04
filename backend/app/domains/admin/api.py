@@ -54,7 +54,7 @@ async def get_users(
     occupation: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
     sort_by: str = Query("created_at"),
-    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_superuser),
     db: Session = Depends(get_db),
 ):

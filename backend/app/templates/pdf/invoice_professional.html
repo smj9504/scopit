@@ -66,8 +66,9 @@
         }
 
         .totals-section {
-            page-break-inside: avoid;
-            break-inside: avoid;
+        }
+
+        .last-section-totals-group {
         }
 
         .items-table {
@@ -267,19 +268,17 @@
 
         /* Totals Section */
         .totals-section {
-            margin-top: 15px;
-            display: table;
+            margin-top: 8px;
             width: 100%;
         }
 
         .totals-spacer {
-            display: table-cell;
-            width: 60%;
+            display: none;
         }
 
         .totals-table-wrapper {
-            display: table-cell;
             width: 40%;
+            margin-left: auto;
         }
 
         .totals-table {
@@ -466,10 +465,10 @@
     {% if balance_due <= 0.01 %}
     <div class="paid-status">PAID IN FULL</div>
     {% elif amount_paid > 0 %}
-    <div class="amount-headline">{{ balance_due | format_currency }} due {{ due_date | format_date }}</div>
-    <div class="amount-subtitle">Original: {{ total | format_currency }} | Paid: {{ amount_paid | format_currency }}</div>
+    <div class="amount-headline">{{ balance_due | format_currency }} {{ next_due_description if next_due_description else ('due ' ~ (due_date | format_date)) }}</div>
+    <div class="amount-subtitle">Invoice Total: {{ total | format_currency }} | Paid: {{ amount_paid | format_currency }}</div>
     {% else %}
-    <div class="amount-headline">{{ total | format_currency }} due {{ due_date | format_date }}</div>
+    <div class="amount-headline">{{ total | format_currency }} {{ next_due_description if next_due_description else ('due ' ~ (due_date | format_date)) }}</div>
     {% endif %}
 
     <!-- Notes -->
@@ -482,6 +481,7 @@
 
     <!-- Items by Section -->
     {% for section in sections %}
+    {% if loop.last %}<div class="last-section-totals-group">{% endif %}
 
     {% if section.name and section.name != 'Items' and section.name != 'Default' %}
     <div class="section-header">{{ section.name }}</div>
@@ -558,7 +558,17 @@
                     <td class="label">Total</td>
                     <td class="value">{{ total | format_currency }}</td>
                 </tr>
+                {% if payment_schedule and payment_schedule | length > 0 %}
+                <tr><td colspan="2" style="padding-top: 16px; border-top: 1.5px solid #d1d5db; font-weight: 600; font-size: 11px; color: #374151;">PAYMENT SCHEDULE</td></tr>
+                {% for step in payment_schedule %}
+                <tr>
+                    <td class="label">{{ step.label }} ({{ step.percentage | int }}%){% if step.due_description or step.dueDescription %}<br><span style="font-size: 9px; color: #9ca3af;">{{ step.due_description or step.dueDescription }}</span>{% endif %}</td>
+                    <td class="value">{{ step.amount | format_currency }}</td>
+                </tr>
+                {% endfor %}
+                {% endif %}
                 {% if payments and payments | length > 0 %}
+                <tr><td colspan="2" style="padding-top: 16px; border-top: 1.5px solid #d1d5db; font-weight: 600; font-size: 11px; color: #374151;">PAYMENTS RECEIVED</td></tr>
                 {% for payment in payments %}
                 <tr class="payment-row">
                     <td class="label">Payment{% if payment.payment_date %} ({{ payment.payment_date | format_date }}){% endif %}</td>
@@ -566,8 +576,8 @@
                 </tr>
                 {% endfor %}
                 <tr>
-                    <td class="label">Total Paid</td>
-                    <td class="value">{{ amount_paid | format_currency }}</td>
+                    <td class="label" style="font-weight: 600;">Total Paid</td>
+                    <td class="value" style="font-weight: 600;">{{ amount_paid | format_currency }}</td>
                 </tr>
                 {% endif %}
                 <tr class="balance-row">
@@ -577,6 +587,7 @@
             </table>
         </div>
     </div>
+    </div><!-- /last-section-totals-group -->
 
     <!-- Attached Photos -->
     {% if attached_photos %}

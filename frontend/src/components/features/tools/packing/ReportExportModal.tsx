@@ -16,6 +16,7 @@ import {
   Tag,
   Tooltip,
   Switch,
+  Radio,
 } from 'antd';
 import {
   CloseOutlined,
@@ -73,7 +74,7 @@ interface ReportExportModalProps {
   open: boolean;
   onClose: () => void;
   result: EstimateResponse;
-  mode: 'quick' | 'content';
+  mode: 'quick' | 'content' | 'packout';
   clientInfo: ClientInfo;
   companyOverride: CompanyInfoOverride;
   activeSessionId?: string;
@@ -343,6 +344,7 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
   const [includeSignature, setIncludeSignature] = useState(false);
   const [includeFieldNotes, setIncludeFieldNotes] = useState(true);
   const [imageQuality, setImageQuality] = useState(60);
+  const [photosPerPage, setPhotosPerPage] = useState<2 | 4>(2);
   const [exporting, setExporting] = useState(false);
   const [taxRate] = useState(0);
 
@@ -456,6 +458,7 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
         include_field_notes: includeFieldNotes,
         image_quality: imageQuality,
         max_image_width: 800,
+        photos_per_page: photosPerPage,
       });
 
       const addr = clientInfo.property_address?.trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
@@ -479,7 +482,7 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
     }
   }, [
     activeSessionId, sections, roomPhotos, companyOverride,
-    taxRate, notes, includeSignature, imageQuality, onRequestSign,
+    taxRate, notes, includeSignature, imageQuality, photosPerPage, onRequestSign,
   ]);
 
   // ── Total photo count ──────────────────────────────────────────────────────
@@ -1017,6 +1020,23 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
                 marks={{ 20: '20', 60: '60', 90: '90' }}
                 style={{ margin: '0 8px 12px' }}
               />
+            </Col>
+          </Row>
+
+          <Row justify="space-between" align="middle">
+            <Col>
+              <Text style={{ fontSize: 13 }}>Photos per Row</Text>
+            </Col>
+            <Col>
+              <Radio.Group
+                size="small"
+                value={photosPerPage}
+                onChange={(e) => setPhotosPerPage(e.target.value)}
+                buttonStyle="solid"
+              >
+                <Radio.Button value={2}>2</Radio.Button>
+                <Radio.Button value={4}>4</Radio.Button>
+              </Radio.Group>
             </Col>
           </Row>
         </div>
