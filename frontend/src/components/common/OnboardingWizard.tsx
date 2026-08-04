@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Modal, Steps, Button } from 'antd';
 import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   FileTextOutlined,
   DollarOutlined,
   UserOutlined,
   SettingOutlined,
-  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { colors, fonts } from '@/styles/theme';
 
@@ -20,45 +20,61 @@ const TOTAL_STEPS = 3;
 
 const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClose }) => {
   const [currentStep, setCurrentStep] = useState(0);
+  const [direction, setDirection] = useState(1);
+  const [skipHovered, setSkipHovered] = useState(false);
   const navigate = useNavigate();
 
+  const persistDone = () => {
+    if (userId) {
+      localStorage.setItem(`onboarding_${userId}`, 'done');
+    }
+  };
+
   const handleComplete = () => {
-    localStorage.setItem(`onboarding_${userId}`, 'done');
+    persistDone();
     onClose();
   };
 
   const handleSkip = () => {
-    localStorage.setItem(`onboarding_${userId}`, 'done');
+    persistDone();
     onClose();
   };
 
   const handleNext = () => {
     if (currentStep < TOTAL_STEPS - 1) {
+      setDirection(1);
       setCurrentStep(currentStep + 1);
     }
   };
 
   const handleBack = () => {
     if (currentStep > 0) {
+      setDirection(-1);
       setCurrentStep(currentStep - 1);
     }
   };
 
   const featureCards = [
     {
-      icon: <FileTextOutlined style={{ fontSize: 22, color: colors.primary }} />,
+      icon: <FileTextOutlined style={{ fontSize: 18 }} />,
       title: 'Estimates',
       description: 'Build detailed estimates with line items and send them to customers.',
+      iconBg: colors.bgSunken,
+      iconFg: colors.textPrimary,
     },
     {
-      icon: <DollarOutlined style={{ fontSize: 22, color: colors.primary }} />,
+      icon: <DollarOutlined style={{ fontSize: 18 }} />,
       title: 'Invoices',
       description: 'Convert approved estimates to invoices and track payments.',
+      iconBg: colors.accentSubtle,
+      iconFg: colors.accent,
     },
     {
-      icon: <UserOutlined style={{ fontSize: 22, color: colors.primary }} />,
+      icon: <UserOutlined style={{ fontSize: 18 }} />,
       title: 'Customers',
       description: 'Manage your customer list and attach them to documents.',
+      iconBg: colors.successBg,
+      iconFg: colors.success,
     },
   ];
 
@@ -79,15 +95,23 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
           fontWeight: 700,
           color: colors.textPrimary,
           margin: '0 0 8px',
+          letterSpacing: '-0.01em',
         }}
       >
         Welcome to ScopeIt! 🎉
       </h2>
-      <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 28 }}>
+      <p style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 1.5, marginBottom: 24 }}>
         ScopeIt helps restoration contractors create estimates, track invoices, and manage customers — all in one place.
       </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {featureCards.map((card) => (
+      <div
+        style={{
+          borderRadius: 12,
+          border: `1px solid ${colors.border}`,
+          background: colors.bgWhite,
+          overflow: 'hidden',
+        }}
+      >
+        {featureCards.map((card, index) => (
           <div
             key={card.title}
             style={{
@@ -95,18 +119,16 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
               alignItems: 'flex-start',
               gap: 14,
               padding: '14px 16px',
-              borderRadius: 10,
-              border: `1px solid ${colors.border}`,
-              background: colors.bgLight,
+              borderBottom: index < featureCards.length - 1 ? `1px solid ${colors.borderLight}` : 'none',
             }}
           >
             <div
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: 8,
-                background: colors.bgWhite,
-                border: `1px solid ${colors.border}`,
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: card.iconBg,
+                color: card.iconFg,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -127,7 +149,9 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
               >
                 {card.title}
               </div>
-              <div style={{ fontSize: 13, color: colors.textSecondary }}>{card.description}</div>
+              <div style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 1.4 }}>
+                {card.description}
+              </div>
             </div>
           </div>
         ))}
@@ -143,26 +167,43 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
           fontWeight: 700,
           color: colors.textPrimary,
           margin: '0 0 8px',
+          letterSpacing: '-0.01em',
         }}
       >
         Set up your company
       </h2>
-      <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 24 }}>
+      <p style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 1.5, marginBottom: 20 }}>
         Add your company details for professional estimates and invoices.
       </p>
-      <div style={{ marginBottom: 24 }}>
-        {settingsChecklist.map((item) => (
+      <div
+        style={{
+          marginBottom: 24,
+          borderRadius: 12,
+          border: `1px solid ${colors.border}`,
+          background: colors.bgLight,
+          padding: '4px 16px',
+        }}
+      >
+        {settingsChecklist.map((item, index) => (
           <div
             key={item}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 10,
-              padding: '10px 0',
-              borderBottom: `1px solid ${colors.border}`,
+              padding: '11px 0',
+              borderBottom: index < settingsChecklist.length - 1 ? `1px solid ${colors.border}` : 'none',
             }}
           >
-            <CheckCircleOutlined style={{ fontSize: 16, color: colors.textMuted }} />
+            <span
+              style={{
+                width: 5,
+                height: 5,
+                borderRadius: '50%',
+                background: colors.textMuted,
+                flexShrink: 0,
+              }}
+            />
             <span style={{ fontSize: 14, color: colors.textPrimary }}>{item}</span>
           </div>
         ))}
@@ -186,15 +227,14 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
           width: 64,
           height: 64,
           borderRadius: '50%',
-          background: colors.bgLight,
-          border: `1px solid ${colors.border}`,
+          background: colors.accentSubtle,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           margin: '0 auto 20px',
         }}
       >
-        <FileTextOutlined style={{ fontSize: 28, color: colors.primary }} />
+        <FileTextOutlined style={{ fontSize: 26, color: colors.accent }} />
       </div>
       <h2
         style={{
@@ -203,6 +243,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
           fontWeight: 700,
           color: colors.textPrimary,
           margin: '0 0 8px',
+          letterSpacing: '-0.01em',
         }}
       >
         You're all set!
@@ -211,7 +252,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
         style={{
           color: colors.textSecondary,
           fontSize: 14,
-          marginBottom: 28,
+          lineHeight: 1.5,
           maxWidth: 320,
           margin: '0 auto 28px',
         }}
@@ -253,14 +294,23 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
 
   const isLastStep = currentStep === TOTAL_STEPS - 1;
 
+  const slideVariants = {
+    enter: (dir: number) => ({ opacity: 0, x: dir > 0 ? 16 : -16 }),
+    center: { opacity: 1, x: 0 },
+    exit: (dir: number) => ({ opacity: 0, x: dir > 0 ? -16 : 16 }),
+  };
+
   return (
     <Modal
       open={open}
       footer={null}
-      closable={false}
+      onCancel={handleSkip}
       maskClosable={false}
       width={480}
-      styles={{ body: { padding: '32px 32px 24px' } }}
+      styles={{
+        body: { padding: '32px 32px 24px' },
+        content: { maxWidth: 'calc(100vw - 32px)' },
+      }}
     >
       <Steps
         current={currentStep}
@@ -273,7 +323,21 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
         ]}
       />
 
-      <div style={{ minHeight: 280 }}>{stepContent[currentStep]}</div>
+      <div style={{ minHeight: 280, overflow: 'hidden' }}>
+        <AnimatePresence mode="wait" custom={direction} initial={false}>
+          <motion.div
+            key={currentStep}
+            custom={direction}
+            variants={slideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {stepContent[currentStep]}
+          </motion.div>
+        </AnimatePresence>
+      </div>
 
       <div
         style={{
@@ -287,13 +351,16 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
       >
         <button
           onClick={handleSkip}
+          onMouseEnter={() => setSkipHovered(true)}
+          onMouseLeave={() => setSkipHovered(false)}
           style={{
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            color: colors.textMuted,
+            color: skipHovered ? colors.textSecondary : colors.textMuted,
             fontSize: 13,
             padding: 0,
+            transition: 'color 0.15s ease',
           }}
         >
           Skip for now

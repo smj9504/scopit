@@ -136,9 +136,10 @@ function capitalizeFirst(str: string): string {
 interface InfoRowProps {
   label: string;
   value?: string;
+  multiline?: boolean;
 }
 
-function InfoRow({ label, value }: InfoRowProps) {
+function InfoRow({ label, value, multiline }: InfoRowProps) {
   return (
     <div
       style={{
@@ -165,6 +166,7 @@ function InfoRow({ label, value }: InfoRowProps) {
           fontSize: fontSizes.sm,
           color: value ? colors.textPrimary : colors.textMuted,
           fontFamily: fonts.body,
+          whiteSpace: multiline ? 'pre-wrap' : undefined,
         }}
       >
         {value || '—'}
@@ -805,8 +807,8 @@ export default function CustomerDetailPage() {
                 >
                   <Input.TextArea
                     placeholder="Additional notes about this customer..."
-                    rows={3}
-                    style={{ borderRadius: borderRadius.base, resize: 'none' }}
+                    autoSize={{ minRows: 10, maxRows: 20 }}
+                    style={{ borderRadius: borderRadius.base, resize: 'vertical' }}
                   />
                 </Form.Item>
               </Form>
@@ -854,7 +856,7 @@ export default function CustomerDetailPage() {
                   <InfoRow label="Address" value={undefined} />
                 )}
 
-                <InfoRow label="Notes" value={customer.notes} />
+                <InfoRow label="Notes" value={customer.notes} multiline />
               </div>
             )}
           </Card>
