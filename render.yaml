@@ -1,16 +1,21 @@
 # ScopeIt - Render Deployment Configuration
 # Deploy at: https://dashboard.render.com
 # Docs: https://render.com/docs/blueprint-spec
+#
+# Backend runs on the Docker runtime (not native python) because the app needs
+# system libraries that the native runtime cannot install:
+#   - WeasyPrint (estimate/invoice PDFs) -> libpango, libcairo, libgdk-pixbuf
+#   - pdf2image (PDF editor / thumbnails) -> poppler-utils
+# These are installed in backend/Dockerfile.
 
 services:
   - type: web
     name: scopeit-api
-    runtime: python
+    runtime: docker
     plan: free
     region: oregon
-    buildCommand: pip install -r requirements.txt
-    startCommand: cd /opt/render/project/src/backend && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT
-    rootDir: backend
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     autoDeploy: true
     healthCheckPath: /health
     envVars:
@@ -18,14 +23,12 @@ services:
         value: production
       - key: DEBUG
         value: "False"
-      - key: PYTHON_VERSION
-        value: "3.11.0"
       # NeonDB (set in dashboard)
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEY
         generateValue: true
-      # CORS - update after Vercel deploy (add your Vercel URL)
+      # CORS - update after Vercel deploy (add your Vercel URL, comma-separated)
       - key: CORS_ORIGINS
         sync: false
       - key: FRONTEND_URL
@@ -62,3 +65,9 @@ services:
         value: "1440"
       - key: REFRESH_TOKEN_EXPIRE_DAYS
         value: "30"
+      # Item Recommender (semantic search) loads a sentence-transformers/torch
+      # model (~500MB-1GB RAM) and needs the gitignored parsed_json dataset, so
+      # it is disabled on the free plan. After upgrading to a paid plan with more
+      # RAM (and providing the data), set this to "True" to enable it.
+      - key: ITEM_RECOMMENDER_ENABLED
+        value: "False"

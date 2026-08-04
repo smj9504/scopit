@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.domains.tools.dependencies import require_tool_access
 
@@ -22,6 +23,16 @@ from .search import search_and_group
 logger = logging.getLogger(__name__)
 router = APIRouter()
 _gate = require_tool_access("item_recommender")
+
+
+def _ensure_enabled() -> None:
+    """Guard heavy endpoints so a memory-constrained host (e.g. Render free
+    plan) returns a clean 503 instead of OOM-crashing the whole process."""
+    if not settings.ITEM_RECOMMENDER_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Item recommender is currently disabled on this deployment.",
+        )
 
 # ── Index singleton ─────────────────────────────────────────────────────
 
@@ -104,6 +115,7 @@ async def search_items(
     current_user=Depends(_gate),
 ):
     """Search line items by semantic similarity and return grouped results."""
+    _ensure_enabled()
     index = _get_index()
 
     # Auto-detect stale index → background reindex
@@ -120,6 +132,7 @@ async def force_reindex(
     current_user=Depends(_gate),
 ):
     """Force a full re-index of all JSON data files."""
+    _ensure_enabled()
     global _reindex_in_progress
     if _reindex_in_progress:
         return {"status": "already_in_progress"}
@@ -134,6 +147,7 @@ async def index_status(
     current_user=Depends(_gate),
 ):
     """Return current index status."""
+    _ensure_enabled()
     index = _get_index()
     return IndexStatusResponse(
         item_count=index.item_count,
