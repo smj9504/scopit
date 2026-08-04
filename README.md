@@ -163,18 +163,35 @@ WHERE signed_file_path LIKE 'uploads/%';
 
 ### 3. Render (Backend)
 
+The backend deploys on Render's **Docker** runtime (not native Python) because
+WeasyPrint (PDF generation) and pdf2image (PDF editor) require system libraries
+— `libpango`/`libcairo`/`libgdk-pixbuf` and `poppler-utils` — that the native
+runtime cannot install. These are provided by `backend/Dockerfile`. Database
+migrations (`alembic upgrade head`) run automatically on every container start.
+
 1. Connect GitHub repo at [render.com](https://render.com)
-2. Use `render.yaml` blueprint or create Web Service manually:
-   - **Runtime**: Python
-   - **Root Directory**: `backend`
-   - **Build**: `pip install -r requirements.txt && alembic upgrade head`
-   - **Start**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-3. Set environment variables in Render dashboard:
+2. Use the `render.yaml` blueprint (recommended — it creates the service as a
+   Docker web service), or create a Web Service manually:
+   - **Runtime**: Docker
+   - **Dockerfile Path**: `./backend/Dockerfile`
+   - **Docker Context**: `./backend`
+3. Set environment variables in Render dashboard (blueprint marks these
+   `sync: false`, so they must be filled in there):
    - `DATABASE_URL` (NeonDB connection string)
+   - `CORS_ORIGINS` (your Vercel URL, e.g. `https://scopeit.work`)
+   - `FRONTEND_URL`, `GOOGLE_REDIRECT_URI`
    - `R2_ENDPOINT_URL`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
    - `ANTHROPIC_API_KEY`
 4. Add custom domain: `api.scopeit.work`
+
+> **Free plan note:** The Item Recommender (semantic search) loads a
+> sentence-transformers/torch model (~500MB–1GB RAM) that exceeds the free
+> plan's 512MB limit, so `ITEM_RECOMMENDER_ENABLED` is set to `False` in
+> `render.yaml`. After upgrading to a paid plan (e.g. Starter) with more RAM —
+> and providing the `parsed_json` dataset — set it to `True` to enable the tool.
+> The free plan also spins the service down after inactivity, causing a cold
+> start (~30–60s) on the next request.
 
 ### 4. Vercel (Frontend)
 
@@ -217,6 +234,10 @@ BETA_MODE=True
 # File storage (default: local)
 STORAGE_PROVIDER=local
 STORAGE_BASE_DIR=uploads
+
+# Item Recommender semantic search (heavy torch model).
+# Set to False on memory-constrained hosts (e.g. Render free plan).
+ITEM_RECOMMENDER_ENABLED=True
 
 # Optional: use R2 locally
 # STORAGE_PROVIDER=r2

@@ -86,6 +86,14 @@ class Settings(BaseSettings):
     EMAIL_FROM_NAME: str = "ScopeIt"
     
     # ===================
+    # Item Recommender (semantic search)
+    # ===================
+    # Loads a sentence-transformers/torch model (~500MB-1GB RAM) and needs the
+    # parsed_json dataset. Disabled by default on memory-constrained hosts
+    # (e.g. Render free plan) to avoid OOM crashes.
+    ITEM_RECOMMENDER_ENABLED: bool = True
+
+    # ===================
     # AI / Vision (Packing Tool)
     # ===================
     ANTHROPIC_API_KEY: Optional[str] = None
