@@ -294,6 +294,16 @@ export const estimateService = {
     return response.data;
   },
 
+  /**
+   * Get a sample estimate rendered through a given template, for template pickers
+   */
+  getTemplateSamplePreview: async (template: PdfTemplateId): Promise<string> => {
+    const response = await api.get<{ html: string; template: string }>(
+      `/estimates/templates/${template}/sample-preview`
+    );
+    return response.data.html;
+  },
+
   // Section operations
   sections: {
     /**

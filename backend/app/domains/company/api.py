@@ -1,12 +1,16 @@
 """
 ScopeIt - Company API Routes
 """
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
+
+HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
@@ -141,6 +145,13 @@ class CompanyUpdate(BaseModel):
     def validate_number_positive(cls, v):
         if v is not None and v < 1:
             raise ValueError('Number must be at least 1')
+        return v
+
+    @field_validator('primary_color', 'secondary_color')
+    @classmethod
+    def validate_hex_color(cls, v):
+        if v is not None and not HEX_COLOR_RE.match(v):
+            raise ValueError('Color must be a 6-digit hex value, e.g. #111827')
         return v
 
 

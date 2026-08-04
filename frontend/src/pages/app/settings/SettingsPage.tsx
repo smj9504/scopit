@@ -36,6 +36,7 @@ import {
   DeleteOutlined,
   HolderOutlined,
   CheckCircleOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -47,6 +48,7 @@ import { companyService } from '@/services/companyService';
 import { authService } from '@/services/authService';
 import { StatusMigrationModal, type StatusType } from '@/components/settings/StatusMigrationModal';
 import CompanyDocumentsSettings from '@/components/settings/CompanyDocumentsSettings';
+import { TemplatePreviewModal } from '@/components/features/TemplatePreviewModal';
 import type {
   EstimateStatusConfig,
   InvoiceStatusConfig,
@@ -54,6 +56,7 @@ import type {
   StatusConfigCreate,
   CategoryCreate,
   StatusUsageResponse,
+  PdfTemplateId,
 } from '@/types/entities';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -74,6 +77,31 @@ const colorPresets = [
   '#d946ef', // Fuchsia
   '#ec4899', // Pink
 ];
+
+// Resolve an AntD ColorPicker form value (string | AggregationColor | undefined) to a
+// plain #RRGGBB hex string. None of our color fields support transparency, so an 8-digit
+// #RRGGBBAA value (e.g. from an alpha slider) is normalized down to 6 digits.
+const resolveColorHex = (value: unknown, fallback: string): string => {
+  let hex = fallback;
+  if (typeof value === 'string') {
+    hex = value;
+  } else if (value && typeof (value as { toHexString?: () => string }).toHexString === 'function') {
+    hex = (value as { toHexString: () => string }).toHexString();
+  }
+  return /^#[0-9a-fA-F]{8}$/.test(hex) ? hex.slice(0, 7) : hex;
+};
+
+// Derive a lighter accent tint from the brand color, for subtitles/borders in PDFs.
+// Blends the brand color toward white so any hue stays clear and bright rather than muddy.
+const deriveSecondaryColor = (primaryHex: string): string => {
+  const hex = primaryHex.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const mixToward = (channel: number, target: number) => Math.round(channel + (target - channel) * 0.5);
+  const [mr, mg, mb] = [mixToward(r, 255), mixToward(g, 255), mixToward(b, 255)];
+  return `#${mr.toString(16).padStart(2, '0')}${mg.toString(16).padStart(2, '0')}${mb.toString(16).padStart(2, '0')}`;
+};
 
 // Helper to generate lighter background color
 const generateBgColor = (color: string): string => {
@@ -1358,11 +1386,11 @@ const CustomizationSettings: React.FC = () => {
               borderRadius: 6,
               fontSize: 13,
               fontWeight: 500,
-              color: record.color,
+              color: colors.textPrimary,
               background: record.bgColor,
             }}
           >
-            {text}
+            {text.charAt(0).toUpperCase() + text.slice(1)}
           </span>
           {record.isDefault && (
             <Tooltip title="Default status for new estimates">
@@ -1466,11 +1494,11 @@ const CustomizationSettings: React.FC = () => {
               borderRadius: 6,
               fontSize: 13,
               fontWeight: 500,
-              color: record.color,
+              color: colors.textPrimary,
               background: record.bgColor,
             }}
           >
-            {text}
+            {text.charAt(0).toUpperCase() + text.slice(1)}
           </span>
           {record.isDefault && (
             <Tooltip title="Default status for new invoices">
@@ -1562,16 +1590,6 @@ const CustomizationSettings: React.FC = () => {
       key: 'name',
       render: (text, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {record.color && (
-            <div
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: 3,
-                background: record.color,
-              }}
-            />
-          )}
           <span style={{ fontWeight: 500 }}>{text}</span>
           {record.isDefault && (
             <Tooltip title="Default category for new line items">
@@ -1935,6 +1953,8 @@ const CompanySettings: React.FC = () => {
   const [form] = Form.useForm();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const primaryColorValue = Form.useWatch('primaryColor', form);
+  const derivedSecondaryColor = deriveSecondaryColor(resolveColorHex(primaryColorValue, '#111827'));
 
   // Fetch company data
   const { data: company, isLoading } = useQuery({
@@ -1966,7 +1986,6 @@ const CompanySettings: React.FC = () => {
         state: company.state,
         zipcode: company.zipcode,
         primaryColor: company.primaryColor || '#111827',
-        secondaryColor: company.secondaryColor,
       });
     }
   }, [company, form]);
@@ -1974,15 +1993,9 @@ const CompanySettings: React.FC = () => {
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      // Convert color picker values to hex strings
-      const primaryColor = typeof values.primaryColor === 'string'
-        ? values.primaryColor
-        : values.primaryColor?.toHexString?.() || '#111827';
-      const secondaryColor = values.secondaryColor
-        ? (typeof values.secondaryColor === 'string'
-            ? values.secondaryColor
-            : values.secondaryColor?.toHexString?.())
-        : undefined;
+      // Convert the picked color to a hex string, then auto-derive the accent color from it
+      const primaryColor = resolveColorHex(values.primaryColor, '#111827');
+      const secondaryColor = deriveSecondaryColor(primaryColor);
 
       updateMutation.mutate({
         ...values,
@@ -2050,32 +2063,20 @@ const CompanySettings: React.FC = () => {
         <Divider />
 
         <h3 style={{ fontFamily: fonts.heading, fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
-          PDF Theme Colors
+          PDF Theme Color
         </h3>
         <p style={{ color: colors.textSecondary, marginBottom: 16, fontSize: 13 }}>
-          These colors will be used in your PDF documents (estimates and invoices).
+          Pick your brand color and we'll use it in your PDF documents — headings, section bars, and
+          borders. A softer accent shade for subtitles and dividers is generated from it automatically.
         </p>
 
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, marginBottom: 24 }}>
-          <Form.Item name="primaryColor" label="Primary Color" style={{ marginBottom: 0 }}>
-            <ColorPicker
-              showText
-              presets={[{ label: 'Recommended', colors: colorPresets }]}
-            />
-          </Form.Item>
-          <Form.Item
-            name="secondaryColor"
-            label="Secondary Color (Optional)"
-            style={{ marginBottom: 0 }}
-            tooltip="Used for accent elements like subtitles and borders"
-          >
-            <ColorPicker
-              showText
-              allowClear
-              presets={[{ label: 'Recommended', colors: colorPresets }]}
-            />
-          </Form.Item>
-        </div>
+        <Form.Item name="primaryColor" label="Brand Color" style={{ marginBottom: 24 }}>
+          <ColorPicker
+            showText
+            disabledAlpha
+            presets={[{ label: 'Recommended', colors: colorPresets }]}
+          />
+        </Form.Item>
 
         {/* Color Preview */}
         <div
@@ -2094,7 +2095,7 @@ const CompanySettings: React.FC = () => {
                 width: 80,
                 height: 40,
                 borderRadius: 6,
-                background: form.getFieldValue('primaryColor') || '#111827',
+                background: resolveColorHex(primaryColorValue, '#111827'),
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -2103,23 +2104,23 @@ const CompanySettings: React.FC = () => {
                 fontWeight: 600,
               }}
             >
-              Primary
+              Brand
             </div>
             <div
               style={{
                 width: 80,
                 height: 40,
                 borderRadius: 6,
-                background: form.getFieldValue('secondaryColor') || '#6b7280',
+                background: derivedSecondaryColor,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#fff',
+                color: colors.textPrimary,
                 fontSize: 11,
                 fontWeight: 600,
               }}
             >
-              Secondary
+              Accent
             </div>
           </div>
         </div>
@@ -2346,6 +2347,8 @@ const AccountSettings: React.FC = () => {
   const [form] = Form.useForm();
   const [passwordForm] = Form.useForm();
   const [selectedTemplate, setSelectedTemplate] = React.useState<string>(user?.defaultPdfTemplate || 'classic');
+  const [previewTemplate, setPreviewTemplate] = React.useState<PdfTemplateId | null>(null);
+  const isMobile = useIsMobile();
 
   // PDF Template options
   const templateOptions = [
@@ -2466,51 +2469,92 @@ const AccountSettings: React.FC = () => {
           This template will be pre-selected when generating PDFs for estimates and invoices.
         </p>
 
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
-          {templateOptions.map((template) => (
-            <div
-              key={template.value}
-              onClick={() => setSelectedTemplate(template.value)}
-              style={{
-                flex: '1 1 140px',
-                minWidth: 130,
-                maxWidth: 200,
-                padding: 14,
-                borderRadius: 8,
-                border: `2px solid ${selectedTemplate === template.value ? colors.primary : colors.border}`,
-                background: selectedTemplate === template.value ? `${colors.primary}08` : colors.bgWhite,
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                position: 'relative',
-              }}
-            >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
+            gap: 12,
+            marginBottom: 24,
+          }}
+        >
+          {templateOptions.map((template) => {
+            const isSelected = selectedTemplate === template.value;
+            return (
               <div
+                key={template.value}
+                onClick={() => setSelectedTemplate(template.value)}
                 style={{
-                  fontWeight: 600,
-                  fontSize: 14,
-                  marginBottom: 4,
-                  color: selectedTemplate === template.value ? colors.primary : colors.textPrimary,
+                  padding: 14,
+                  borderRadius: 8,
+                  border: `2px solid ${isSelected ? colors.primary : colors.border}`,
+                  background: isSelected ? `${colors.primary}08` : colors.bgWhite,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
               >
-                {template.label}
-              </div>
-              <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                {template.description}
-              </div>
-              {selectedTemplate === template.value && (
-                <CheckCircleOutlined
+                <div
                   style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    color: colors.primary,
-                    fontSize: 16,
+                    fontWeight: 600,
+                    fontSize: 14,
+                    marginBottom: 4,
+                    paddingRight: 20,
+                    color: isSelected ? colors.primary : colors.textPrimary,
                   }}
-                />
-              )}
-            </div>
-          ))}
+                >
+                  {template.label}
+                </div>
+                <div style={{ fontSize: 12, color: colors.textSecondary, flex: 1 }}>
+                  {template.description}
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewTemplate(template.value as PdfTemplateId);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    marginTop: 10,
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: isSelected ? colors.primary : colors.textSecondary,
+                  }}
+                >
+                  <EyeOutlined style={{ fontSize: 13 }} />
+                  Preview example
+                </button>
+                {isSelected && (
+                  <CheckCircleOutlined
+                    style={{
+                      position: 'absolute',
+                      top: 14,
+                      right: 14,
+                      color: colors.primary,
+                      fontSize: 16,
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
+
+        <TemplatePreviewModal
+          open={previewTemplate !== null}
+          onClose={() => setPreviewTemplate(null)}
+          template={previewTemplate || 'classic'}
+          templateName={templateOptions.find((t) => t.value === previewTemplate)?.label || ''}
+          isSelected={previewTemplate === selectedTemplate}
+          onUseTemplate={(value) => setSelectedTemplate(value)}
+        />
 
         <Button
           type="primary"

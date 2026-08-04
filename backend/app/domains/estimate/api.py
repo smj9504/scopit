@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 # Currency precision constant
@@ -484,6 +484,112 @@ async def list_estimates(
 async def get_pdf_templates():
     """Get available PDF templates"""
     return get_template_info()
+
+
+@router.get("/templates/{template_name}/sample-preview")
+async def get_template_sample_preview(
+    template_name: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Render a sample estimate through a given template, for template pickers."""
+    if template_name not in get_available_templates():
+        raise HTTPException(status_code=404, detail="Unknown template")
+
+    company = db.query(Company).filter(Company.id == current_user.company_id).first()
+    company_data = {
+        "name": (company.name if company and company.name else "Your Company Name"),
+        "address_line1": company.address_line1 if company else "",
+        "city": company.city if company else "",
+        "state": company.state if company else "",
+        "zipcode": company.zipcode if company else "",
+        "phone": company.phone if company else "",
+        "email": company.email if company else "",
+        "logo_url": company.logo_url if company else "",
+    }
+
+    sample_data = {
+        "estimate_number": "EST-1001",
+        "estimate_date": date.today().isoformat(),
+        "valid_until": (date.today() + timedelta(days=30)).isoformat(),
+        "company": company_data,
+        "customer": {
+            "name": "Jane Sample",
+            "address": "482 Willow Creek Dr",
+            "city": "Springfield",
+            "state": "IL",
+            "zipcode": "62704",
+            "phone": "(555) 019-2837",
+            "email": "jane.sample@example.com",
+        },
+        "sections": [
+            {
+                "name": "Water Mitigation",
+                "subtotal": 880.00,
+                "items": [
+                    {
+                        "name": "Emergency Water Extraction",
+                        "description": "Category 2 water removal, living room and hallway",
+                        "quantity": 1,
+                        "unit": "ea",
+                        "unit_price": 450.00,
+                        "total": 450.00,
+                    },
+                    {
+                        "name": "Structural Drying Equipment",
+                        "description": "Air movers and dehumidifiers, 3-day rental",
+                        "quantity": 3,
+                        "unit": "day",
+                        "unit_price": 85.00,
+                        "total": 255.00,
+                    },
+                    {
+                        "name": "Antimicrobial Treatment",
+                        "description": "Applied to affected drywall and subfloor",
+                        "quantity": 1,
+                        "unit": "ea",
+                        "unit_price": 175.00,
+                        "total": 175.00,
+                    },
+                ],
+            },
+            {
+                "name": "Materials & Repairs",
+                "subtotal": 212.00,
+                "items": [
+                    {
+                        "name": "Drywall Replacement",
+                        "description": "1/2\" moisture-resistant drywall, 32 sq ft",
+                        "quantity": 32,
+                        "unit": "sqft",
+                        "unit_price": 3.25,
+                        "total": 104.00,
+                    },
+                    {
+                        "name": "Baseboard Trim",
+                        "description": "Primed MDF baseboard, installed",
+                        "quantity": 24,
+                        "unit": "lf",
+                        "unit_price": 4.50,
+                        "total": 108.00,
+                    },
+                ],
+            },
+        ],
+        "subtotal": 1092.00,
+        "taxable_subtotal": 1092.00,
+        "tax_rate": 8.0,
+        "tax_label": "Sales Tax",
+        "tax_amount": 87.36,
+        "total": 1179.36,
+        "notes": "Sample estimate shown for template preview purposes only.",
+        "terms": "This estimate is valid for 30 days from the date issued.",
+        "primary_color": company.primary_color if company and company.primary_color else "#111827",
+        "secondary_color": company.secondary_color if company and company.secondary_color else "#6b7280",
+    }
+
+    html_content = generate_estimate_html(sample_data, template_name)
+    return {"html": html_content, "template": template_name}
 
 
 @router.get("/excel-template")
