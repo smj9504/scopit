@@ -34,7 +34,21 @@ export interface RegisterRequest {
   companyName: string;
 }
 
-export interface RegisterResponse extends LoginResponse {}
+export interface RegisterResponse {
+  email: string;
+  message: string;
+}
+
+export interface VerifyEmailRequest {
+  email: string;
+  code: string;
+}
+
+export interface VerifyEmailResponse extends LoginResponse {}
+
+export interface ResendVerificationRequest {
+  email: string;
+}
 
 export interface RefreshTokenRequest {
   refreshToken: string;

@@ -25,7 +25,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { toolService } from '@/services/toolService';
 import type { ToolSession } from '@/types/tools';
-import type { PackingSessionData, SessionStatus } from './types';
+import type { PackingSessionData } from './types';
+import { getGrandTotal, deriveHistoryStatus } from './sessionStatus';
 import { colors, fonts, borderRadius, fontSizes } from '@/styles/theme';
 
 const { Text, Title } = Typography;
@@ -189,7 +190,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
       width: 100,
       render: (_: unknown, record: ToolSession) => {
         const d = getSessionData(record);
-        const status: SessionStatus = d?.status ?? (d?.result?.grand_total ? 'completed' : 'draft');
+        const status = deriveHistoryStatus(d);
         return status === 'completed' ? (
           <Tag
             style={{
@@ -228,7 +229,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
       align: 'right' as const,
       render: (_: unknown, record: ToolSession) => {
         const d = getSessionData(record);
-        const total = d?.result?.grand_total;
+        const total = getGrandTotal(d);
         return (
           <Text
             strong
@@ -281,8 +282,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
     const d = getSessionData(session);
     const clientName = d?.client_info?.name || session.name || 'Unnamed';
     const mode = d?.mode ?? 'quick';
-    const total = d?.result?.grand_total;
-    const status: SessionStatus = d?.status ?? (d?.result?.grand_total ? 'completed' : 'draft');
+    const total = getGrandTotal(d);
+    const status = deriveHistoryStatus(d);
 
     return (
       <Card

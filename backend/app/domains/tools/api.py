@@ -45,6 +45,11 @@ class ToolSessionCreate(BaseModel):
 class ToolSessionUpdate(BaseModel):
     name: Optional[str] = None
     data: Optional[dict] = None
+    # When true, `data` is shallow-merged into the existing session data
+    # instead of replacing it — lets independent parts of a tool session
+    # (e.g. AI photo results vs. estimate settings) save without clobbering
+    # each other's unsaved in-memory state.
+    merge: bool = False
 
 
 class ToolSessionResponse(BaseModel):
@@ -179,7 +184,7 @@ async def update_session(
     service = ToolSessionService(db)
     return service.update_session_data(
         session_id, current_user.company_id,
-        name=data.name, data=data.data,
+        name=data.name, data=data.data, merge=data.merge,
     )
 
 
@@ -316,6 +321,13 @@ async def create_estimate_from_tool(
     # Recalculate totals
     from app.domains.estimate.api import recalculate_estimate
     recalculate_estimate(estimate, db)
+
+    # Record the conversion on the source session so its status reflects that
+    # it was actually turned into a real estimate, not just calculated.
+    session_data = dict(tool_session.data or {})
+    session_data["linked_estimate_id"] = str(estimate.id)
+    session_data["linked_estimate_number"] = estimate.estimate_number
+    session_service.update_session_data(session_id, current_user.company_id, data=session_data)
 
     return CreateEstimateFromToolResponse(
         estimate_id=str(estimate.id),
@@ -487,6 +499,13 @@ async def create_invoice_from_tool(
 
     # Recalculate totals
     recalculate_invoice(invoice, db)
+
+    # Record the conversion on the source session so its status reflects that
+    # it was actually turned into a real invoice, not just calculated.
+    session_data = dict(tool_session.data or {})
+    session_data["linked_invoice_id"] = str(invoice.id)
+    session_data["linked_invoice_number"] = invoice.invoice_number
+    session_service.update_session_data(session_id, current_user.company_id, data=session_data)
 
     return CreateInvoiceFromToolResponse(
         invoice_id=str(invoice.id),

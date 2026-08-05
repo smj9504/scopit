@@ -429,6 +429,21 @@ a {
   color: #ffffff !important;
 }
 
+/* Ant Design Select dropdown options - the dark near-black primary color
+   produces muddy, low-contrast auto-generated tints for the selected/active
+   option background, leaving dark text on a dark background. Force a light,
+   legible highlight instead. */
+.ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background-color: #eff6ff !important;
+  color: #111827 !important;
+  font-weight: 600 !important;
+}
+
+.ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background-color: #f3f4f6 !important;
+  color: #111827 !important;
+}
+
 /* Ant Design Dropdown menu touch-friendly */
 .ant-dropdown-menu-item {
   padding: 12px 16px !important;
@@ -513,6 +528,20 @@ a {
 
 .animate-result-reveal {
   animation: resultReveal 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ===== Detected Items Table ===== */
+
+.pai-item-row {
+  transition: background-color 0.12s ease;
+}
+
+.pai-item-row:nth-child(even) {
+  background: #fafbfc;
+}
+
+.pai-item-row:hover {
+  background: #f3f4f6;
 }
 
 /* ===== Responsive Utilities ===== */

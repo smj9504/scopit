@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Modal,
   Button,
@@ -7,6 +7,7 @@ import {
   Input,
   Collapse,
   Divider,
+  Dropdown,
   Space,
   Row,
   Col,
@@ -20,13 +21,11 @@ import {
   Alert,
 } from 'antd';
 import {
-  ArrowLeftOutlined,
   CloseOutlined,
-  WarningOutlined,
   FilePdfOutlined,
   FileExcelOutlined,
   FileTextOutlined,
-  SaveOutlined,
+  ExportOutlined,
   PlusOutlined,
   CheckOutlined,
   CloseCircleOutlined,
@@ -36,6 +35,7 @@ import {
   RightOutlined,
   FolderOpenOutlined,
   ThunderboltOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { toolService } from '@/services/toolService';
@@ -44,6 +44,7 @@ import ReportExportModal from './ReportExportModal';
 import type { ColumnsType } from 'antd/es/table';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { packingApi } from './packingApi';
+import { getGrandTotal } from './sessionStatus';
 import type {
   EstimateResponse,
   SectionDetailLine,
@@ -114,6 +115,16 @@ function isTransportSection(name: string): boolean {
   return /transport/i.test(name);
 }
 
+/** Sum elapsed hours across every crew-tagged HR line (qty on a crew-labor
+ * line is already elapsed hours). Sums across all matching lines in a
+ * section since Content mode splits Pack-Out/Pack-Back into several
+ * category lines rather than one "Crew Labor" line. */
+function sumCrewElapsedHours(lines: SectionDetailLine[]): number {
+  return lines
+    .filter((l) => l.unit === 'HR' && /crew/i.test(l.detail || ''))
+    .reduce((s, l) => s + l.qty, 0);
+}
+
 /** Check if material_details are individual items (not already category-grouped). */
 function isMaterialDetailsLegacy(details: { unit?: string; quantity?: number }[]): boolean {
   return details.length > 3 || details.some((m) => m.unit !== 'LS' || (m.quantity ?? 1) !== 1);
@@ -161,10 +172,8 @@ function generateSchedulingNotes(
   const crewN = Math.max(1, crewSize);
   const packOutLines = sectionDetails?.['Pack-Out Labor']?.lines ?? [];
   const packBackLines = sectionDetails?.['Pack-Back Labor']?.lines ?? [];
-  const poCrewLine = packOutLines.find((l) => l.unit === 'HR' && /crew/i.test(l.name));
-  const pbCrewLine = packBackLines.find((l) => l.unit === 'HR' && /crew/i.test(l.name));
-  const poElapsed = poCrewLine ? Math.round((poCrewLine.qty / crewN) * 10) / 10 : 0;
-  const pbElapsed = pbCrewLine ? Math.round((pbCrewLine.qty / crewN) * 10) / 10 : 0;
+  const poElapsed = Math.round(sumCrewElapsedHours(packOutLines) * 10) / 10;
+  const pbElapsed = Math.round(sumCrewElapsedHours(packBackLines) * 10) / 10;
   const totalElapsed = Math.round((poElapsed + pbElapsed) * 10) / 10;
 
   if (totalElapsed <= 0) return notes;
@@ -186,47 +195,14 @@ function generateSchedulingNotes(
     );
   }
 
-  // Labor hour breakdown — explain how each HR line item qty was calculated
-  const breakdownParts: string[] = [];
-  for (const secName of ['Pack-Out Labor', 'Pack-Back Labor']) {
-    const lines = sectionDetails?.[secName]?.lines ?? [];
-    for (const line of lines) {
-      if (line.unit !== 'HR' || line.qty <= 0) continue;
-      const detail = line.detail || '';
-      const isCrew = /crew/i.test(detail);
-      const hasElapsed = /[\d.]+\s*elapsed hr/i.test(detail);
-      if (isCrew && hasElapsed) {
-        // Quick mode: qty = person-hrs, rate = per-person rate
-        const m = detail.match(/([\d.]+)\s*elapsed hr/i);
-        const elapsed = m ? parseFloat(m[1]) : Math.round((line.qty / crewN) * 10) / 10;
-        breakdownParts.push(
-          `${line.name}: ${elapsed} elapsed hr × ${crewN} crew = ${line.qty} person-hrs × ${fmtMoney(line.rate)}/hr = ${fmtMoney(line.amount)}`,
-        );
-      } else if (isCrew) {
-        // Content mode: qty = elapsed hrs, rate = crew_rate
-        const perPerson = Math.round((line.rate / crewN) * 100) / 100;
-        breakdownParts.push(
-          `${line.name}: ${line.qty} hr × ${crewN} crew × ${fmtMoney(perPerson)}/hr = ${fmtMoney(line.amount)}`,
-        );
-      } else {
-        breakdownParts.push(
-          `${line.name}: ${line.qty} hr × ${fmtMoney(line.rate)}/hr = ${fmtMoney(line.amount)}`,
-        );
-      }
-    }
-  }
-  if (breakdownParts.length > 0) {
-    notes.push('Labor Hours Breakdown:\n' + breakdownParts.map((p) => `• ${p}`).join('\n'));
-  }
-
   return notes;
 }
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 
 interface EstimateEditorModalProps {
-  /** Navigate back to the room/wizard view. Renamed from onClose — this is an inline panel, not a dialog. */
-  onBack: () => void;
+  /** True while this panel is the visible one. The parent's breadcrumb owns navigation — this only drives clearing in-progress edit drafts when the user steps away. */
+  active: boolean;
   result: EstimateResponse | null;
   setResult: React.Dispatch<React.SetStateAction<EstimateResponse | null>>;
   mode: 'quick' | 'content' | 'packout';
@@ -236,6 +212,8 @@ interface EstimateEditorModalProps {
   setCompanyOverride: React.Dispatch<React.SetStateAction<CompanyInfoOverride>>;
   activeSessionId?: string;
   onCreateEstimate?: () => void;
+  /** Called after a real Invoice is created from this session (marks the session as actually converted). */
+  onInvoiceCreated?: (invoiceId: string, invoiceNumber: string) => void;
   onSaveSession?: () => Promise<void>;
   onCalculate?: () => Promise<EstimateResponse | undefined>;
   photoRooms?: import('./types').PhotoRoom[];
@@ -274,6 +252,9 @@ interface SectionLineTableProps {
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onDeleteLine: (sectionName: string, lineIndex: number) => void;
+  /** Crew size (global for the estimate) — crew-labor lines already store qty as elapsed
+   * hours; crewSize is only used here to render the informational "×N" crew badge. */
+  crewSize: number;
 }
 
 const SectionLineTable: React.FC<SectionLineTableProps> = ({
@@ -285,6 +266,7 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
   onSaveEdit,
   onCancelEdit,
   onDeleteLine,
+  crewSize,
 }) => {
   const isRowEditing = (record: { _index: number }) =>
     editing?.sectionName === sectionName && editing?.lineIndex === record._index;
@@ -301,15 +283,20 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
           return (
             <Input
               size="small"
+              variant="filled"
               value={editing!.name}
               onChange={(e) => onEditField('name', e.target.value)}
               onPressEnter={onSaveEdit}
               autoFocus
-              style={{ fontFamily: fonts.body }}
+              style={{ fontFamily: fonts.body, fontSize: 14 }}
             />
           );
         }
-        return <Text style={{ fontSize: 13, fontFamily: fonts.body }}>{val}</Text>;
+        return (
+          <Text style={{ fontSize: 14, fontFamily: fonts.body }} ellipsis={{ tooltip: val }}>
+            {val}
+          </Text>
+        );
       },
     },
     {
@@ -322,15 +309,19 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
           return (
             <Input
               size="small"
+              variant="filled"
               value={editing!.detail}
               onChange={(e) => onEditField('detail', e.target.value)}
               onPressEnter={onSaveEdit}
-              style={{ fontFamily: fonts.body }}
+              style={{ fontFamily: fonts.body, fontSize: 14 }}
             />
           );
         }
         return (
-          <Text style={{ fontSize: 13, color: colors.textSecondary, fontFamily: fonts.body }}>
+          <Text
+            style={{ fontSize: 14, color: colors.textSecondary, fontFamily: fonts.body }}
+            ellipsis={{ tooltip: val }}
+          >
             {val}
           </Text>
         );
@@ -340,23 +331,40 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
       title: 'Qty',
       dataIndex: 'qty',
       key: 'qty',
-      width: 80,
+      width: 100,
       align: 'right' as const,
       render: (val, record) => {
+        const isCrew = /crew/i.test(record.detail || '');
         if (isRowEditing(record)) {
           return (
             <InputNumber
               size="small"
+              variant="filled"
               min={0}
               step={0.5}
               value={editing!.qty}
               onChange={(v) => onEditField('qty', v ?? 0)}
-              style={{ width: 70 }}
+              style={{ width: isCrew ? 78 : 70, fontSize: 14 }}
+              suffix={isCrew ? <Text style={{ fontSize: 11, color: colors.textMuted }}>hr</Text> : undefined}
               onPressEnter={onSaveEdit}
             />
           );
         }
-        return <Text style={{ fontSize: 13 }}>{val}</Text>;
+        if (isCrew) {
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+              <Text style={{ fontSize: 14 }}>{val} hr</Text>
+              <span style={{
+                fontSize: 10, fontWeight: 600, color: colors.textMuted,
+                background: colors.bgLight, border: `1px solid ${colors.border}`,
+                borderRadius: 4, padding: '0 5px', lineHeight: '16px', whiteSpace: 'nowrap',
+              }}>
+                ×{crewSize}
+              </span>
+            </div>
+          );
+        }
+        return <Text style={{ fontSize: 14 }}>{val}</Text>;
       },
     },
     {
@@ -369,14 +377,15 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
           return (
             <Input
               size="small"
+              variant="filled"
               value={editing!.unit}
               onChange={(e) => onEditField('unit', e.target.value)}
               onPressEnter={onSaveEdit}
-              style={{ width: 55 }}
+              style={{ width: 55, fontSize: 14 }}
             />
           );
         }
-        return <Text style={{ fontSize: 13, color: colors.textSecondary }}>{val}</Text>;
+        return <Text style={{ fontSize: 14, color: colors.textSecondary }}>{val}</Text>;
       },
     },
     {
@@ -390,17 +399,18 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
           return (
             <InputNumber
               size="small"
+              variant="filled"
               min={0}
               step={1}
               value={editing!.rate}
               onChange={(v) => onEditField('rate', v ?? 0)}
-              style={{ width: 80 }}
+              style={{ width: 80, fontSize: 14 }}
               prefix="$"
               onPressEnter={onSaveEdit}
             />
           );
         }
-        return <Text style={{ fontSize: 13 }}>{fmt(val)}</Text>;
+        return <Text style={{ fontSize: 14 }}>{fmt(val)}</Text>;
       },
     },
     {
@@ -411,8 +421,28 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
       render: (_, record) => {
         const ed = isRowEditing(record);
         const amount = ed ? editing!.qty * editing!.rate : record.amount;
+        if (ed) {
+          // Computed, not directly editable — echo the row's filled-field
+          // language as a static chip so it doesn't read as a stray leftover
+          // amid the now-boxed inputs.
+          return (
+            <span
+              style={{
+                display: 'inline-block',
+                fontSize: 14,
+                fontWeight: 600,
+                color: colors.info,
+                background: colors.infoBg,
+                borderRadius: borderRadius.sm,
+                padding: '3px 8px',
+              }}
+            >
+              {fmt(amount)}
+            </span>
+          );
+        }
         return (
-          <Text strong style={{ fontSize: 13, color: ed ? colors.info : colors.textPrimary }}>
+          <Text strong style={{ fontSize: 14, color: colors.textPrimary }}>
             {fmt(amount)}
           </Text>
         );
@@ -421,7 +451,7 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
     {
       title: '',
       key: 'actions',
-      width: 60,
+      width: 84,
       fixed: 'right' as const,
       align: 'center' as const,
       render: (_, record) => {
@@ -484,277 +514,10 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
   );
 };
 
-// ── Labor Hours Card ──────────────────────────────────────────────────────────
-
-interface LaborHoursCardProps {
-  result: EstimateResponse;
-  onChangeHours: (sectionName: string, lineIndex: number, newQty: number) => void;
-}
-
-const LaborHoursCard: React.FC<LaborHoursCardProps> = ({ result, onChangeHours }) => {
-  const crewN = Math.max(1, result.crew_size);
-
-  const isCrewLine = (line: SectionDetailLine) => /crew/i.test(line.detail || '');
-  const toElapsed = (line: SectionDetailLine) =>
-    isCrewLine(line) ? Math.round((line.qty / crewN) * 10) / 10 : line.qty;
-  const toPersonHours = (elapsed: number, line: SectionDetailLine) =>
-    isCrewLine(line) ? Math.round(elapsed * crewN * 10) / 10 : elapsed;
-
-  const [localValues, setLocalValues] = useState<Record<string, number>>({});
-
-  const prevResultRef = useRef(result);
-  useEffect(() => {
-    if (prevResultRef.current !== result) {
-      setLocalValues({});
-      prevResultRef.current = result;
-    }
-  }, [result]);
-
-  const getKey = (secName: string, lineIndex: number) => `${secName}||${lineIndex}`;
-  const getDisplayValue = (secName: string, lineIndex: number, line: SectionDetailLine) =>
-    localValues[getKey(secName, lineIndex)] ?? toElapsed(line);
-
-  const handleChange = (secName: string, lineIndex: number, line: SectionDetailLine, v: number | null) => {
-    const elapsed = v ?? 0;
-    setLocalValues((prev) => ({ ...prev, [getKey(secName, lineIndex)]: elapsed }));
-    onChangeHours(secName, lineIndex, toPersonHours(elapsed, line));
-  };
-
-  const laborSections: [string, SectionDetailLine[]][] = [];
-  for (const secName of ['Pack-Out Labor', 'Pack-Back Labor']) {
-    const lines = result.section_details?.[secName]?.lines ?? [];
-    if (lines.some((l) => l.unit === 'HR')) {
-      laborSections.push([secName, lines]);
-    }
-  }
-
-  const carryLines: { label: string; secName: string; lineIndex: number; line: SectionDetailLine }[] = [];
-  for (const [secName, detail] of Object.entries(result.section_details ?? {})) {
-    if (isTransportSection(secName)) {
-      detail.lines.forEach((line, i) => {
-        if (line.unit === 'HR') {
-          carryLines.push({
-            label: /out/i.test(secName) ? 'Carry-Out' : 'Carry-In',
-            secName,
-            lineIndex: i,
-            line,
-          });
-        }
-      });
-    }
-  }
-
-  const otherLaborSections: [string, SectionDetailLine[]][] = [];
-  for (const [secName, detail] of Object.entries(result.section_details ?? {})) {
-    if (
-      /labor|labour/i.test(secName) &&
-      secName !== 'Pack-Out Labor' &&
-      secName !== 'Pack-Back Labor' &&
-      !isTransportSection(secName)
-    ) {
-      if (detail.lines.some((l) => l.unit === 'HR')) {
-        otherLaborSections.push([secName, detail.lines]);
-      }
-    }
-  }
-
-  if (laborSections.length === 0 && carryLines.length === 0 && otherLaborSections.length === 0) {
-    return null;
-  }
-
-  // Compute total elapsed hours for summary badge
-  const poCrewLine = (result.section_details?.['Pack-Out Labor']?.lines ?? []).find(
-    (l) => l.unit === 'HR' && /crew/i.test(l.name),
-  );
-  const pbCrewLine = (result.section_details?.['Pack-Back Labor']?.lines ?? []).find(
-    (l) => l.unit === 'HR' && /crew/i.test(l.name),
-  );
-  const poElapsed = poCrewLine
-    ? (localValues[getKey('Pack-Out Labor', (result.section_details?.['Pack-Out Labor']?.lines ?? []).indexOf(poCrewLine))] ?? toElapsed(poCrewLine))
-    : 0;
-  const pbElapsed = pbCrewLine
-    ? (localValues[getKey('Pack-Back Labor', (result.section_details?.['Pack-Back Labor']?.lines ?? []).indexOf(pbCrewLine))] ?? toElapsed(pbCrewLine))
-    : 0;
-  const totalElapsed = Math.round((poElapsed + pbElapsed) * 10) / 10;
-
-  // ── Row renderer ──────────────────────────────────────────────────────────
-  const renderRow = (
-    secName: string,
-    lineIndex: number,
-    line: SectionDetailLine,
-    sublabel?: string,
-  ) => {
-    const isCrew = isCrewLine(line);
-    const displayVal = getDisplayValue(secName, lineIndex, line);
-    return (
-      <div
-        key={`${secName}-${lineIndex}`}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 108px 68px',
-          alignItems: 'center',
-          gap: 8,
-          padding: '7px 0',
-          borderBottom: `1px solid ${colors.bgLight}`,
-        }}
-      >
-        {/* Name column */}
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Text
-              ellipsis={{ tooltip: line.name }}
-              style={{ fontSize: 13, color: colors.textPrimary, fontFamily: fonts.body, lineHeight: '18px' }}
-            >
-              {line.name}
-            </Text>
-            {isCrew && (
-              <span style={{
-                fontSize: 10,
-                fontWeight: 600,
-                color: colors.textMuted,
-                background: colors.bgLight,
-                border: `1px solid ${colors.border}`,
-                borderRadius: 4,
-                padding: '0 5px',
-                lineHeight: '16px',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}>
-                ×{crewN}
-              </span>
-            )}
-          </div>
-          {sublabel && (
-            <Text style={{ fontSize: 11, color: colors.textMuted, lineHeight: '16px' }}>
-              {sublabel}
-            </Text>
-          )}
-        </div>
-
-        {/* Hours input column */}
-        <InputNumber
-          size="small"
-          min={0}
-          step={0.5}
-          value={displayVal}
-          onChange={(v) => handleChange(secName, lineIndex, line, v)}
-          style={{ width: '100%', fontSize: 13 }}
-          suffix={<Text style={{ fontSize: 11, color: colors.textMuted }}>hr</Text>}
-        />
-
-        {/* Amount column */}
-        <Text style={{
-          fontSize: 13,
-          color: colors.textSecondary,
-          textAlign: 'right',
-          fontFamily: fonts.body,
-          whiteSpace: 'nowrap',
-        }}>
-          {fmt(line.amount)}
-        </Text>
-      </div>
-    );
-  };
-
-  // ── Section label ──────────────────────────────────────────────────────────
-  const renderSectionLabel = (label: string) => (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      marginTop: 12,
-      marginBottom: 2,
-    }}>
-      <Text style={{
-        fontSize: 10,
-        fontWeight: 700,
-        color: colors.textMuted,
-        textTransform: 'uppercase',
-        letterSpacing: 0.8,
-        whiteSpace: 'nowrap',
-      }}>
-        {label}
-      </Text>
-      <div style={{ flex: 1, height: 1, background: colors.border }} />
-    </div>
-  );
-
-  return (
-    <Card
-      style={{ border: `1px solid ${colors.border}`, borderRadius: borderRadius.lg, marginBottom: 16 }}
-      styles={{ body: { padding: '14px 16px 10px' } }}
-    >
-      {/* ── Header ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <Title level={5} style={{ margin: 0, fontFamily: fonts.heading, fontSize: 14 }}>
-          Labor Hours
-        </Title>
-        {totalElapsed > 0 && (
-          <div style={{
-            background: colors.bgLight,
-            border: `1px solid ${colors.border}`,
-            borderRadius: 20,
-            padding: '2px 10px',
-            fontSize: 12,
-            color: colors.textSecondary,
-            fontFamily: fonts.body,
-          }}>
-            {totalElapsed} hr elapsed
-          </div>
-        )}
-      </div>
-
-      {/* ── Column header ── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 108px 68px',
-        gap: 8,
-        paddingBottom: 4,
-        borderBottom: `1px solid ${colors.border}`,
-        marginBottom: 2,
-      }}>
-        <Text style={{ fontSize: 10, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.6 }}>Item</Text>
-        <Text style={{ fontSize: 10, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, textAlign: 'center' }}>Hours</Text>
-        <Text style={{ fontSize: 10, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, textAlign: 'right' }}>Cost</Text>
-      </div>
-
-      {/* ── Pack-Out / Pack-Back ── */}
-      {laborSections.map(([secName, lines], si) => (
-        <div key={secName}>
-          {renderSectionLabel(secName.replace(' Labor', ''))}
-          {lines.filter((l) => l.unit === 'HR').map((line, i) =>
-            renderRow(secName, lines.indexOf(line), line)
-          )}
-        </div>
-      ))}
-
-      {/* ── Carry Labor ── */}
-      {carryLines.length > 0 && (
-        <div>
-          {renderSectionLabel('Carry')}
-          {carryLines.map(({ label, secName, lineIndex, line }) =>
-            renderRow(secName, lineIndex, line, label)
-          )}
-        </div>
-      )}
-
-      {/* ── Other Labor ── */}
-      {otherLaborSections.map(([secName, lines]) => (
-        <div key={secName}>
-          {renderSectionLabel(secName)}
-          {lines.filter((l) => l.unit === 'HR').map((line, i) =>
-            renderRow(secName, lines.indexOf(line), line)
-          )}
-        </div>
-      ))}
-    </Card>
-  );
-};
-
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
-  onBack,
+  active,
   result,
   setResult,
   mode,
@@ -764,6 +527,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   setCompanyOverride,
   activeSessionId,
   onCreateEstimate,
+  onInvoiceCreated,
   onSaveSession,
   onCalculate,
   photoRooms,
@@ -831,17 +595,18 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     }
   }, [hasEdits, runCalculate]);
 
-  // ── Back handler ───────────────────────────────────────────────────────────
-  // Clear in-progress (uncommitted) edit drafts when leaving so coming back
-  // starts clean, but leave persisted settings like taxRate/showBreakdown
-  // alone — this panel stays mounted, so they carry over as expected.
-  const handleClose = useCallback(() => {
+  // ── Leaving cleanup ────────────────────────────────────────────────────────
+  // Navigation itself is owned by the parent's breadcrumb — this panel stays
+  // permanently mounted so persisted settings like taxRate/showBreakdown
+  // survive a trip back to Rooms. Only in-progress (uncommitted) edit drafts
+  // get cleared when the user steps away, so coming back starts clean.
+  useEffect(() => {
+    if (active) return;
     setEditing(null);
     setNewLine(null);
     setShowAddSection(false);
     setNewSectionName('');
-    onBack();
-  }, [onBack]);
+  }, [active]);
 
   // Seed scheduling notes on first open if backend returned none
   useEffect(() => {
@@ -871,6 +636,20 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // ── Derived totals ─────────────────────────────────────────────────────────
+  // Recomputed straight from section_details/crew_size on every render (not
+  // read off result.notes) so it can't drift out of sync with an edit path
+  // that forgets to call generateSchedulingNotes.
+  const schedulingSummary = useMemo(() => {
+    if (!result) return null;
+    const note = generateSchedulingNotes(result.section_details, result.crew_size)
+      .find((n) => n.startsWith('Scheduling:'));
+    return note ? note.replace(/^Scheduling:\s*/, '') : null;
+  }, [result?.section_details, result?.crew_size]);
+
+  // Everything except the "Scheduling:" summary, which now lives in the
+  // Hours stat's tooltip instead of a standalone alert.
+  const visibleNotes = (result?.notes ?? []).filter((n) => !n.startsWith('Scheduling:'));
+
   const taxableBase = result ? result.subtotal + result.op_amount + result.contingency_amount + (result.supplements_total || 0) : 0;
   const taxAmount = taxRate > 0 ? taxableBase * (taxRate / 100) : 0;
   const computedGrandTotal = useMemo(() => {
@@ -956,7 +735,14 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       } else {
         if (!details[sectionName]) return prev;
         const lines = [...details[sectionName].lines];
-        lines[lineIndex] = { ...lines[lineIndex], name, detail, qty, unit, rate, amount: newAmount };
+        const prevLine = lines[lineIndex];
+        // Crew-labor lines store qty as ELAPSED hours directly — keep the note
+        // text's embedded "X hr × N crew" number in sync with the new qty.
+        const isCrewLine = /crew/i.test(prevLine?.detail || '');
+        const finalDetail = isCrewLine && detail
+          ? detail.replace(/[\d.]+(\s*hr\s*×\s*\d+\s*crew)/, `${qty}$1`)
+          : detail;
+        lines[lineIndex] = { ...prevLine, name, detail: finalDetail, qty, unit, rate, amount: newAmount };
         details[sectionName] = { lines };
       }
 
@@ -971,6 +757,16 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         ? subtotal * (prev.contingency_rate / 100)
         : 0;
 
+      // Recompute total elapsed hours (Rooms/Hours/Crew stat) from the crew lines —
+      // qty on a crew-labor HR line is already elapsed hours, summed across every
+      // crew-tagged line in the section (Content mode splits Pack-Out/Pack-Back
+      // into several category lines, not one "Crew Labor" line).
+      const newTotalHours = Math.round(
+        (sumCrewElapsedHours(details['Pack-Out Labor']?.lines ?? []) +
+          sumCrewElapsedHours(details['Pack-Back Labor']?.lines ?? [])) *
+          10,
+      ) / 10;
+
       return {
         ...prev,
         sections: newSections,
@@ -980,6 +776,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         op_amount: opAmount,
         contingency_amount: contingencyAmount,
         grand_total: subtotal + opAmount + contingencyAmount + (prev.supplements_total || 0),
+        total_hours: newTotalHours,
         notes: generateSchedulingNotes(details, prev.crew_size),
       };
     });
@@ -988,73 +785,6 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   }, [editing, setResult, markDirty]);
 
   const handleCancelEdit = useCallback(() => setEditing(null), []);
-
-  // ── Labor Hours change (from Labor Hours card) ─────────────────────────────
-
-  const handleLaborHoursChange = useCallback(
-    (sectionName: string, lineIndex: number, newQty: number) => {
-      markDirty();
-      setResult((prev) => {
-        if (!prev) return prev;
-        const details = { ...(prev.section_details ?? {}) };
-        if (!details[sectionName]) return prev;
-
-        const lines = [...details[sectionName].lines];
-        const line = lines[lineIndex];
-        const newAmount = Math.round(newQty * line.rate * 100) / 100;
-        // Also update the elapsed hrs in detail text (e.g. "11.5 elapsed hr · 4-person crew ...")
-        const crewN = Math.max(1, prev.crew_size);
-        const isCrewLine = /crew/i.test(line.detail || '');
-        const newElapsed = isCrewLine
-          ? Math.round((newQty / crewN) * 10) / 10
-          : null;
-        const newManHrs = isCrewLine ? Math.round(newQty * 10) / 10 : null;
-        const newDetail =
-          newElapsed !== null && line.detail
-            ? line.detail
-                .replace(/^[\d.]+(\s*elapsed hr)/, `${newElapsed}$1`)
-                .replace(/([\d.]+)(\s*man-hr)/, `${newManHrs}$2`)
-            : line.detail;
-        lines[lineIndex] = { ...line, qty: newQty, amount: newAmount, detail: newDetail };
-
-        const sectionTotal = lines.reduce((sum, l) => sum + l.amount, 0);
-        const newSections = { ...prev.sections, [sectionName]: sectionTotal };
-        const subtotal = Object.values(newSections).reduce((s, v) => s + v, 0);
-        const opAmount = prev.include_op ? subtotal * (prev.op_rate / 100) : 0;
-        const contingencyAmount = prev.include_contingency
-          ? subtotal * (prev.contingency_rate / 100)
-          : 0;
-
-        const updatedDetails = { ...details, [sectionName]: { lines } };
-
-        // Recalculate total_hours (elapsed) from main crew lines
-        const poCrewLine = updatedDetails['Pack-Out Labor']?.lines.find(
-          (l) => l.unit === 'HR' && /crew/i.test(l.name),
-        );
-        const pbCrewLine = updatedDetails['Pack-Back Labor']?.lines.find(
-          (l) => l.unit === 'HR' && /crew/i.test(l.name),
-        );
-        const newTotalHours =
-          Math.round(
-            (((poCrewLine?.qty ?? 0) + (pbCrewLine?.qty ?? 0)) / crewN) * 10,
-          ) / 10;
-
-        return {
-          ...prev,
-          sections: newSections,
-          section_details: updatedDetails,
-          subtotal,
-          op_amount: opAmount,
-          contingency_amount: contingencyAmount,
-          grand_total:
-            subtotal + opAmount + contingencyAmount + (prev.supplements_total || 0),
-          total_hours: newTotalHours,
-          notes: generateSchedulingNotes(updatedDetails, prev.crew_size),
-        };
-      });
-    },
-    [setResult, markDirty],
-  );
 
   const handleDeleteLine = useCallback(
     (sectionName: string, lineIndex: number) => {
@@ -1227,9 +957,11 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     setLoadingHistory(true);
     try {
       const sessions = await toolService.listSessions('packing');
-      // List endpoint strips heavy data — filter by status and exclude current session
+      // List endpoint strips heavy data down to a grand_total stand-in — filter
+      // by "has a calculated estimate" (not `status`, which now tracks whether
+      // the session was actually converted/marked done, a stricter thing).
       const withResult = sessions.filter(
-        (s) => (s.data as any)?.status === 'completed' && s.id !== activeSessionId,
+        (s) => getGrandTotal(s.data as any) !== undefined && s.id !== activeSessionId,
       );
       setSavedSessions(withResult);
     } catch {
@@ -1349,6 +1081,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           : 'Packing & Moving Invoice',
       });
       message.success(`Invoice ${res.invoiceNumber} created`);
+      onInvoiceCreated?.(res.invoiceId, res.invoiceNumber);
       navigate(`/app/invoices/${res.invoiceId}`);
     } catch {
       message.error('Failed to create invoice');
@@ -1422,6 +1155,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             onSaveEdit={handleSaveEdit}
             onCancelEdit={handleCancelEdit}
             onDeleteLine={handleDeleteLine}
+            crewSize={result?.crew_size ?? 1}
           />
         )}
 
@@ -1436,6 +1170,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             onSaveEdit={handleSaveEdit}
             onCancelEdit={handleCancelEdit}
             onDeleteLine={handleDeleteLine}
+            crewSize={result?.crew_size ?? 1}
           />
         )}
 
@@ -1450,6 +1185,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             onSaveEdit={handleSaveEdit}
             onCancelEdit={handleCancelEdit}
             onDeleteLine={handleDeleteLine}
+            crewSize={result?.crew_size ?? 1}
           />
         )}
 
@@ -1594,13 +1330,20 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       {/* Compact table styles */}
       <style>{`
         .estimate-compact-table .ant-table-thead > tr > th {
-          padding: 4px 8px !important;
+          padding: 10px 12px !important;
           font-size: 12px;
           line-height: 1.4;
         }
         .estimate-compact-table .ant-table-tbody > tr > td {
-          padding: 4px 8px !important;
-          line-height: 1.4;
+          padding: 12px 12px !important;
+          line-height: 1.5;
+          /* global.css forces nowrap/hidden/ellipsis on every antd table cell
+             app-wide, which clips the Input/InputNumber controls in edit mode
+             (shows as a stray ".." at the cut edge). Undo it for this table —
+             Name/Detail restore their own truncation via Text's ellipsis prop. */
+          white-space: normal !important;
+          overflow: visible !important;
+          text-overflow: clip !important;
         }
         .estimate-compact-table .ant-table-thead > tr > th.ant-table-cell {
           background: ${colors.bgLight};
@@ -1618,62 +1361,6 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           padding: 0 !important;
         }
       `}</style>
-      {/* ── Sticky Header ──────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '14px 20px',
-          borderBottom: `1px solid ${colors.border}`,
-          background: colors.bgWhite,
-          flexShrink: 0,
-          gap: 16,
-        }}
-      >
-        {/* Left: back + title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Button
-            type="text"
-            icon={<ArrowLeftOutlined />}
-            onClick={handleClose}
-            style={{ color: colors.textSecondary, fontWeight: 500 }}
-          >
-            Back to Rooms
-          </Button>
-          <div style={{ width: 1, height: 20, background: colors.border }} />
-          <Title
-            level={5}
-            style={{
-              margin: 0,
-              fontFamily: fonts.heading,
-              color: colors.textPrimary,
-              fontWeight: 700,
-            }}
-          >
-            Estimate Editor
-          </Title>
-          {mode === 'content' && (
-            <Tag color="blue" style={{ fontSize: 11 }}>
-              Photo AI
-            </Tag>
-          )}
-        </div>
-
-        {/* Stale result warning */}
-        {(result as any)?._stale && (
-          <div style={{
-            marginLeft: 'auto',
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 12px', background: '#fffbeb', border: '1px solid #fde68a',
-            borderRadius: borderRadius.base, fontSize: 12, color: '#92400e',
-          }}>
-            <WarningOutlined />
-            Items were modified. Re-calculate to update the estimate.
-          </div>
-        )}
-      </div>
-
       {/* ── Body ───────────────────────────────────────────────────────────── */}
       {!result ? (
         <div
@@ -1728,12 +1415,20 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         className="animate-result-reveal"
         style={{
           padding: isMobile ? '16px 16px' : '32px 32px',
+          paddingBottom: isMobile ? 92 : 100,
           background: colors.bgLight,
-          display: 'flex',
-          flexDirection: isMobile ? 'column' : 'row',
-          gap: 24,
         }}
       >
+        {(result as any)?._stale && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Items were modified"
+            description="Re-calculate to update the estimate with your latest rooms."
+            style={{ borderRadius: borderRadius.md, marginBottom: 20 }}
+          />
+        )}
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24 }}>
         {/* Left column: Sections + Materials + Room Summaries */}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, paddingRight: isMobile ? 0 : 10, order: isMobile ? 2 : 1 }}>
           {/* ── Sections ──────────────────────────────────────────────────── */}
@@ -1889,7 +1584,14 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                 <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fonts.heading, color: colors.textPrimary }}>{result.total_rooms}</div>
               </Col>
               <Col style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 4 }}>Hours</div>
+                <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                  Hours
+                  {schedulingSummary && (
+                    <Tooltip title={schedulingSummary}>
+                      <InfoCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
+                    </Tooltip>
+                  )}
+                </div>
                 <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fonts.heading, color: colors.textPrimary }}>{result.total_hours}</div>
               </Col>
               <Col style={{ textAlign: 'center' }}>
@@ -1899,13 +1601,13 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             </Row>
           </Card>
 
-          {/* ── Labor Hours Card ────────────────────────────────────────────── */}
-          <LaborHoursCard result={result} onChangeHours={handleLaborHoursChange} />
-
           {/* ── Scheduling Notes ─────────────────────────────────────────────── */}
-          {result.notes && result.notes.length > 0 && (
+          {/* The "Scheduling: ..." summary now lives in the Hours stat's hover
+              tooltip above; only actionable warnings (e.g. exceeds an 8-hr
+              workday) still get a standalone alert. */}
+          {visibleNotes.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              {result.notes.map((note, i) => (
+              {visibleNotes.map((note, i) => (
                 <Alert
                   key={i}
                   message={
@@ -1915,15 +1617,9 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                       note
                     )
                   }
-                  type={
-                    note.startsWith('Labor Hours Breakdown')
-                      ? 'info'
-                      : note.startsWith('Scheduling:')
-                        ? 'info'
-                        : 'warning'
-                  }
+                  type="warning"
                   showIcon
-                  style={{ marginBottom: i < result.notes!.length - 1 ? 8 : 0 }}
+                  style={{ marginBottom: i < visibleNotes.length - 1 ? 8 : 0 }}
                 />
               ))}
             </div>
@@ -2310,10 +2006,17 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             </Collapse>
           </Card>
         </div>
+        </div>
       </div>
       )}
 
-      {/* ── Sticky Footer: action buttons ──────────────────────────────────── */}
+      {/* ── Fixed Footer: action buttons ─────────────────────────────────────
+          position: fixed (not sticky) — this panel sits behind several nested
+          flex/layout ancestors (app shell, tool wrapper) and sticky proved
+          unreliable there. Fixed pins it to the viewport regardless. On
+          desktop it spans edge-to-edge; the sidebar (higher z-index, opaque)
+          naturally occludes the portion behind it. On mobile it sits just
+          above the app's own bottom tab bar. */}
       <div
         style={{
           display: 'flex',
@@ -2322,9 +2025,12 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           padding: isMobile ? '10px 12px' : '12px 20px',
           borderTop: `1px solid ${colors.border}`,
           background: colors.bgWhite,
-          position: 'sticky',
-          bottom: 0,
-          zIndex: 5,
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          bottom: isMobile ? 60 : 0,
+          paddingBottom: isMobile ? '10px' : 'calc(12px + env(safe-area-inset-bottom))',
+          zIndex: 90,
           boxShadow: '0 -2px 8px rgba(0,0,0,0.04)',
         }}
       >
@@ -2344,8 +2050,8 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           )}
         </div>
 
-        {/* Right: Export + Actions */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {/* Right: Load / Export / Create — grouped so it reads as 2 clusters, not 4-7 flat buttons */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <Button
             icon={<FolderOpenOutlined />}
             onClick={handleOpenLoadModal}
@@ -2354,53 +2060,39 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           >
             {!isMobile && 'Load Saved'}
           </Button>
-          <Button
-            icon={<FilePdfOutlined />}
-            loading={exporting === 'pdf'}
-            onClick={handleExportPdf}
+          <Dropdown
+            trigger={['click']}
             disabled={!activeSessionId || !result}
-            size={isMobile ? 'small' : 'middle'}
-            style={{ borderColor: colors.border }}
+            menu={{
+              items: [
+                { key: 'pdf', label: 'PDF', icon: <FilePdfOutlined /> },
+                { key: 'excel', label: 'Excel', icon: <FileExcelOutlined /> },
+                { key: 'report', label: 'Report', icon: <FileTextOutlined /> },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'pdf') handleExportPdf();
+                else if (key === 'excel') handleExportExcel();
+                else if (key === 'report') setShowReportModal(true);
+              },
+            }}
           >
-            PDF
-          </Button>
-          <Button
-            icon={<FileExcelOutlined />}
-            loading={exporting === 'excel'}
-            onClick={handleExportExcel}
-            disabled={!activeSessionId || !result}
-            size={isMobile ? 'small' : 'middle'}
-            style={{ borderColor: colors.border }}
-          >
-            Excel
-          </Button>
-          <Button
-            icon={<FileTextOutlined />}
-            onClick={() => setShowReportModal(true)}
-            disabled={!activeSessionId || !result}
-            size={isMobile ? 'small' : 'middle'}
-            style={{ borderColor: colors.border }}
-          >
-            Report
-          </Button>
-          <Button
-            icon={<SaveOutlined />}
-            size={isMobile ? 'small' : 'middle'}
-            disabled={!result}
-            onClick={() => message.success('Estimate saved')}
-          >
-            Save
-          </Button>
-          <Button
-            type="primary"
-            loading={creatingInvoice}
-            onClick={handleCreateInvoice}
-            disabled={!activeSessionId || !result}
-            size={isMobile ? 'small' : 'middle'}
-            style={{ background: colors.primary, borderColor: colors.primary }}
-          >
-            {isMobile ? 'Invoice' : 'Create Invoice'}
-          </Button>
+            <Button
+              icon={<ExportOutlined />}
+              loading={exporting !== null}
+              disabled={!activeSessionId || !result}
+              size={isMobile ? 'small' : 'middle'}
+              style={{ borderColor: colors.border }}
+            >
+              {!isMobile && 'Export'} <DownOutlined style={{ fontSize: 10 }} />
+            </Button>
+          </Dropdown>
+
+          <Divider type="vertical" style={{ height: 24, margin: '0 2px' }} />
+
+          {/* Estimate comes first — it's the primary action; an Invoice is
+              normally created from an Estimate afterward, so it's secondary
+              here (unless this session has no estimate step at all, in which
+              case Invoice is the only "create" action and carries full weight). */}
           {onCreateEstimate && (
             <Button
               type="primary"
@@ -2412,6 +2104,16 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
               {isMobile ? 'Estimate' : 'Create ScopeIt Estimate'}
             </Button>
           )}
+          <Button
+            type={onCreateEstimate ? 'default' : 'primary'}
+            loading={creatingInvoice}
+            onClick={handleCreateInvoice}
+            disabled={!activeSessionId || !result}
+            size={isMobile ? 'small' : 'middle'}
+            style={onCreateEstimate ? { borderColor: colors.border } : { background: colors.primary, borderColor: colors.primary }}
+          >
+            {isMobile ? 'Invoice' : 'Create Invoice'}
+          </Button>
         </div>
       </div>
 

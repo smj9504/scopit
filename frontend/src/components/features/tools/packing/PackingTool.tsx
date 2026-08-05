@@ -3,7 +3,8 @@
  * Landing = session list. "New Estimate" opens mode picker then wizard.
  * Click existing session → edit mode.
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useNavigate, useBlocker, type BlockerFunction } from 'react-router-dom';
 import {
   Button,
   Modal,
@@ -11,6 +12,7 @@ import {
   Tag,
   Typography,
   Space,
+  Switch,
   App,
   Tabs,
 } from 'antd';
@@ -19,12 +21,13 @@ import {
   ThunderboltOutlined,
   CameraOutlined,
   ArrowLeftOutlined,
+  ArrowRightOutlined,
   DollarOutlined,
   LockOutlined,
   SettingOutlined,
   ReloadOutlined,
-  FileTextOutlined,
   InboxOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
 import type { ToolComponentProps } from '../registry';
 import { colors, fonts, borderRadius } from '@/styles/theme';
@@ -39,6 +42,7 @@ import { SharedDetailsStep } from './SharedDetailsStep';
 import { HistoryTab } from './HistoryTab';
 import { PricesTab } from './PricesTab';
 import { EstimateEditorModal } from './EstimateEditorModal';
+import { derivePackingStatus } from './sessionStatus';
 import type {
   PackingRoom,
   PhotoRoom,
@@ -68,9 +72,15 @@ type ViewState = 'list' | 'editor';
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
+interface LinkedDocRef {
+  id: string;
+  number: string;
+}
+
 const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate }) => {
   const { message } = App.useApp();
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
 
   // View state: list (default) or editor (wizard)
   const [view, setView] = useState<ViewState>(sessionId ? 'editor' : 'list');
@@ -113,12 +123,55 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   const [result, setResult] = useState<EstimateResponse | null>(null);
   const resultRef = useRef(result);
   resultRef.current = result;
+
+  // Completion tracking — separate from "has a calculated result" (see saveEstimate/derivePackingStatus)
+  const [manuallyCompleted, setManuallyCompleted] = useState(false);
+  const [linkedEstimate, setLinkedEstimate] = useState<LinkedDocRef | null>(null);
+  const [linkedInvoice, setLinkedInvoice] = useState<LinkedDocRef | null>(null);
+
   const [editorOpen, setEditorOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [estimateMode, setEstimateMode] = useState<PackingMode>('quick');
 
   // History refresh trigger
   const [historyKey, setHistoryKey] = useState(0);
+
+  // ── Explicit save / dirty tracking ──────────────────────────────────────
+  // AI photo results and estimate data (rooms/packout/settings/result) save
+  // independently via merge-PATCH, so neither clobbers the other's unsaved
+  // in-memory edits. Nothing auto-saves — the user must hit Save.
+  const [savingPhotoRooms, setSavingPhotoRooms] = useState(false);
+  const [savingEstimate, setSavingEstimate] = useState(false);
+  // State (not refs) so that syncing a baseline after restore/load/reset or a
+  // successful save always triggers the re-render that clears the dirty flag.
+  const [photoRoomsBaseline, setPhotoRoomsBaseline] = useState('[]');
+  const [estimateBaseline, setEstimateBaseline] = useState('');
+  // Set after restore/load/reset finish spreading state across several
+  // setState calls — the effect below syncs baselines once those commit,
+  // instead of comparing against a fingerprint captured mid-load.
+  const pendingBaselineSyncRef = useRef(false);
+
+  const photoRoomsFingerprint = useMemo(
+    () => JSON.stringify(photoRooms.map(({ photos, ...rest }) => ({ ...rest, photoCount: photos.length }))),
+    [photoRooms],
+  );
+  const estimateFingerprint = useMemo(
+    () => JSON.stringify({
+      rooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride,
+      result, manuallyCompleted, linkedEstimate, linkedInvoice,
+    }),
+    [rooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride, result, manuallyCompleted, linkedEstimate, linkedInvoice],
+  );
+  const photoRoomsDirty = view === 'editor' && photoRoomsFingerprint !== photoRoomsBaseline;
+  const estimateDirty = view === 'editor' && estimateFingerprint !== estimateBaseline;
+  const isDirty = photoRoomsDirty || estimateDirty;
+
+  useEffect(() => {
+    if (!pendingBaselineSyncRef.current) return;
+    pendingBaselineSyncRef.current = false;
+    setPhotoRoomsBaseline(photoRoomsFingerprint);
+    setEstimateBaseline(estimateFingerprint);
+  });
 
   // ── Load presets on mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -158,90 +211,142 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       if (d?.client_info) setClientInfo(d.client_info);
       if (d?.company_override) setCompanyOverride(d.company_override);
       if (d?.result) setResult(d.result);
+      setManuallyCompleted(!!d?.manually_completed);
+      setLinkedEstimate(d?.linked_estimate_id ? { id: d.linked_estimate_id, number: d.linked_estimate_number ?? '' } : null);
+      setLinkedInvoice(d?.linked_invoice_id ? { id: d.linked_invoice_id, number: d.linked_invoice_number ?? '' } : null);
       if (d?.mode) {
         setEditorMode(d.mode);
         setEstimateMode(d.mode);
       }
       setView('editor');
+      pendingBaselineSyncRef.current = true;
     }).catch(() => {});
   }, [sessionId]);
 
-  // ── Session save ───────────────────────────────────────────────────────
-  const createFailedRef = useRef(false);
+  // ── Session creation (shared by both save paths below) ──────────────────
+  const sessionCreationRef = useRef<Promise<string> | null>(null);
 
-  const saveSession = useCallback(async (mode: PackingMode, resultData?: EstimateResponse) => {
-    if (!activeSessionId && createFailedRef.current) return;
+  const ensureSessionId = useCallback((mode: PackingMode): Promise<string> => {
+    if (activeSessionId) return Promise.resolve(activeSessionId);
+    if (sessionCreationRef.current) return sessionCreationRef.current;
+    const modeLabel = mode === 'content' ? 'Photo AI' : mode === 'packout' ? 'Packout' : 'Quick';
+    const promise = toolService.createSession({
+      tool_id: 'packing',
+      name: clientInfo.name ? `${clientInfo.name} - ${modeLabel}` : `${modeLabel} Estimate`,
+      data: { mode },
+    }).then((session) => {
+      setActiveSessionId(session.id);
+      return session.id;
+    }).finally(() => {
+      sessionCreationRef.current = null;
+    });
+    sessionCreationRef.current = promise;
+    return promise;
+  }, [activeSessionId, clientInfo.name]);
 
+  // ── Save: AI photo analysis results (Photo AI tab) ──────────────────────
+  // Explicit only — lets users delete photos or re-run analysis freely
+  // without anything being persisted until they choose to save.
+  const savePhotoRooms = useCallback(async () => {
+    const snapshot = photoRoomsFingerprint;
+    setSavingPhotoRooms(true);
+    try {
+      // Ensure all in-memory photos are uploaded to storage before saving.
+      // Upload any photos that don't yet have a corresponding photo_key.
+      const lightPhotoRooms = await Promise.all(photoRooms.map(async (r) => {
+        let keys = [...(r.photo_keys ?? [])];
+        if (r.photos.length > 0 && keys.length < r.photos.length) {
+          try {
+            const missingPhotos = r.photos.slice(keys.length);
+            const newKeys = await packingApi.uploadPhotos(missingPhotos);
+            keys = [...keys, ...newKeys];
+            // Update state so subsequent saves don't re-upload
+            r.photo_keys = keys;
+          } catch { /* non-fatal */ }
+        }
+        return {
+          ...r,
+          photos: [],  // base64 stripped — loaded from storage via photo_keys
+          photo_keys: keys,
+          photo_count: r.photos?.length || keys.length || r.photo_count || 0,
+        };
+      }));
+      const id = await ensureSessionId(editorMode);
+      await toolService.updateSession(id, { data: { mode: editorMode, photo_rooms: lightPhotoRooms }, merge: true });
+      setPhotoRoomsBaseline(snapshot);
+      message.success('AI analysis results saved.');
+      return true;
+    } catch {
+      message.error('Failed to save AI analysis results.');
+      return false;
+    } finally {
+      setSavingPhotoRooms(false);
+    }
+  }, [photoRooms, photoRoomsFingerprint, ensureSessionId, editorMode, message]);
+
+  // ── Save: estimate data (rooms/packout/settings/result/links) ──────────
+  const saveEstimate = useCallback(async (
+    mode: PackingMode,
+    resultData?: EstimateResponse,
+    linkOverrides?: {
+      manually_completed?: boolean;
+      linked_estimate?: LinkedDocRef | null;
+      linked_invoice?: LinkedDocRef | null;
+    },
+  ) => {
+    const snapshot = estimateFingerprint;
     // Use ref to always get the latest result state (avoids stale closure)
     const currentResult = resultData ?? resultRef.current;
-    // Ensure all in-memory photos are uploaded to storage before saving.
-    // Upload any photos that don't yet have a corresponding photo_key.
-    const lightPhotoRooms = await Promise.all(photoRooms.map(async (r) => {
-      let keys = [...(r.photo_keys ?? [])];
-      // Upload missing photos: photos exist in memory but no matching key
-      if (r.photos.length > 0 && keys.length < r.photos.length) {
-        try {
-          const missingPhotos = r.photos.slice(keys.length);
-          const newKeys = await packingApi.uploadPhotos(missingPhotos);
-          keys = [...keys, ...newKeys];
-          // Update state so subsequent saves don't re-upload
-          r.photo_keys = keys;
-        } catch { /* non-fatal */ }
-      }
-      return {
-        ...r,
-        photos: [],  // base64 stripped — loaded from storage via photo_keys
-        photo_keys: keys,
-        photo_count: r.photos?.length || keys.length || r.photo_count || 0,
-      };
-    }));
-    const sessionData = {
-      mode,
-      status: currentResult ? 'completed' : 'draft',
-      rooms,
-      photo_rooms: lightPhotoRooms,
-      packout_rooms: packoutRooms,
-      packout_settings: packoutSettings,
-      settings,
-      client_info: clientInfo,
-      company_override: companyOverride,
-      result: currentResult ?? undefined,
-    };
+    // Overrides let callers pass freshly-set values in the same tick as their
+    // setState call, instead of racing the next render (see resultRef above).
+    const currentManuallyCompleted = linkOverrides?.manually_completed ?? manuallyCompleted;
+    const currentLinkedEstimate = linkOverrides && 'linked_estimate' in linkOverrides
+      ? linkOverrides.linked_estimate : linkedEstimate;
+    const currentLinkedInvoice = linkOverrides && 'linked_invoice' in linkOverrides
+      ? linkOverrides.linked_invoice : linkedInvoice;
+    setSavingEstimate(true);
     try {
-      if (activeSessionId) {
-        await toolService.updateSession(activeSessionId, { data: sessionData });
-      } else {
-        const modeLabel = mode === 'content' ? 'Photo AI' : mode === 'packout' ? 'Packout' : 'Quick';
-        const session = await toolService.createSession({
-          tool_id: 'packing',
-          name: clientInfo.name ? `${clientInfo.name} - ${modeLabel}` : `${modeLabel} Estimate`,
-          data: sessionData,
-        });
-        setActiveSessionId(session.id);
-        createFailedRef.current = false;
-      }
+      const sessionData = {
+        mode,
+        status: derivePackingStatus({
+          result: currentResult,
+          manually_completed: currentManuallyCompleted,
+          linked_estimate_id: currentLinkedEstimate?.id,
+          linked_invoice_id: currentLinkedInvoice?.id,
+        }),
+        rooms,
+        packout_rooms: packoutRooms,
+        packout_settings: packoutSettings,
+        settings,
+        client_info: clientInfo,
+        company_override: companyOverride,
+        result: currentResult ?? undefined,
+        manually_completed: currentManuallyCompleted,
+        linked_estimate_id: currentLinkedEstimate?.id,
+        linked_estimate_number: currentLinkedEstimate?.number,
+        linked_invoice_id: currentLinkedInvoice?.id,
+        linked_invoice_number: currentLinkedInvoice?.number,
+      };
+      const id = await ensureSessionId(mode);
+      await toolService.updateSession(id, { data: sessionData, merge: true });
+      setEstimateBaseline(snapshot);
+      return true;
     } catch {
-      if (!activeSessionId) {
-        createFailedRef.current = true;
-      }
+      message.error('Failed to save estimate.');
+      return false;
+    } finally {
+      setSavingEstimate(false);
     }
-  }, [rooms, photoRooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride, activeSessionId]);
+  }, [rooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride, manuallyCompleted, linkedEstimate, linkedInvoice, estimateFingerprint, ensureSessionId, message]);
 
-  // ── Auto-save debounce ─────────────────────────────────────────────────
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
-
-  useEffect(() => {
-    if (view !== 'editor') return;
-    const hasData = rooms.length > 0 || photoRooms.length > 0 || packoutRooms.length > 0 || clientInfo.name.trim() || result;
-    if (!hasData) return;
-
-    clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      saveSession(editorMode);
-    }, 3000);
-
-    return () => clearTimeout(autoSaveTimerRef.current);
-  }, [view, rooms, photoRooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride, editorMode, result, saveSession]);
+  // ── Save everything dirty (used by the unsaved-changes exit guard) ─────
+  const saveAll = useCallback(async () => {
+    const results = await Promise.all([
+      photoRoomsDirty ? savePhotoRooms() : Promise.resolve(true),
+      estimateDirty ? saveEstimate(editorMode) : Promise.resolve(true),
+    ]);
+    return results.every(Boolean);
+  }, [photoRoomsDirty, estimateDirty, savePhotoRooms, saveEstimate, editorMode]);
 
   // ── Invalidate result when items are modified after calculate ──────────
   // Track a fingerprint of items so we detect edits/adds/deletes
@@ -260,28 +365,42 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
 
   // ── Estimate result handler ────────────────────────────────────────────
   const pendingResultRef = useRef<{ res: EstimateResponse; mode: PackingMode } | null>(null);
+  // True once the user hand-edits something inside the Estimate Editor (line
+  // edits, O&P, labor hours, etc). Re-running "Generate Estimate" — e.g. after
+  // re-analyzing a single room's photos — only needs a confirmation when it
+  // would actually discard edits like that; a plain refresh should not
+  // interrupt the user just because the modal happened to be closed.
+  const hasManualEditsRef = useRef(false);
 
   const applyEstimateResult = useCallback((res: EstimateResponse, mode: PackingMode) => {
     setResult(res);
     setEstimateMode(mode);
     setEditorOpen(true);
-    saveSession(mode, res);
-  }, [saveSession]);
+    hasManualEditsRef.current = false;
+    // Generating an estimate is a natural "finalize" point — persist
+    // whichever of the two independent buckets fed into it.
+    if (mode === 'content') savePhotoRooms();
+    saveEstimate(mode, res);
+  }, [saveEstimate, savePhotoRooms]);
 
   const handleEstimateResult = useCallback((res: EstimateResponse, mode: PackingMode) => {
-    if (result && editorOpen) {
-      // Result already exists and editor is open — user may have made edits
+    if (result && hasManualEditsRef.current) {
+      // Existing result has unsaved manual edits that a fresh generate would
+      // wipe out — let the user explicitly pick recalculate vs. keep viewing
+      // what they already have, right here instead of a hard-to-notice
+      // header button.
       pendingResultRef.current = { res, mode };
       Modal.confirm({
-        title: 'Replace Current Estimate?',
-        content: 'Recalculating will replace all manual edits you made in the Estimate Editor. Continue?',
-        okText: 'Replace',
-        cancelText: 'Cancel',
+        title: 'You Have Unsaved Estimate Edits',
+        content: 'Recalculating will replace the manual edits you made in the Estimate Editor with fresh numbers from your rooms.',
+        okText: 'Recalculate & Replace',
+        cancelText: 'View Current Estimate',
         onOk: () => {
           applyEstimateResult(res, mode);
           pendingResultRef.current = null;
         },
         onCancel: () => {
+          setEditorOpen(true);
           pendingResultRef.current = null;
         },
       });
@@ -373,9 +492,37 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       message.warning('Calculate estimate first');
       return;
     }
-    await saveSession(estimateMode);
-    onCreateEstimate?.(activeSessionId);
-  }, [activeSessionId, estimateMode, saveSession, onCreateEstimate]);
+    await saveEstimate(estimateMode);
+    try {
+      const res = await toolService.createEstimateFromSession(activeSessionId, {
+        customer_name: clientInfo.name || undefined,
+        title: clientInfo.property_address
+          ? `Packing & Moving - ${clientInfo.property_address}`
+          : 'Packing & Moving Estimate',
+      });
+      message.success(`Estimate ${res.estimateNumber} created`);
+      const linked: LinkedDocRef = { id: res.estimateId, number: res.estimateNumber };
+      setLinkedEstimate(linked);
+      await saveEstimate(estimateMode, undefined, { linked_estimate: linked });
+      onCreateEstimate?.(activeSessionId);
+      navigate(`/app/estimates/${res.estimateId}`);
+    } catch {
+      message.error('Failed to create estimate');
+    }
+  }, [activeSessionId, estimateMode, saveEstimate, onCreateEstimate, clientInfo, navigate]);
+
+  // ── Manually mark this estimate as completed/draft ─────────────────────
+  const handleToggleManuallyCompleted = useCallback((checked: boolean) => {
+    setManuallyCompleted(checked);
+    saveEstimate(estimateMode, undefined, { manually_completed: checked });
+  }, [estimateMode, saveEstimate]);
+
+  // ── Invoice created from within the Estimate Editor ────────────────────
+  const handleInvoiceCreated = useCallback((invoiceId: string, invoiceNumber: string) => {
+    const linked: LinkedDocRef = { id: invoiceId, number: invoiceNumber };
+    setLinkedInvoice(linked);
+    saveEstimate(estimateMode, undefined, { linked_invoice: linked });
+  }, [estimateMode, saveEstimate]);
 
   // ── Reset state for new estimate ───────────────────────────────────────
   const resetState = useCallback(() => {
@@ -387,8 +534,11 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     setCompanyOverride(defaultCompanyOverride());
     setActiveSessionId(undefined);
     setResult(null);
+    setManuallyCompleted(false);
+    setLinkedEstimate(null);
+    setLinkedInvoice(null);
     setEditorOpen(false);
-    createFailedRef.current = false;
+    pendingBaselineSyncRef.current = true;
   }, []);
 
   // ── New estimate flow ──────────────────────────────────────────────────
@@ -427,9 +577,13 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       setEstimateMode(d.mode || 'quick');
       setEditorOpen(true);
     }
+    setManuallyCompleted(!!d?.manually_completed);
+    setLinkedEstimate(d?.linked_estimate_id ? { id: d.linked_estimate_id, number: d.linked_estimate_number ?? '' } : null);
+    setLinkedInvoice(d?.linked_invoice_id ? { id: d.linked_invoice_id, number: d.linked_invoice_number ?? '' } : null);
     setActiveSessionId(session.id);
     setEditorMode(d?.mode === 'content' ? 'content' : d?.mode === 'packout' ? 'packout' : 'quick');
     setView('editor');
+    pendingBaselineSyncRef.current = true;
   }, [resetState]);
 
   // ── Back to list ───────────────────────────────────────────────────────
@@ -437,6 +591,77 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     setView('list');
     setHistoryKey((k) => k + 1); // force refresh
   }, []);
+
+  // ── Unsaved-changes exit guard ───────────────────────────────────────────
+  // Applies to: browser tab close/refresh, in-app navigation to another page
+  // (sidebar, etc — via the router blocker), and the tool's own Back button.
+  const [navConfirmOpen, setNavConfirmOpen] = useState(false);
+  const navProceedRef = useRef<(() => void) | null>(null);
+  const navCancelRef = useRef<(() => void) | null>(null);
+
+  const requestNav = useCallback((proceed: () => void, cancel?: () => void) => {
+    if (!isDirty) {
+      proceed();
+      return;
+    }
+    navProceedRef.current = proceed;
+    navCancelRef.current = cancel ?? null;
+    setNavConfirmOpen(true);
+  }, [isDirty]);
+
+  const guardedBackToList = useCallback(() => {
+    requestNav(handleBackToList);
+  }, [requestNav, handleBackToList]);
+
+  const blocker = useBlocker(
+    useCallback<BlockerFunction>(
+      ({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname,
+      [isDirty],
+    ),
+  );
+
+  useEffect(() => {
+    if (blocker.state === 'blocked') {
+      navProceedRef.current = () => blocker.proceed();
+      navCancelRef.current = () => blocker.reset();
+      setNavConfirmOpen(true);
+    }
+  }, [blocker]);
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  const handleNavCancel = useCallback(() => {
+    navCancelRef.current?.();
+    navProceedRef.current = null;
+    navCancelRef.current = null;
+    setNavConfirmOpen(false);
+  }, []);
+
+  const handleNavDiscard = useCallback(() => {
+    const proceed = navProceedRef.current;
+    navProceedRef.current = null;
+    navCancelRef.current = null;
+    setNavConfirmOpen(false);
+    proceed?.();
+  }, []);
+
+  const handleNavSave = useCallback(async () => {
+    const ok = await saveAll();
+    if (!ok) return; // keep the modal open so the user can retry or discard
+    const proceed = navProceedRef.current;
+    navProceedRef.current = null;
+    navCancelRef.current = null;
+    setNavConfirmOpen(false);
+    proceed?.();
+  }, [saveAll]);
 
   // ── Render: List View ──────────────────────────────────────────────────
   if (view === 'list') {
@@ -722,6 +947,13 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   }
 
   // ── Render: Editor View ──────────────────────────────────────────────────
+  const modeMeta = editorMode === 'content'
+    ? { icon: <CameraOutlined />, label: 'AI Analysis', color: '#2563eb' }
+    : editorMode === 'packout'
+    ? { icon: <InboxOutlined />, label: 'Rooms', color: '#d97706' }
+    : { icon: <ThunderboltOutlined />, label: 'Rooms', color: '#16a34a' };
+  const isStale = !!(result as any)?._stale;
+
   const editorContent = editorMode === 'content' ? (
     <PhotoAITab
       presets={presets}
@@ -736,6 +968,10 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       setCompanyOverride={setCompanyOverride}
       onEstimateResult={(res) => handleEstimateResult(res, 'content')}
       activeSessionId={activeSessionId}
+      hasExistingEstimate={!!result}
+      onSavePhotoRooms={savePhotoRooms}
+      photoRoomsDirty={photoRoomsDirty}
+      savingPhotoRooms={savingPhotoRooms}
     />
   ) : editorMode === 'packout' ? (
     <PackoutTab
@@ -751,6 +987,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       setCompanyOverride={setCompanyOverride}
       onEstimateResult={(res) => handleEstimateResult(res, 'packout')}
       photoRooms={photoRooms}
+      hasExistingEstimate={!!result}
     />
   ) : (
     <QuickEstimateTab
@@ -766,6 +1003,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       setCompanyOverride={setCompanyOverride}
       onEstimateResult={(res) => handleEstimateResult(res, 'quick')}
       activeSessionId={activeSessionId}
+      hasExistingEstimate={!!result}
     />
   );
 
@@ -777,7 +1015,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
           display: 'flex',
           alignItems: 'center',
           gap: 12,
-          padding: '10px 16px',
+          padding: '14px 16px',
           borderBottom: `1px solid ${colors.border}`,
           background: colors.bgLight,
           position: 'sticky',
@@ -788,97 +1026,190 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         <Button
           type="text"
           icon={<ArrowLeftOutlined />}
-          onClick={handleBackToList}
-          style={{ color: colors.textSecondary, fontWeight: 500 }}
+          onClick={guardedBackToList}
+          style={{ color: colors.textSecondary, fontWeight: 500, height: 40, fontSize: 14 }}
         >
           Back
         </Button>
         <div
           style={{
             width: 1,
-            height: 20,
+            height: 28,
             background: colors.border,
           }}
         />
-        {editorMode === 'content' ? (
-          <Tag
-            icon={<CameraOutlined />}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            background: colors.bgSunken,
+            padding: 3,
+            borderRadius: borderRadius.md,
+            fontFamily: fonts.body,
+          }}
+        >
+          <button
+            type="button"
+            onClick={editorOpen ? () => setEditorOpen(false) : undefined}
             style={{
-              borderRadius: borderRadius.full,
-              fontSize: 12,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '9px 14px',
+              border: 'none',
+              borderRadius: borderRadius.base,
+              fontSize: 14,
               fontFamily: fonts.body,
-              background: '#eff6ff',
-              borderColor: '#bfdbfe',
-              color: '#2563eb',
-              margin: 0,
-              fontWeight: 600,
+              cursor: editorOpen ? 'pointer' : 'default',
+              background: editorOpen ? 'transparent' : colors.bgWhite,
+              color: editorOpen ? colors.textSecondary : modeMeta.color,
+              fontWeight: editorOpen ? 500 : 700,
+              boxShadow: editorOpen ? 'none' : '0 1px 2px rgba(0,0,0,0.06)',
+              transition: 'background 0.15s, color 0.15s',
             }}
           >
-            Photo AI
-          </Tag>
-        ) : editorMode === 'packout' ? (
-          <Tag
-            icon={<InboxOutlined />}
+            {modeMeta.icon}
+            {modeMeta.label}
+          </button>
+          <ArrowRightOutlined style={{ fontSize: 11, color: colors.textMuted, margin: '0 8px' }} />
+          <button
+            type="button"
+            onClick={!editorOpen && result ? () => setEditorOpen(true) : undefined}
             style={{
-              borderRadius: borderRadius.full,
-              fontSize: 12,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '9px 14px',
+              border: 'none',
+              borderRadius: borderRadius.base,
+              fontSize: 14,
               fontFamily: fonts.body,
-              background: '#fef3c7',
-              borderColor: '#fde68a',
-              color: '#d97706',
-              margin: 0,
-              fontWeight: 600,
+              cursor: !editorOpen && result ? 'pointer' : 'default',
+              background: editorOpen ? colors.bgWhite : 'transparent',
+              color: editorOpen ? colors.textPrimary : result ? colors.textSecondary : colors.textMuted,
+              fontWeight: editorOpen ? 700 : 500,
+              boxShadow: editorOpen ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+              transition: 'background 0.15s, color 0.15s',
             }}
           >
-            Packout
-          </Tag>
-        ) : (
-          <Tag
-            icon={<ThunderboltOutlined />}
-            style={{
-              borderRadius: borderRadius.full,
-              fontSize: 12,
-              fontFamily: fonts.body,
-              background: '#f0fdf4',
-              borderColor: '#bbf7d0',
-              color: '#16a34a',
-              margin: 0,
-              fontWeight: 600,
-            }}
-          >
-            Quick Estimate
-          </Tag>
-        )}
+            <DollarOutlined />
+            Estimate
+          </button>
+        </div>
         {clientInfo.name && !isMobile && (
-          <Text style={{ fontSize: 13, color: colors.textSecondary, fontFamily: fonts.body, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
-            {clientInfo.name}
-          </Text>
+          <div style={{ minWidth: 0, maxWidth: 260, overflow: 'hidden' }}>
+            <Text
+              style={{
+                fontSize: 13,
+                color: colors.textPrimary,
+                fontFamily: fonts.body,
+                fontWeight: 600,
+                display: 'block',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {clientInfo.name}
+            </Text>
+            {clientInfo.property_address && (
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: colors.textMuted,
+                  fontFamily: fonts.body,
+                  display: 'block',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {clientInfo.property_address}
+              </Text>
+            )}
+          </div>
         )}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {result && (
+            isStale ? (
+              <Tag color="warning" style={{ margin: 0, padding: '5px 10px', fontSize: 13, lineHeight: '18px' }}>
+                Needs Recalculation
+              </Tag>
+            ) : linkedInvoice || linkedEstimate ? (
+              <Tag color="success" style={{ margin: 0, padding: '5px 10px', fontSize: 13, lineHeight: '18px' }}>
+                {linkedInvoice ? `Invoice ${linkedInvoice.number}` : `Estimate ${linkedEstimate!.number}`}
+              </Tag>
+            ) : (
+              <Space size={6}>
+                {!isMobile && (
+                  <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+                    {manuallyCompleted ? 'Completed' : 'Draft'}
+                  </Text>
+                )}
+                <Switch checked={manuallyCompleted} onChange={handleToggleManuallyCompleted} />
+              </Space>
+            )
+          )}
           <Button
-            icon={<FileTextOutlined />}
-            onClick={() => setEditorOpen(true)}
-            size="small"
-            type={result ? 'primary' : 'default'}
+            type={estimateDirty ? 'primary' : 'default'}
+            icon={<SaveOutlined />}
+            loading={savingEstimate}
+            disabled={!estimateDirty}
+            onClick={() => saveEstimate(estimateMode)}
             style={{
               borderRadius: borderRadius.base,
-              ...(result ? { background: colors.primary, borderColor: colors.primary } : {}),
+              height: 40,
+              fontSize: 14,
+              ...(estimateDirty ? { background: colors.primary, borderColor: colors.primary } : {}),
             }}
           >
-            {result ? 'View Estimate' : 'Estimate Editor'}
+            {!isMobile && (estimateDirty ? 'Save' : 'Saved')}
           </Button>
           {activeSessionId && (
             <Button
               icon={<SettingOutlined />}
               onClick={() => setSettingsModalOpen(true)}
-              size="small"
-              style={{ borderRadius: borderRadius.base }}
+              style={{ borderRadius: borderRadius.base, height: 40, fontSize: 14 }}
             >
               {!isMobile && 'Settings'}
             </Button>
           )}
         </div>
       </div>
+
+      {/* Unsaved changes confirmation (Back button, in-app navigation, browser close/refresh) */}
+      <Modal
+        title="Unsaved Changes"
+        open={navConfirmOpen}
+        onCancel={handleNavCancel}
+        centered
+        footer={[
+          <Button key="cancel" onClick={handleNavCancel}>
+            Cancel
+          </Button>,
+          <Button key="discard" danger onClick={handleNavDiscard}>
+            Leave Without Saving
+          </Button>,
+          <Button
+            key="save"
+            type="primary"
+            loading={savingPhotoRooms || savingEstimate}
+            onClick={handleNavSave}
+            style={{ background: colors.primary, borderColor: colors.primary }}
+          >
+            Save & Leave
+          </Button>,
+        ]}
+      >
+        <Text style={{ color: colors.textSecondary }}>
+          {photoRoomsDirty && estimateDirty
+            ? 'You have unsaved AI analysis results and estimate changes.'
+            : photoRoomsDirty
+            ? 'You have unsaved AI analysis results.'
+            : 'You have unsaved estimate changes.'}
+          {' '}Leaving now will discard them unless you save first.
+        </Text>
+      </Modal>
 
       {/* Settings Modal (edit mode) */}
       <Modal
@@ -907,27 +1238,34 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         </div>
       </Modal>
 
-      {/* Wizard content */}
-      {editorContent}
-
-      {/* Estimate Editor Modal */}
-      <EstimateEditorModal
-        open={editorOpen}
-        onClose={() => setEditorOpen(false)}
-        result={result}
-        setResult={setResult}
-        mode={estimateMode}
-        clientInfo={clientInfo}
-        setClientInfo={setClientInfo}
-        companyOverride={companyOverride}
-        setCompanyOverride={setCompanyOverride}
-        activeSessionId={activeSessionId}
-        onCreateEstimate={onCreateEstimate ? handleCreateEstimate : undefined}
-        onSaveSession={() => saveSession(estimateMode)}
-        onCalculate={handleCalculateFromEditor}
-        photoRooms={photoRooms}
-        rooms={rooms}
-      />
+      {/* Wizard content and Estimate Editor both stay mounted permanently —
+          toggled with display, not conditional rendering — so switching
+          between them (e.g. to re-analyze a room) never recalculates and
+          never resets in-panel settings like tax rate. The breadcrumb above
+          is the only navigation control between the two. */}
+      <div style={{ display: editorOpen ? 'none' : 'block' }}>
+        {editorContent}
+      </div>
+      <div style={{ display: editorOpen ? 'block' : 'none' }}>
+        <EstimateEditorModal
+          active={editorOpen}
+          result={result}
+          setResult={setResult}
+          mode={estimateMode}
+          clientInfo={clientInfo}
+          setClientInfo={setClientInfo}
+          companyOverride={companyOverride}
+          setCompanyOverride={setCompanyOverride}
+          activeSessionId={activeSessionId}
+          onCreateEstimate={handleCreateEstimate}
+          onInvoiceCreated={handleInvoiceCreated}
+          onSaveSession={async () => { await saveEstimate(estimateMode); }}
+          onCalculate={handleCalculateFromEditor}
+          photoRooms={photoRooms}
+          rooms={rooms}
+          onDirtyChange={(dirty) => { hasManualEditsRef.current = dirty; }}
+        />
+      </div>
     </div>
   );
 };

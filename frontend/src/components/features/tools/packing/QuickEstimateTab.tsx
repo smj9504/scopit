@@ -19,6 +19,7 @@ import {
   Divider,
   Tooltip,
   message,
+  Modal,
 } from 'antd';
 import {
   PlusOutlined,
@@ -72,6 +73,8 @@ export interface QuickEstimateTabProps {
   setCompanyOverride: React.Dispatch<React.SetStateAction<CompanyInfoOverride>>;
   onEstimateResult: (res: EstimateResponse) => void;
   activeSessionId?: string;
+  /** An estimate already exists for this session — calculating again replaces it. */
+  hasExistingEstimate?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -918,7 +921,8 @@ const StepReview: React.FC<{
   settings: PackingSettings;
   clientInfo: ClientInfo;
   onEstimateResult: (res: EstimateResponse) => void;
-}> = ({ rooms, settings, clientInfo, onEstimateResult }) => {
+  hasExistingEstimate?: boolean;
+}> = ({ rooms, settings, clientInfo, onEstimateResult, hasExistingEstimate }) => {
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -926,7 +930,7 @@ const StepReview: React.FC<{
   const aggregatedSpecialItems = [...new Set(rooms.flatMap((r) => r.special_items ?? []))];
   const aggregatedCustomSpecialItems = rooms.flatMap((r) => r.custom_special_items ?? []);
 
-  const handleCalculate = async () => {
+  const runCalculate = async () => {
     if (rooms.length === 0) {
       message.warning('Add at least one room before calculating.');
       return;
@@ -967,6 +971,24 @@ const StepReview: React.FC<{
       setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setCalculating(false);
+    }
+  };
+
+  const handleCalculate = () => {
+    if (rooms.length === 0) {
+      message.warning('Add at least one room before calculating.');
+      return;
+    }
+    if (hasExistingEstimate) {
+      Modal.confirm({
+        title: 'This will update your existing estimate',
+        content: 'Recalculating rebuilds every line from the current rooms. Manual edits made in the Estimate Editor will be replaced.',
+        okText: 'Recalculate',
+        cancelText: 'Cancel',
+        onOk: runCalculate,
+      });
+    } else {
+      runCalculate();
     }
   };
 
@@ -1197,7 +1219,7 @@ const StepReview: React.FC<{
           borderColor: colors.primary,
         }}
       >
-        {calculating ? 'Calculating...' : 'Calculate Estimate'}
+        {calculating ? 'Calculating...' : hasExistingEstimate ? 'Recalculate Estimate' : 'Calculate Estimate'}
       </Button>
     </div>
   );
@@ -1218,6 +1240,7 @@ export const QuickEstimateTab: React.FC<QuickEstimateTabProps> = ({
   setCompanyOverride,
   onEstimateResult,
   activeSessionId,
+  hasExistingEstimate,
 }) => {
   const isEditMode = !!activeSessionId;
   const [currentStep, setCurrentStep] = useState(0);
@@ -1294,6 +1317,7 @@ export const QuickEstimateTab: React.FC<QuickEstimateTabProps> = ({
             settings={settings}
             clientInfo={clientInfo}
             onEstimateResult={onEstimateResult}
+            hasExistingEstimate={hasExistingEstimate}
           />
         </div>
       </div>
@@ -1325,6 +1349,7 @@ export const QuickEstimateTab: React.FC<QuickEstimateTabProps> = ({
       settings={settings}
       clientInfo={clientInfo}
       onEstimateResult={onEstimateResult}
+      hasExistingEstimate={hasExistingEstimate}
     />,
   ];
 

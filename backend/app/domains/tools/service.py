@@ -81,7 +81,12 @@ class ToolSessionService:
         client_info, mode, room count). Drops: result, photo data, rooms detail,
         corrections, and other large nested structures.
         """
-        KEEP_KEYS = {"mode", "status", "client_info", "company_override"}
+        KEEP_KEYS = {
+            "mode", "status", "client_info", "company_override",
+            "manually_completed",
+            "linked_estimate_id", "linked_estimate_number",
+            "linked_invoice_id", "linked_invoice_number",
+        }
 
         for session in sessions:
             data = session.data
@@ -97,9 +102,15 @@ class ToolSessionService:
             elif rooms and isinstance(rooms, list):
                 room_count = len(rooms)
 
+            # Keep the grand total even though the full result object is dropped
+            result = data.get("result")
+            grand_total = result.get("grand_total") if isinstance(result, dict) else None
+
             # Replace data with lightweight summary
             summary = {k: data[k] for k in KEEP_KEYS if k in data}
             summary["room_count"] = room_count
+            if grand_total is not None:
+                summary["grand_total"] = grand_total
             session.data = summary
 
         return sessions
@@ -139,13 +150,17 @@ class ToolSessionService:
         return session
 
     def update_session_data(
-        self, session_id: UUID, company_id: UUID, name: Optional[str] = None, data: Optional[dict] = None
+        self, session_id: UUID, company_id: UUID, name: Optional[str] = None,
+        data: Optional[dict] = None, merge: bool = False,
     ) -> ToolSession:
         session = self.get_session(session_id, company_id)
         if name is not None:
             session.name = name
         if data is not None:
-            session.data = data
+            if merge:
+                session.data = {**(session.data or {}), **data}
+            else:
+                session.data = data
         self.db.commit()
         self.db.refresh(session)
         return session

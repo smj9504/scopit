@@ -135,7 +135,10 @@ export interface ApiError {
     msg: string;
     input?: unknown;
     url?: string;
-  }>;
+  }> | {
+    code: string;
+    message: string;
+  };
   error_code?: string;
 }
 
@@ -154,7 +157,27 @@ export function getErrorMessage(error: unknown): string {
       return apiError.detail;
     }
 
+    // Handle structured { code, message } detail (e.g. EMAIL_NOT_VERIFIED)
+    if (apiError?.detail && typeof apiError.detail === 'object' && 'message' in apiError.detail) {
+      return apiError.detail.message;
+    }
+
     return error.message || 'An error occurred';
   }
   return 'An unexpected error occurred';
+}
+
+/**
+ * Extracts the machine-readable error code from a structured `{ code, message }`
+ * detail (e.g. EMAIL_NOT_VERIFIED), if present. Returns undefined for the more
+ * common string/validation-array detail shapes.
+ */
+export function getErrorCode(error: unknown): string | undefined {
+  if (axios.isAxiosError(error)) {
+    const apiError = error.response?.data as ApiError;
+    if (apiError?.detail && typeof apiError.detail === 'object' && !Array.isArray(apiError.detail) && 'code' in apiError.detail) {
+      return apiError.detail.code;
+    }
+  }
+  return undefined;
 }

@@ -15,12 +15,27 @@ from sqlalchemy.orm import Session
 from app.domains.line_item.models import LineItem
 from app.domains.tools.modules.packing.presets import ROOM_PRESETS
 import math
-import re
 
 
 def _fmt_money(amount: float) -> str:
     """Format a dollar amount with thousands comma separator."""
     return f"${amount:,.2f}"
+
+
+def _crew_detail(desc: str, hrs: float, crew: int, per_rate: float, amt: float) -> str:
+    """Canonical detail text for a crew-labor HR line.
+
+    qty=hrs is ELAPSED (wall-clock) hours; rate=per_rate*crew (crew_labor_rate)
+    is what actually prices the line, so amount = hrs * (per_rate*crew). The
+    "crew" substring here is also what the frontend regexes on to detect a
+    crew line and render the ×N badge — keep it present in every crew line.
+    """
+    return f"{crew}-person crew ({desc}) · {hrs} hr × {crew} crew × {_fmt_money(per_rate)}/hr = {_fmt_money(amt)}"
+
+
+def _solo_detail(desc: str, hrs: float, rate: float, amt: float) -> str:
+    """Canonical detail text for a single-person (non-crew) HR line."""
+    return f"1 person ({desc}) · {hrs} hr × {_fmt_money(rate)}/hr = {_fmt_money(amt)}"
 
 
 # ============================================
@@ -1255,7 +1270,8 @@ class EstimateCalculator:
         crew = request.crew_size
 
         # Split Pack-Out Labor into sub-lines matching PDF format.
-        # Hours shown are PERSON-HOURS (elapsed × crew) since rate = per person-hour.
+        # Line items show ELAPSED hours (wall-clock time on site);
+        # rate = per-person rate × crew size, so amount = elapsed × crew_rate.
         _po_elapsed_std = max(1, round(pack_out_hours * 0.6, 1))
         _po_elapsed_fragile = round(pack_out_hours * 0.15, 1)
         _po_elapsed_specialty = round(pack_out_hours * 0.08, 1)
@@ -1263,62 +1279,62 @@ class EstimateCalculator:
         _po_elapsed_appliance = round(pack_out_hours * 0.08, 1)
         _po_inventory_hours = max(1, round(total_hours * 0.06))  # 1 person, not crew
 
-        # Person-hours for crew tasks
-        _po_crew_ph = round((_po_elapsed_std + _po_elapsed_furniture + _po_elapsed_appliance) * crew)
-        _po_fragile_ph = round(_po_elapsed_fragile * crew) if _po_elapsed_fragile > 0 else 0
-        _po_specialty_ph = round(_po_elapsed_specialty * crew) if _po_elapsed_specialty > 0 else 0
+        crew_labor_rate = round(labor_rate * crew, 2)
         _specialty_rate = self.get_price("2912") or 125.00
+        _specialty_crew_rate = round(_specialty_rate * crew, 2)
 
-        _po_elapsed = round(_po_elapsed_std + _po_elapsed_furniture + _po_elapsed_appliance, 1)
-        _po_crew_amt = round(_po_crew_ph * labor_rate, 2)
+        _po_crew_elapsed = round(_po_elapsed_std + _po_elapsed_furniture + _po_elapsed_appliance, 1)
+        _po_crew_amt = round(_po_crew_elapsed * crew_labor_rate, 2)
         _sv_amt = round(supervisor_hours * supervisor_rate, 2)
         po_detail_lines = [
-            {"name": "Pack-Out Crew Labor", "qty": _po_crew_ph, "unit": "HR",
-             "rate": round(labor_rate, 2),
-             "detail": f"{crew}-person crew (wrap, box, label, load) · {_po_elapsed} elapsed hr × {crew} crew = {_po_crew_ph} person-hrs × {_fmt_money(labor_rate)}/hr = {_fmt_money(_po_crew_amt)}",
+            {"name": "Pack-Out Crew Labor", "qty": _po_crew_elapsed, "unit": "HR",
+             "rate": crew_labor_rate,
+             "detail": _crew_detail("wrap, box, label, load", _po_crew_elapsed, crew, labor_rate, _po_crew_amt),
              "amount": _po_crew_amt},
             {"name": "Supervisor/Foreman", "qty": supervisor_hours, "unit": "HR",
              "rate": round(supervisor_rate, 2),
              "detail": f"On-site supervision across {len(request.rooms)} rooms · {supervisor_hours} hr × {_fmt_money(supervisor_rate)}/hr = {_fmt_money(_sv_amt)}",
              "amount": _sv_amt},
         ]
-        if _po_fragile_ph + _po_specialty_ph > 0:
-            _specialized_ph = _po_fragile_ph + _po_specialty_ph
-            _spec_amt = round(_specialized_ph * _specialty_rate, 2)
+        _po_specialized_elapsed = round(_po_elapsed_fragile + _po_elapsed_specialty, 1)
+        if _po_specialized_elapsed > 0:
+            _spec_amt = round(_po_specialized_elapsed * _specialty_crew_rate, 2)
             po_detail_lines.append(
-                {"name": "Specialized Handling", "qty": _specialized_ph, "unit": "HR",
-                 "rate": round(_specialty_rate, 2),
-                 "detail": f"Electronics, fragile items, artwork — extra care · {_specialized_ph} hr × {_fmt_money(_specialty_rate)}/hr = {_fmt_money(_spec_amt)}",
+                {"name": "Specialized Handling", "qty": _po_specialized_elapsed, "unit": "HR",
+                 "rate": _specialty_crew_rate,
+                 "detail": _crew_detail(
+                     "electronics, fragile items, artwork — extra care",
+                     _po_specialized_elapsed, crew, _specialty_rate, _spec_amt,
+                 ),
                  "amount": _spec_amt},
             )
         section_details["Pack-Out Labor"] = {"lines": po_detail_lines}
         # Recalculate Pack-Out Labor section total to match sub-lines
         sections["Pack-Out Labor"] = sum(l["amount"] for l in po_detail_lines)
 
-        def _rh(x):
-            return round(x * 2) / 2
-
         if not is_on_site:
-            _load_ph = _rh(quick_loading_hours * crew)
+            _loading_amt = round(quick_loading_hours * crew_labor_rate, 2)
             _t_out_lines = [
                 {"name": "26' Moving Van", "qty": quick_truck_trips, "unit": "DY",
                  "rate": round(truck_rate, 2),
                  "detail": f"{quick_truck_trips} trip{'s' if quick_truck_trips > 1 else ''}  (~500 SF capacity per trip)",
                  "amount": round(truck_rate * quick_truck_trips, 2)},
-                {"name": "Loading Labor", "qty": _load_ph, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{quick_loading_hours:.1f} elapsed hr · {crew}-person crew  (stage, load, secure)",
-                 "amount": round(_load_ph * labor_rate, 2)},
+                {"name": "Loading Labor", "qty": quick_loading_hours, "unit": "HR",
+                 "rate": crew_labor_rate,
+                 "detail": _crew_detail("stage, load, secure", quick_loading_hours, crew, labor_rate, _loading_amt),
+                 "amount": _loading_amt},
             ]
             _t_back_lines = [
                 {"name": "26' Moving Van", "qty": quick_truck_trips, "unit": "DY",
                  "rate": round(truck_rate, 2),
                  "detail": f"{quick_truck_trips} trip{'s' if quick_truck_trips > 1 else ''}  (~500 SF capacity per trip)",
                  "amount": round(truck_rate * quick_truck_trips, 2)},
-                {"name": "Unloading Labor", "qty": _load_ph, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{quick_loading_hours:.1f} elapsed hr · {crew}-person crew  (unload, stage at entry, distribute)",
-                 "amount": round(_load_ph * labor_rate, 2)},
+                {"name": "Unloading Labor", "qty": quick_loading_hours, "unit": "HR",
+                 "rate": crew_labor_rate,
+                 "detail": _crew_detail(
+                     "unload, stage at entry, distribute", quick_loading_hours, crew, labor_rate, _loading_amt,
+                 ),
+                 "amount": _loading_amt},
             ]
             section_details["Transport Out"] = {"lines": _t_out_lines}
             # Recalculate Transport section totals to match sub-lines
@@ -1334,21 +1350,20 @@ class EstimateCalculator:
                     _setup_fee, storage_cost,
                 )
         if request.include_packback:
-            # Split Pack-Back into sub-lines (person-hours = elapsed × crew)
+            # Split Pack-Back into sub-lines (elapsed hours; rate = crew_labor_rate)
             _pb_elapsed_base = max(1, round(pack_back_hours * 0.70, 1))
             _pb_elapsed_reassembly = round(pack_back_hours * 0.15, 1)
             _pb_elapsed_appliance = round(pack_back_hours * 0.08, 1)
             _pb_supervisor = max(1, round(pack_back_hours * 0.12))  # 1 person
 
-            _pb_crew_ph = round((_pb_elapsed_base + _pb_elapsed_reassembly + _pb_elapsed_appliance) * crew)
-            _pb_elapsed = round(_pb_elapsed_base + _pb_elapsed_reassembly + _pb_elapsed_appliance, 1)
-            _pb_crew_amt = round(_pb_crew_ph * labor_rate, 2)
+            _pb_crew_elapsed = round(_pb_elapsed_base + _pb_elapsed_reassembly + _pb_elapsed_appliance, 1)
+            _pb_crew_amt = round(_pb_crew_elapsed * crew_labor_rate, 2)
             _pb_sv_amt = round(_pb_supervisor * supervisor_rate, 2)
 
             pb_lines = [
-                {"name": "Pack-Back Crew Labor", "qty": _pb_crew_ph, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{crew}-person crew (unpack, place, reassemble) · {_pb_elapsed} elapsed hr × {crew} crew = {_pb_crew_ph} person-hrs × {_fmt_money(labor_rate)}/hr = {_fmt_money(_pb_crew_amt)}",
+                {"name": "Pack-Back Crew Labor", "qty": _pb_crew_elapsed, "unit": "HR",
+                 "rate": crew_labor_rate,
+                 "detail": _crew_detail("unpack, place, reassemble", _pb_crew_elapsed, crew, labor_rate, _pb_crew_amt),
                  "amount": _pb_crew_amt},
                 {"name": "Supervisor/Foreman", "qty": _pb_supervisor, "unit": "HR",
                  "rate": round(supervisor_rate, 2),
@@ -1416,36 +1431,6 @@ class EstimateCalculator:
                 f"({request.crew_size}-person crew), exceeding a standard {WORKDAY_HOURS}-hr workday. "
                 f"Recommend scheduling {work_days} days."
             )
-
-        # Labor hour breakdown notes — explain how each HR qty was calculated
-        # Quick mode: qty = person-hours (elapsed × crew), rate = per-person rate
-        breakdown_parts: list[str] = []
-        for sec_name in ["Pack-Out Labor", "Pack-Back Labor"]:
-            sec = section_details.get(sec_name)
-            if not sec:
-                continue
-            for line in sec.get("lines", []):
-                if line.get("unit") != "HR" or line.get("qty", 0) <= 0:
-                    continue
-                ln = line["name"]
-                qty = line["qty"]
-                rate = line["rate"]
-                amt = line["amount"]
-                detail = line.get("detail") or ""
-                is_crew = "crew" in detail
-                if is_crew:
-                    # Extract elapsed hours from detail (e.g. "2.5 elapsed hr · 4-person crew")
-                    m = re.search(r"([\d.]+)\s*elapsed hr", detail)
-                    elapsed = float(m.group(1)) if m else round(qty / crew, 1)
-                    breakdown_parts.append(
-                        f"{ln}: {elapsed} elapsed hr × {crew} crew = {qty} person-hrs × {_fmt_money(rate)}/hr = {_fmt_money(amt)}"
-                    )
-                else:
-                    breakdown_parts.append(
-                        f"{ln}: {qty} hr × {_fmt_money(rate)}/hr = {_fmt_money(amt)}"
-                    )
-        if breakdown_parts:
-            quick_notes.append("Labor Hours Breakdown:\n" + "\n".join(f"• {p}" for p in breakdown_parts))
 
         return EstimateResponse(
             total_rooms=len(request.rooms),
@@ -3123,21 +3108,11 @@ class EstimateCalculator:
         # Materials section: hybrid category lines
         section_details["Materials"] = {"lines": mat_section_lines}
 
-        def person_hrs(elapsed, c):
-            """Convert elapsed hours × crew to total person-hours, rounded to 0.5."""
-            return rh(elapsed * c)
-
         # Line items show ELAPSED hours (wall-clock time on site).
         # Rate = per-person rate × crew size, so amount = elapsed × crew_rate.
         crew_labor_rate = round(labor_rate * crew, 2)
         crew_fragile_rate = round(fragile_rate * crew, 2)
         crew_specialty_rate = round(specialty_rate * crew, 2)
-
-        def _crew_detail(desc: str, hrs: float, c: int, per_rate: float, amt: float) -> str:
-            return f"{c}-person crew ({desc}) · {hrs} hr × {c} crew × {_fmt_money(per_rate)}/hr = {_fmt_money(amt)}"
-
-        def _solo_detail(desc: str, hrs: float, rate: float, amt: float) -> str:
-            return f"1 person ({desc}) · {hrs} hr × {_fmt_money(rate)}/hr = {_fmt_money(amt)}"
 
         po_lines = []
         if po_standard_hrs > 0:
@@ -3199,16 +3174,37 @@ class EstimateCalculator:
         if po_lines:
             section_details["Pack-Out Labor"] = {"lines": po_lines}
 
+        # Carry-labor lines show ELAPSED hours (person-hours ÷ crew). Amount stays
+        # pinned to the original person-hours figure (carry_person_hours * labor_rate)
+        # so the elapsed-hour display rounding never shifts the dollar amount — the
+        # DB-side estimate creation recomputes total = quantity * unit_price, so rate
+        # is back-derived from amount/elapsed rather than assumed as crew_labor_rate.
+        # The per-person rate shown inside the detail breakdown is likewise
+        # back-derived (rate / crew) so "elapsed × crew × per_rate = amount" holds
+        # for the numbers actually printed — this is exactly the note/qty
+        # reproducibility bug being fixed elsewhere in this refactor.
+        _carry_out_elapsed = round(carry_person_hours / crew, 1) if crew > 0 else carry_person_hours
+        _carry_in_elapsed = round(carry_in_person_hours / crew, 1) if crew > 0 else carry_in_person_hours
+        _carry_out_amt = round(carry_person_hours * labor_rate, 2)
+        _carry_in_amt = round(carry_in_person_hours * labor_rate, 2)
+        _carry_out_rate = round(_carry_out_amt / _carry_out_elapsed, 2) if _carry_out_elapsed > 0 else crew_labor_rate
+        _carry_in_rate = round(_carry_in_amt / _carry_in_elapsed, 2) if _carry_in_elapsed > 0 else crew_labor_rate
+        _carry_out_per_person = round(_carry_out_rate / crew, 2) if crew > 0 else _carry_out_rate
+        _carry_in_per_person = round(_carry_in_rate / crew, 2) if crew > 0 else _carry_in_rate
+
+        # Truck Loading & Securing / Unloading are NOT crew-multiplied today
+        # (a flat SF-derived figure despite the "person_hours" name) — left as
+        # plain elapsed hours at the per-person rate, unchanged by this refactor.
         def _transport_out_lines(trips, t_rate):
             return [
                 {"name": "26' Moving Van", "qty": trips, "unit": "DY",
                  "rate": round(t_rate, 2),
                  "detail": f"{trips} trip{'s' if trips > 1 else ''}  (~500 SF capacity per trip)",
                  "amount": round(t_rate * trips, 2)},
-                {"name": "Content Carry-Out (floor-weighted)", "qty": carry_person_hours, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{request.crew_size}-person crew  ·  {carry_floor_note}",
-                 "amount": round(carry_person_hours * labor_rate, 2)},
+                {"name": "Content Carry-Out (floor-weighted)", "qty": _carry_out_elapsed, "unit": "HR",
+                 "rate": _carry_out_rate,
+                 "detail": _crew_detail(carry_floor_note, _carry_out_elapsed, crew, _carry_out_per_person, _carry_out_amt),
+                 "amount": _carry_out_amt},
                 {"name": "Truck Loading & Securing", "qty": truck_load_person_hours, "unit": "HR",
                  "rate": round(labor_rate, 2),
                  "detail": f"{truck_load_person_hours:.1f} person-hrs  (position items, strap, fill gaps)",
@@ -3221,10 +3217,10 @@ class EstimateCalculator:
                  "rate": round(t_rate, 2),
                  "detail": f"{trips} trip{'s' if trips > 1 else ''}  (~500 SF capacity per trip)",
                  "amount": round(t_rate * trips, 2)},
-                {"name": "Content Carry-In (floor-weighted)", "qty": carry_in_person_hours, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{request.crew_size}-person crew  ·  {carry_in_floor_note}",
-                 "amount": round(carry_in_person_hours * labor_rate, 2)},
+                {"name": "Content Carry-In (floor-weighted)", "qty": _carry_in_elapsed, "unit": "HR",
+                 "rate": _carry_in_rate,
+                 "detail": _crew_detail(carry_in_floor_note, _carry_in_elapsed, crew, _carry_in_per_person, _carry_in_amt),
+                 "amount": _carry_in_amt},
                 {"name": "Truck Unloading", "qty": truck_load_person_hours, "unit": "HR",
                  "rate": round(labor_rate, 2),
                  "detail": f"{truck_load_person_hours:.1f} person-hrs  (unload, stage at entry, distribute)",
@@ -3244,11 +3240,13 @@ class EstimateCalculator:
                 )
 
         if is_on_site:
+            # on_site_person_hours == carry_person_hours (same underlying value,
+            # see assignment above) — reuse the elapsed/rate/amount already derived.
             section_details["On-Site Relocation"] = {"lines": [
-                {"name": "Content Carry to Staging Area (floor-weighted)", "qty": on_site_person_hours, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{request.crew_size}-person crew  ·  {carry_floor_note}",
-                 "amount": round(on_site_person_hours * labor_rate, 2)},
+                {"name": "Content Carry to Staging Area (floor-weighted)", "qty": _carry_out_elapsed, "unit": "HR",
+                 "rate": _carry_out_rate,
+                 "detail": _crew_detail(carry_floor_note, _carry_out_elapsed, crew, _carry_out_per_person, _carry_out_amt),
+                 "amount": _carry_out_amt},
             ]}
 
         if request.include_packback:
@@ -3341,33 +3339,6 @@ class EstimateCalculator:
                 f"({crew}-person crew), exceeding a standard {WORKDAY_HOURS}-hr workday. "
                 f"Recommend scheduling {work_days} days."
             )
-
-        # Labor hour breakdown notes — explain how each HR qty was calculated
-        breakdown_parts: list[str] = []
-        for sec_name in ["Pack-Out Labor", "Pack-Back Labor"]:
-            sec = section_details.get(sec_name)
-            if not sec:
-                continue
-            for line in sec.get("lines", []):
-                if line.get("unit") != "HR" or line.get("qty", 0) <= 0:
-                    continue
-                ln = line["name"]
-                qty = line["qty"]
-                rate = line["rate"]
-                amt = line["amount"]
-                # Crew tasks have rate = per_person_rate × crew
-                is_crew = "crew" in (line.get("detail") or "")
-                if is_crew:
-                    per_person = round(rate / crew, 2)
-                    breakdown_parts.append(
-                        f"{ln}: {qty} hr × {crew} crew × {_fmt_money(per_person)}/hr = {_fmt_money(amt)}"
-                    )
-                else:
-                    breakdown_parts.append(
-                        f"{ln}: {qty} hr × {_fmt_money(rate)}/hr = {_fmt_money(amt)}"
-                    )
-        if breakdown_parts:
-            notes.append("Labor Hours Breakdown:\n" + "\n".join(f"• {p}" for p in breakdown_parts))
 
         return EstimateResponse(
             total_rooms=len(request.rooms),

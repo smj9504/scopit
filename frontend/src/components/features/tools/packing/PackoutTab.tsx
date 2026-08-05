@@ -18,6 +18,7 @@ import {
   Switch,
   Tooltip,
   message,
+  Modal,
   Typography,
   Row,
   Col,
@@ -157,6 +158,8 @@ interface PackoutTabProps {
   setCompanyOverride: React.Dispatch<React.SetStateAction<CompanyInfoOverride>>;
   onEstimateResult: (res: EstimateResponse) => void;
   photoRooms: PhotoRoom[];
+  /** An estimate already exists for this session — calculating again replaces it. */
+  hasExistingEstimate?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -174,6 +177,7 @@ const PackoutTab: React.FC<PackoutTabProps> = ({
   setCompanyOverride,
   onEstimateResult,
   photoRooms,
+  hasExistingEstimate,
 }) => {
   const isNarrow = useIsNarrow();
   const [step, setStep] = useState(0);
@@ -265,7 +269,7 @@ const PackoutTab: React.FC<PackoutTabProps> = ({
 
   // ── Calculate ───────────────────────────────────────────────────────────
 
-  const handleCalculate = useCallback(async () => {
+  const runCalculate = useCallback(async () => {
     if (!packoutRooms.length) {
       message.warning('Add at least one room');
       return;
@@ -310,6 +314,24 @@ const PackoutTab: React.FC<PackoutTabProps> = ({
       setCalculating(false);
     }
   }, [packoutRooms, packoutSettings, onEstimateResult]);
+
+  const handleCalculate = useCallback(() => {
+    if (!packoutRooms.length) {
+      message.warning('Add at least one room');
+      return;
+    }
+    if (hasExistingEstimate) {
+      Modal.confirm({
+        title: 'This will update your existing estimate',
+        content: 'Recalculating rebuilds every line from the current rooms and settings. Manual edits made in the Estimate Editor will be replaced.',
+        okText: 'Recalculate',
+        cancelText: 'Cancel',
+        onOk: runCalculate,
+      });
+    } else {
+      runCalculate();
+    }
+  }, [packoutRooms, hasExistingEstimate, runCalculate]);
 
   // ── Render: Step 0 — Details ────────────────────────────────────────────
 
@@ -716,7 +738,7 @@ const PackoutTab: React.FC<PackoutTabProps> = ({
               disabled={!canCalculate}
               onClick={handleCalculate}
             >
-              Calculate Estimate
+              {hasExistingEstimate ? 'Recalculate Estimate' : 'Calculate Estimate'}
             </Button>
           )}
         </Space>

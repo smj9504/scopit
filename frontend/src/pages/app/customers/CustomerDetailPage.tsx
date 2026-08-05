@@ -19,12 +19,14 @@ import {
   Spin,
   App,
   Space,
+  Modal,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   EditOutlined,
   SaveOutlined,
   CloseOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import api from '@/services/api';
@@ -184,6 +186,7 @@ export default function CustomerDetailPage() {
   const { message } = App.useApp();
 
   const [isEditing, setIsEditing] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [form] = Form.useForm<CustomerFormValues>();
 
   // Fetch customer
@@ -224,6 +227,22 @@ export default function CustomerDetailPage() {
     },
     onError: () => {
       message.error('Failed to update customer');
+    },
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await api.delete(`/customers/${id}`);
+    },
+    onSuccess: () => {
+      message.success('Customer deleted');
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      navigate('/app/customers');
+    },
+    onError: () => {
+      message.error('Failed to delete customer');
+      setDeleteModalOpen(false);
     },
   });
 
@@ -641,13 +660,23 @@ export default function CustomerDetailPage() {
               </Button>
             </>
           ) : (
-            <Button
-              icon={<EditOutlined />}
-              onClick={handleEditClick}
-              style={{ fontFamily: fonts.body, borderRadius: borderRadius.base }}
-            >
-              Edit
-            </Button>
+            <>
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => setDeleteModalOpen(true)}
+                style={{ fontFamily: fonts.body, borderRadius: borderRadius.base }}
+              >
+                Delete
+              </Button>
+              <Button
+                icon={<EditOutlined />}
+                onClick={handleEditClick}
+                style={{ fontFamily: fonts.body, borderRadius: borderRadius.base }}
+              >
+                Edit
+              </Button>
+            </>
           )}
         </Space>
       </div>
@@ -886,6 +915,32 @@ export default function CustomerDetailPage() {
           </Card>
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        title="Delete Customer"
+        open={deleteModalOpen}
+        onCancel={() => setDeleteModalOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setDeleteModalOpen(false)} style={{ fontFamily: fonts.body }}>
+            Cancel
+          </Button>,
+          <Button
+            key="delete"
+            danger
+            type="primary"
+            loading={deleteMutation.isPending}
+            onClick={() => deleteMutation.mutate()}
+            style={{ fontFamily: fonts.body }}
+          >
+            Delete
+          </Button>,
+        ]}
+      >
+        <p style={{ fontFamily: fonts.body, color: colors.textPrimary }}>
+          <strong>{customer.name}</strong> 고객을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+        </p>
+      </Modal>
     </div>
   );
 }

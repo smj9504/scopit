@@ -53,6 +53,17 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
   const [showCompanyOverride, setShowCompanyOverride] = useState(
     !!(companyOverride.name || companyOverride.address || companyOverride.phone || companyOverride.email),
   );
+
+  // Session data (including an active company override) often arrives after
+  // this component has already mounted with empty props — re-check whenever
+  // the override values actually change so the section auto-expands instead
+  // of silently staying collapsed. Never auto-collapses, so a manual toggle
+  // off sticks until the override data itself changes again.
+  useEffect(() => {
+    if (companyOverride.name || companyOverride.address || companyOverride.phone || companyOverride.email) {
+      setShowCompanyOverride(true);
+    }
+  }, [companyOverride.name, companyOverride.address, companyOverride.phone, companyOverride.email]);
   const [profiles, setProfiles] = useState<SavedCompanyProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(undefined);
@@ -225,9 +236,13 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
 
   const estimationSettingsBlock = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Row 1: Crew / Region / Staging */}
-      <Row gutter={[12, 12]}>
-        <Col xs={24} sm={8}>
+      {/* Row 1: Crew / Region / Staging — flex-wrap reflows by available
+          width so it also holds up in the 380px compact sidebar, where
+          AntD's Row/Col breakpoints (viewport-based, not container-based)
+          would otherwise keep three columns and squeeze "Off-site" until
+          it wrapped and overflowed its button. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ flex: '1 1 140px', minWidth: 140 }}>
           {fieldLabel('Crew Size', 'Number of workers on the job')}
           <Select
             value={settings.crew_size}
@@ -239,8 +254,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
             }))}
             aria-label="Crew size"
           />
-        </Col>
-        <Col xs={24} sm={8}>
+        </div>
+        <div style={{ flex: '1 1 140px', minWidth: 140 }}>
           {fieldLabel('Region', 'Affects labor rate multiplier')}
           <Select
             value={settings.region}
@@ -252,8 +267,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
             }))}
             aria-label="Region"
           />
-        </Col>
-        <Col xs={24} sm={8}>
+        </div>
+        <div style={{ flex: '1 1 160px', minWidth: 160 }}>
           {fieldLabel('Staging')}
           <Radio.Group
             value={settings.staging_type}
@@ -262,15 +277,21 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
             buttonStyle="solid"
             style={{ width: '100%', display: 'flex' }}
           >
-            <Radio.Button value="off_site" style={{ flex: 1, textAlign: 'center', fontSize: 13, height: 36, lineHeight: '34px' }}>
+            <Radio.Button
+              value="off_site"
+              style={{ flex: 1, textAlign: 'center', fontSize: 13, height: 36, lineHeight: '34px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
               Off-site
             </Radio.Button>
-            <Radio.Button value="on_site" style={{ flex: 1, textAlign: 'center', fontSize: 13, height: 36, lineHeight: '34px' }}>
+            <Radio.Button
+              value="on_site"
+              style={{ flex: 1, textAlign: 'center', fontSize: 13, height: 36, lineHeight: '34px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
               On-site
             </Radio.Button>
           </Radio.Group>
-        </Col>
-      </Row>
+        </div>
+      </div>
 
       {/* Row 2: Conditional storage + toggles */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

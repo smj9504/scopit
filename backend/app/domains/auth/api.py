@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from authlib.integrations.starlette_client import OAuth
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,15 @@ from app.domains.line_item.models import LineItem
 from app.domains.estimate.models import Estimate
 from app.domains.invoice.models import Invoice
 from app.domains.settings.models import EstimateStatusConfig, InvoiceStatusConfig, LineItemCategory
+from app.domains.auth.models import EmailVerificationCode
+from app.domains.auth.verification import (
+    issue_verification_code,
+    get_latest_code,
+    hash_code,
+    MAX_ATTEMPTS,
+    RESEND_COOLDOWN_SECONDS,
+    CODE_EXPIRY_MINUTES,
+)
 from app.common.responses import MessageResponse
 
 
@@ -146,6 +155,20 @@ class ResetPasswordRequest(BaseModel):
     password: str
 
 
+class RegisterResponse(BaseModel):
+    email: str
+    message: str = "Verification code sent to your email"
+
+
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
 class UserUpdateRequest(BaseModel):
     full_name: Optional[str] = None
     default_pdf_template: Optional[str] = None  # classic, modern, professional
@@ -160,13 +183,13 @@ class ChangePasswordRequest(BaseModel):
 # Endpoints
 # ===================
 
-@router.post("/register", response_model=LoginResponse)
+@router.post("/register", response_model=RegisterResponse)
 async def register(
     data: RegisterRequest,
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Register new user and company"""
+    """Register new user and company, then email a verification code"""
 
     # Check if email already exists
     existing_user = db.query(User).filter(User.email == data.email).first()
@@ -197,7 +220,7 @@ async def register(
         company_id=company.id,
         role="admin",
         is_active=True,
-        is_verified=True,  # Auto-verify for beta
+        is_verified=False,
     )
     db.add(user)
     db.flush()
@@ -212,16 +235,82 @@ async def register(
     client_ip = request.headers.get("X-Forwarded-For", request.client.host)
     track_signup_location(db, user, client_ip)
 
-    # Send welcome email (non-blocking, don't fail registration if email fails)
+    # Issue and email a verification code (must be entered before the user can log in)
+    code = issue_verification_code(db, user)
+    db.commit()
+
+    email_service.send_verification_code_email(
+        to_email=user.email,
+        user_name=user.full_name or "there",
+        code=code,
+        expires_in_minutes=CODE_EXPIRY_MINUTES,
+    )
+
+    return RegisterResponse(email=user.email)
+
+
+@router.post("/verify-email", response_model=LoginResponse)
+async def verify_email(
+    data: VerifyEmailRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Verify the emailed 6-digit code, activate the account, and log the user in"""
+
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    if user.is_verified:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already verified. Please log in.")
+
+    record = get_latest_code(db, user.id)
+    if not record or record.consumed_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active verification code. Please request a new one.",
+        )
+
+    now = datetime.now(timezone.utc)
+    if record.expires_at < now:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Verification code expired. Please request a new one.",
+        )
+
+    if record.attempts >= MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many incorrect attempts. Please request a new code.",
+        )
+
+    if hash_code(data.code.strip()) != record.code_hash:
+        record.attempts += 1
+        db.commit()
+        remaining = MAX_ATTEMPTS - record.attempts
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Incorrect code. {remaining} attempt(s) remaining.",
+        )
+
+    # Success
+    record.consumed_at = now
+    user.is_verified = True
+    db.commit()
+    db.refresh(user)
+
     email_service.send_welcome_email(
         to_email=user.email,
         user_name=user.full_name or "there",
     )
 
-    # Generate tokens
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
+    user_agent = request.headers.get("User-Agent")
+    track_login(db, user, client_ip, user_agent, login_method="email")
+
     access_token = create_access_token(
         user_id=str(user.id),
-        company_id=str(user.company_id),
+        company_id=str(user.company_id) if user.company_id else None,
         role=user.role,
     )
     refresh_token = create_refresh_token(user_id=str(user.id))
@@ -231,6 +320,43 @@ async def register(
         refresh_token=refresh_token,
         user=UserResponse.model_validate(user),
     )
+
+
+@router.post("/resend-verification-code", response_model=MessageResponse)
+async def resend_verification_code(
+    data: ResendVerificationRequest,
+    db: Session = Depends(get_db),
+):
+    """Issue a new verification code, invalidating the previous one"""
+
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    if user.is_verified:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already verified. Please log in.")
+
+    latest = get_latest_code(db, user.id)
+    if latest:
+        elapsed = (datetime.now(timezone.utc) - latest.created_at).total_seconds()
+        if elapsed < RESEND_COOLDOWN_SECONDS:
+            wait = int(RESEND_COOLDOWN_SECONDS - elapsed)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {wait}s before requesting a new code.",
+            )
+
+    code = issue_verification_code(db, user)
+    db.commit()
+
+    email_service.send_verification_code_email(
+        to_email=user.email,
+        user_name=user.full_name or "there",
+        code=code,
+        expires_in_minutes=CODE_EXPIRY_MINUTES,
+    )
+
+    return MessageResponse(message="A new verification code has been sent to your email.")
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -254,6 +380,12 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive"
+        )
+
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "EMAIL_NOT_VERIFIED", "message": "Please verify your email before logging in."},
         )
 
     # Track login with geolocation and device info

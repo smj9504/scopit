@@ -315,7 +315,17 @@ export interface PackingSessionData {
   company_override: CompanyInfoOverride;
   client_info: ClientInfo;
   result?: EstimateResponse;
+  /** Lightweight stand-in for result.grand_total in list/summary views, where the full result is stripped server-side. */
+  grand_total?: number;
   status?: SessionStatus;
+  /** User explicitly marked this estimate as done, independent of any real conversion. */
+  manually_completed?: boolean;
+  /** Set server-side once this session was actually converted into a ScopeIt Estimate. */
+  linked_estimate_id?: string;
+  linked_estimate_number?: string;
+  /** Set server-side once this session was actually converted into a ScopeIt Invoice. */
+  linked_invoice_id?: string;
+  linked_invoice_number?: string;
   // Photo AI specific
   photo_rooms?: PhotoRoom[];
   // Packout specific

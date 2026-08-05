@@ -14,6 +14,7 @@ from app.domains.line_item.models import LineItem, LineItemNote
 from app.domains.estimate.models import Estimate, EstimateSection, EstimateItem
 from app.domains.invoice.models import Invoice, InvoiceSection, InvoiceItem, Payment
 from app.domains.settings.models import EstimateStatusConfig, InvoiceStatusConfig, LineItemCategory
+from app.domains.auth.models import EmailVerificationCode
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

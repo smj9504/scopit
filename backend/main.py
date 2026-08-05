@@ -25,6 +25,7 @@ from app.domains.admin.api import router as admin_router
 from app.domains.tools.api import router as tools_router
 from app.domains.tools.modules.roof_analyzer.api import router as roof_analyzer_router
 from app.domains.tools.modules.packing.api import router as packing_router
+from app.domains.tools.modules.packing.demo_api import router as packing_demo_router
 from app.domains.tools.modules.item_recommender.api import router as item_recommender_router
 from app.domains.tools.modules.pdf_editor.api import router as pdf_editor_router
 from app.domains.tools.modules.pdf_editor.sign_api import router as sign_router
@@ -104,6 +105,7 @@ app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
 app.include_router(tools_router, prefix="/api/tools", tags=["Tools"])
 app.include_router(roof_analyzer_router, prefix="/api/tools/roof-analyzer", tags=["Roof Analyzer"])
 app.include_router(packing_router, prefix="/api/tools/packing", tags=["Packing Estimator"])
+app.include_router(packing_demo_router, prefix="/api/demo/packing", tags=["Packing Demo"])
 app.include_router(item_recommender_router, prefix="/api/tools/item-recommender", tags=["Item Recommender"])
 app.include_router(pdf_editor_router, prefix="/api/tools/pdf-editor", tags=["PDF Editor"])
 app.include_router(sign_router, prefix="/api/tools/pdf-editor/sign", tags=["E-Sign"])

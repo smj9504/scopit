@@ -17,9 +17,8 @@ import {
   Badge,
   Tooltip,
   message,
+  Modal,
   Typography,
-  Row,
-  Col,
   Alert,
   Collapse,
   Divider,
@@ -46,6 +45,7 @@ import {
   RightOutlined,
   SwapOutlined,
   UndoOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
 import { packingApi } from './packingApi';
 import { FolderImportModal } from './FolderImportModal';
@@ -54,7 +54,6 @@ import {
   DENSITY_OPTIONS,
   FLOOR_OPTIONS,
   CONTAMINATION_OPTIONS,
-  REGION_OPTIONS,
   HINT_CATEGORIES,
   UNIT_HINTS,
   QTY_CHIPS,
@@ -100,6 +99,10 @@ interface PhotoAITabProps {
   activeSessionId?: string;
   /** An estimate already exists for this session — generating again replaces it. */
   hasExistingEstimate?: boolean;
+  /** Explicit save for AI analysis results — draft is never auto-saved. */
+  onSavePhotoRooms: () => void;
+  photoRoomsDirty: boolean;
+  savingPhotoRooms: boolean;
 }
 
 // Inline edit state tracks which cell is being edited
@@ -518,6 +521,8 @@ const AddRoomPanel: React.FC<AddRoomPanelProps> = ({ presets, presetsLoading, on
 
 // ── Inline-Editable Item Row ────────────────────────────────────────────────
 
+const ITEM_ROW_GRID = '1fr 60px 108px 100px 40px 30px';
+
 interface ItemRowProps {
   item: DetectedContentItem;
   roomId: string;
@@ -570,12 +575,13 @@ const ItemRow: React.FC<ItemRowProps> = ({
 
   return (
     <div
+      className="pai-item-row"
       style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 100px 52px 60px',
-        gap: 4,
+        gridTemplateColumns: ITEM_ROW_GRID,
+        gap: 8,
         alignItems: 'center',
-        padding: '5px 6px',
+        padding: '9px 8px',
         borderBottom: `1px solid ${colors.border}`,
         fontSize: 12,
         fontFamily: fonts.body,
@@ -614,65 +620,72 @@ const ItemRow: React.FC<ItemRowProps> = ({
               </Tooltip>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 2, flexWrap: 'wrap' }}>
-            {/* Size tag */}
-            {isEditing('size') ? (
-              <Select
-                size="small"
-                value={editValue as string}
-                autoFocus
-                open
-                onChange={(v) => { setEditValue(v); onCommitEdit(roomId, itemIndex, 'size', v); }}
-                onBlur={() => onCancelEdit()}
-                style={{ fontSize: 10, width: 60 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((s) => <Option key={s} value={s}>{s}</Option>)}
-              </Select>
-            ) : (
-              <Tag
-                style={{ fontSize: 10, margin: 0, cursor: 'pointer', lineHeight: '16px', padding: '0 4px' }}
-                onClick={(e) => { e.stopPropagation(); startEdit('size'); }}
-                title="Size class (click to change)"
-              >
-                {item.size || 'M'}
-              </Tag>
-            )}
-            {/* Weight tag */}
-            {isEditing('weight') ? (
-              <Select
-                size="small"
-                value={editValue as string}
-                autoFocus
-                open
-                onChange={(v) => { setEditValue(v); onCommitEdit(roomId, itemIndex, 'weight', v); }}
-                onBlur={() => onCancelEdit()}
-                style={{ fontSize: 10, width: 100 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {[['light', 'Light'], ['medium', 'Medium'], ['heavy', 'Heavy'], ['extra_heavy', 'Extra Heavy']].map(([k, l]) => <Option key={k} value={k}>{l}</Option>)}
-              </Select>
-            ) : (
-              <Tag
-                color={item.weight === 'heavy' || item.weight === 'extra_heavy' ? 'warning' : 'default'}
-                style={{ fontSize: 10, margin: 0, cursor: 'pointer', lineHeight: '16px', padding: '0 4px' }}
-                onClick={(e) => { e.stopPropagation(); startEdit('weight'); }}
-                title="Weight class (click to change)"
-              >
-                {(item.weight || 'medium').replace('_', ' ')}
-              </Tag>
-            )}
-            {/* Description (if present) */}
-            {item.description && (
-              <Tooltip title={item.description}>
-                <span style={{ fontSize: 10, color: colors.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
-                  {item.description}
-                </span>
-              </Tooltip>
-            )}
-          </div>
+          {item.description && (
+            <Tooltip title={item.description}>
+              <div style={{ marginTop: 2, fontSize: 10, color: colors.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.description}
+              </div>
+            </Tooltip>
+          )}
         </div>
       )}
+
+      {/* Size */}
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        {isEditing('size') ? (
+          <Select
+            size="small"
+            value={editValue as string}
+            autoFocus
+            open
+            onChange={(v) => { setEditValue(v); onCommitEdit(roomId, itemIndex, 'size', v); }}
+            onBlur={() => onCancelEdit()}
+            style={{ width: '100%' }}
+            popupMatchSelectWidth={false}
+            dropdownStyle={{ minWidth: 90 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((s) => <Option key={s} value={s}>{s}</Option>)}
+          </Select>
+        ) : (
+          <Tag
+            style={{ margin: 0, cursor: 'pointer' }}
+            onClick={() => startEdit('size')}
+            title="Size class (click to change)"
+          >
+            {item.size || 'M'}
+          </Tag>
+        )}
+      </div>
+
+      {/* Weight */}
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        {isEditing('weight') ? (
+          <Select
+            size="small"
+            value={editValue as string}
+            autoFocus
+            open
+            onChange={(v) => { setEditValue(v); onCommitEdit(roomId, itemIndex, 'weight', v); }}
+            onBlur={() => onCancelEdit()}
+            style={{ width: '100%' }}
+            popupMatchSelectWidth={false}
+            dropdownStyle={{ minWidth: 140 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {[['light', 'Light'], ['medium', 'Medium'], ['heavy', 'Heavy'], ['extra_heavy', 'Extra Heavy']].map(([k, l]) => <Option key={k} value={k}>{l}</Option>)}
+          </Select>
+        ) : (
+          <Tag
+            color={item.weight === 'heavy' || item.weight === 'extra_heavy' ? 'warning' : 'default'}
+            style={{ margin: 0, cursor: 'pointer' }}
+            onClick={() => startEdit('weight')}
+            title="Weight class (click to change)"
+          >
+            {(item.weight || 'medium').replace('_', ' ')}
+          </Tag>
+        )}
+      </div>
 
       {/* Category */}
       {isEditing('category') ? (
@@ -686,7 +699,9 @@ const ItemRow: React.FC<ItemRowProps> = ({
             onCommitEdit(roomId, itemIndex, 'category', v);
           }}
           onBlur={() => onCancelEdit()}
-          style={{ fontSize: 12, width: '100%' }}
+          style={{ width: '100%' }}
+          popupMatchSelectWidth={false}
+          dropdownStyle={{ minWidth: 160 }}
         >
           {ITEM_CATEGORIES.map((cat) => (
             <Option key={cat} value={cat}>
@@ -697,7 +712,7 @@ const ItemRow: React.FC<ItemRowProps> = ({
       ) : (
         <Tag
           color="default"
-          style={{ fontSize: 11, cursor: 'pointer', margin: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
+          style={{ cursor: 'pointer', margin: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
           onClick={() => startEdit('category')}
           title="Click to edit"
         >
@@ -917,9 +932,18 @@ const RoomCard: React.FC<RoomCardProps> = ({
             {editingAttrs ? (
               <Input
                 size="small"
+                variant="borderless"
                 value={room.room_name}
                 onChange={(e) => onUpdate(room.id, { room_name: e.target.value })}
-                style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, width: 180 }}
+                style={{
+                  fontFamily: fonts.heading,
+                  fontWeight: 600,
+                  fontSize: 14,
+                  width: 180,
+                  padding: '0 2px 2px',
+                  borderRadius: 0,
+                  borderBottom: `1.5px solid ${colors.primary}`,
+                }}
                 autoFocus
               />
             ) : (
@@ -988,10 +1012,21 @@ const RoomCard: React.FC<RoomCardProps> = ({
       <div style={{ padding: '12px 16px' }}>
         {/* Editable attributes */}
         {editingAttrs && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12, padding: '10px 12px', background: colors.bgLight, borderRadius: borderRadius.md }}>
-            <div style={{ flex: '1 1 140px' }}>
-              <span style={{ fontSize: 12, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 2 }}>Floor</span>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 20,
+              marginBottom: 16,
+              paddingTop: 12,
+              borderTop: `1px solid ${colors.border}`,
+            }}
+          >
+            <div style={{ flex: '1 1 120px' }}>
+              <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Floor</span>
               <Select
+                size="small"
+                variant="borderless"
                 value={room.floor}
                 onChange={(v) => onUpdate(room.id, { floor: v })}
                 style={{ width: '100%' }}
@@ -1002,9 +1037,11 @@ const RoomCard: React.FC<RoomCardProps> = ({
                 ))}
               </Select>
             </div>
-            <div style={{ flex: '1 1 140px' }}>
-              <span style={{ fontSize: 12, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 2 }}>Density</span>
+            <div style={{ flex: '1 1 120px' }}>
+              <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Density</span>
               <Select
+                size="small"
+                variant="borderless"
                 value={room.density}
                 onChange={(v) => onUpdate(room.id, { density: v })}
                 style={{ width: '100%' }}
@@ -1015,9 +1052,11 @@ const RoomCard: React.FC<RoomCardProps> = ({
                 ))}
               </Select>
             </div>
-            <div style={{ flex: '1 1 160px' }}>
-              <span style={{ fontSize: 12, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 2 }}>Contamination</span>
+            <div style={{ flex: '1 1 140px' }}>
+              <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Contamination</span>
               <Select
+                size="small"
+                variant="borderless"
                 value={room.contamination}
                 onChange={(v) => onUpdate(room.id, { contamination: v })}
                 style={{ width: '100%' }}
@@ -1318,8 +1357,8 @@ const RoomCard: React.FC<RoomCardProps> = ({
                         <div style={{ textAlign: 'center', padding: '12px 0', color: colors.textMuted, fontSize: 12 }}>No items detected. Try re-analyzing or add items manually.</div>
                       ) : (
                         <div style={{ border: `1px solid ${colors.border}`, borderRadius: borderRadius.base, overflow: 'hidden', marginBottom: 8 }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 40px 36px', gap: 4, padding: '4px 6px', background: colors.bgLight, borderBottom: `1px solid ${colors.border}`, fontSize: 11, fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.body }}>
-                            <span>Name</span><span>Category</span><span style={{ textAlign: 'center' }}>Qty</span><span />
+                          <div style={{ display: 'grid', gridTemplateColumns: ITEM_ROW_GRID, gap: 8, padding: '7px 8px', background: colors.bgLight, borderBottom: `1px solid ${colors.border}`, fontSize: 11, fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.body }}>
+                            <span>Name</span><span>Size</span><span>Weight</span><span>Category</span><span style={{ textAlign: 'center' }}>Qty</span><span />
                           </div>
                           {room.items.map((item, idx) => (
                             <ItemRow key={idx} item={item} roomId={room.id} itemIndex={idx} editingCell={editingCell} onStartEdit={onStartEdit} onCommitEdit={onCommitEdit} onCancelEdit={onCancelEdit} onDelete={() => onDeleteItem(room.id, idx)} />
@@ -1488,10 +1527,6 @@ const RoomCard: React.FC<RoomCardProps> = ({
                   )}
                 </div>
               )}
-
-              {room.room_size && (
-                <div style={{ marginTop: 4 }}><Tag color="default" style={{ fontSize: 11 }}>{room.room_size}</Tag></div>
-              )}
             </div>
           );
 
@@ -1529,6 +1564,9 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
   onEstimateResult,
   activeSessionId: _activeSessionId,
   hasExistingEstimate,
+  onSavePhotoRooms,
+  photoRoomsDirty,
+  savingPhotoRooms,
 }) => {
   const gDrive = useGoogleDrive();
   const isNarrow = useIsNarrow();
@@ -1928,7 +1966,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
   );
 
   // ── Generate Estimate ──────────────────────────────────────────────────
-  const handleGenerateEstimate = useCallback(async () => {
+  const runGenerateEstimate = useCallback(async () => {
     if (analyzedRooms.length === 0) return;
     setGeneratingEstimate(true);
 
@@ -1976,6 +2014,21 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
       setGeneratingEstimate(false);
     }
   }, [analyzedRooms, settings, onEstimateResult]);
+
+  const handleGenerateEstimate = useCallback(() => {
+    if (analyzedRooms.length === 0) return;
+    if (hasExistingEstimate) {
+      Modal.confirm({
+        title: 'This will update your existing estimate',
+        content: 'Recalculating rebuilds every line from the current rooms. Manual edits made in the Estimate Editor will be replaced.',
+        okText: 'Recalculate',
+        cancelText: 'Cancel',
+        onOk: runGenerateEstimate,
+      });
+    } else {
+      runGenerateEstimate();
+    }
+  }, [analyzedRooms, hasExistingEstimate, runGenerateEstimate]);
 
   // ── Step definitions ───────────────────────────────────────────────────
 
@@ -2195,65 +2248,19 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
 
   // ── Step 3: Review & Generate ─────────────────────────────────────────
   const renderStepReview = () => {
-    const statCard = (label: string, value: string | number) => (
-      <Card
-        size="small"
-        style={{ borderRadius: borderRadius.md, border: `1.5px solid ${colors.border}`, textAlign: 'center', height: '100%' }}
-        styles={{ body: { padding: '14px 10px', height: '100%', display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center' } }}
-      >
-        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: fonts.heading, color: colors.textPrimary, lineHeight: 1.3, wordBreak: 'keep-all' }}>
-          {value}
-        </div>
-        <div style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>{label}</div>
-      </Card>
-    );
-
     const allSpecialItems = [...new Set(analyzedRooms.flatMap((r) => r.special_items))];
     const allCustomSpecialItems = analyzedRooms.flatMap((r) => r.custom_special_items);
     const totalSpecialCount = allSpecialItems.length + allCustomSpecialItems.length;
 
-    // Compute meaningful stats from analyzed rooms
-    // Room-based labor estimate matching backend classify_labor_hours logic
-    const ROOM_BASE_PH: Record<string, number> = { small: 2.0, large: 5.5, xlarge: 9.0 };
-    const DENSITY_MULT: Record<string, number> = { light: 0.7, normal: 1.0, dense: 1.3, heavy: 1.6, extreme: 2.5 };
-    const FLOOR_MULT: Record<string, number> = { basement: 1.1, '1st': 1.0, '2nd': 1.15, '3rd': 1.25, '4th+': 1.4 };
-
-    const getRoomSize = (r: PhotoRoom): string => {
-      const name = (r.room_name || '').toLowerCase();
-      if (['bath', 'closet', 'pantry', 'laundry', 'half'].some((k) => name.includes(k))) return 'small';
-      if (['master', 'basement', 'garage', 'attic', 'family'].some((k) => name.includes(k))) return 'xlarge';
-      return 'large';
-    };
-
     let reviewHvCount = 0;
     let reviewFragileCount = 0;
-    let reviewLaborPH = 0;
     analyzedRooms.forEach((r) => {
       const items = r.items || [];
       items.forEach((i) => {
         if (i.is_high_value) reviewHvCount += 1;
         if (i.is_fragile) reviewFragileCount += 1;
       });
-      // Room-based labor calculation
-      const size = getRoomSize(r);
-      let basePH = ROOM_BASE_PH[size] ?? 5.5;
-      if (r.density === 'light' && size === 'small') basePH = 0.5;
-      const dm = DENSITY_MULT[r.density] ?? 1.0;
-      const fm = FLOOR_MULT[r.floor] ?? 1.0;
-      let roomPH = basePH * dm * fm;
-      // Content type modifier (simplified)
-      const total = items.length;
-      if (total > 0) {
-        const fragileRatio = items.filter((i) => i.is_fragile || i.category === 'Kitchenware' || i.category === 'Fragile').length / total;
-        const furnitureRatio = items.filter((i) => i.category === 'Furniture').length / total;
-        if (fragileRatio >= 0.3) roomPH *= 1.4;
-        else if (furnitureRatio >= 0.3) roomPH *= 1.3;
-      }
-      reviewLaborPH += roomPH;
     });
-    // Convert person-hours to elapsed hours (divide by crew)
-    const reviewElapsedHrs = Math.round((reviewLaborPH / (settings.crew_size || 4)) * 10) / 10;
-    const reviewLaborDisplay = reviewElapsedHrs;
 
     return (
       <div>
@@ -2263,13 +2270,6 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
         <p style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 24 }}>
           Confirm your selections below, then click Generate to create the estimate.
         </p>
-
-        <Row gutter={[12, 12]} style={{ marginBottom: 28 }}>
-          <Col span={12}>{statCard('Rooms', analyzedRooms.length)}</Col>
-          <Col span={12}>{statCard('Est. Labor', reviewLaborDisplay > 0 ? `${reviewLaborDisplay} hrs` : '\u2014')}</Col>
-          <Col span={12}>{statCard('Crew Size', `${settings.crew_size} workers`)}</Col>
-          <Col span={12}>{statCard('Region', REGION_OPTIONS.find((r) => r.value === settings.region)?.label ?? settings.region)}</Col>
-        </Row>
 
         {/* High-value & Fragile summary */}
         {(reviewHvCount > 0 || reviewFragileCount > 0) && (
@@ -2393,16 +2393,6 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           />
         )}
 
-        {hasExistingEstimate && analyzedRooms.length > 0 && (
-          <Alert
-            type="info"
-            showIcon
-            message="This will update your existing estimate"
-            description="Recalculating rebuilds every line from the current rooms. Manual edits made in the Estimate Editor will be replaced."
-            style={{ borderRadius: borderRadius.md, marginBottom: 20 }}
-          />
-        )}
-
         <Button
           type="primary"
           size="large"
@@ -2507,8 +2497,8 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
         boxSizing: 'border-box',
       }}
     >
-      {/* Step Indicator */}
-      <div style={{ marginBottom: 28 }}>
+      {/* Step Indicator + Save Draft */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 28, flexWrap: 'wrap' }}>
         <Steps
           current={currentStep}
           onChange={handleStepClick}
@@ -2524,8 +2514,25 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             icon: s.icon,
           }))}
           size="small"
-          style={{ maxWidth: 600 }}
+          style={{ maxWidth: 600, flex: 1, minWidth: 260 }}
         />
+        <Tooltip title={photoRoomsDirty ? 'Save your photo/analysis changes as a draft' : 'No unsaved AI analysis changes'}>
+          <Button
+            type={photoRoomsDirty ? 'primary' : 'default'}
+            icon={<SaveOutlined />}
+            loading={savingPhotoRooms}
+            disabled={!photoRoomsDirty}
+            onClick={onSavePhotoRooms}
+            style={{
+              borderRadius: borderRadius.base,
+              fontWeight: 600,
+              flexShrink: 0,
+              ...(photoRoomsDirty ? { background: colors.primary, borderColor: colors.primary } : {}),
+            }}
+          >
+            {photoRoomsDirty ? 'Save Draft' : 'Draft Saved'}
+          </Button>
+        </Tooltip>
       </div>
 
       {/* Step Content */}

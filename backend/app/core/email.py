@@ -3,6 +3,7 @@ ScopeIt - Email Service
 """
 import smtplib
 import ssl
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -13,6 +14,36 @@ import logging
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Shared brand tokens for transactional emails.
+#
+# Web fonts don't load in most email clients, so the brand fonts
+# ('Plus Jakarta Sans' / 'Inter') are listed first for the handful of clients
+# that do support them, backed by a Helvetica/Arial fallback that visually
+# approximates them for everyone else. The verification code uses a
+# monospace stack instead — fixed-width digits read faster and signal
+# "this is a code to type", matching the convention used by 2FA emails.
+# ---------------------------------------------------------------------------
+FONT_STACK_HEADING = "'Plus Jakarta Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+FONT_STACK_BODY = "'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+FONT_STACK_MONO = "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace"
+
+COLOR_PRIMARY = "#111827"
+COLOR_BG = "#f9fafb"
+COLOR_BORDER = "#e5e7eb"
+COLOR_TEXT = "#374151"
+COLOR_MUTED = "#6b7280"
+COLOR_FAINT = "#9ca3af"
+
+_RESPONSIVE_STYLE = """
+  <style>
+    @media only screen and (max-width: 600px) {
+      .sc-container { width: 100% !important; }
+      .sc-padded { padding-left: 24px !important; padding-right: 24px !important; }
+    }
+  </style>
+"""
 
 
 class EmailService:
@@ -123,6 +154,141 @@ class EmailService:
             logger.error(f"Failed to send email to {to_email}: {str(e)}")
             return False
 
+    def _base_template(self, *, title: str, preheader: str, body_html: str) -> str:
+        """
+        Shared table-based, inline-CSS HTML shell for all transactional emails.
+        Keeps every email visually consistent (wordmark, accent border, footer)
+        without each template re-declaring the outer chrome.
+        """
+        year = datetime.now().year
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>{title}</title>
+{_RESPONSIVE_STYLE}
+</head>
+<body style="margin:0; padding:0; background-color:{COLOR_BG}; font-family:{FONT_STACK_BODY};">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">
+    {preheader}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{COLOR_BG};">
+    <tr>
+      <td align="center" style="padding:48px 20px;">
+        <table role="presentation" class="sc-container" width="560" cellpadding="0" cellspacing="0"
+               style="width:560px; max-width:560px; background-color:#ffffff; border:1px solid {COLOR_BORDER}; border-top:4px solid {COLOR_PRIMARY}; border-radius:12px;">
+          <tr>
+            <td class="sc-padded" style="padding:32px 40px 20px 40px;">
+              <span style="font-family:{FONT_STACK_HEADING}; font-size:19px; font-weight:800; letter-spacing:-0.3px; color:{COLOR_PRIMARY};">
+                Scope<span style="color:{COLOR_FAINT};">It</span>
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td class="sc-padded" style="padding:0 40px 8px 40px;">
+              {body_html}
+            </td>
+          </tr>
+          <tr>
+            <td class="sc-padded" style="padding:20px 40px 32px 40px; border-top:1px solid {COLOR_BORDER};">
+              <p style="margin:0; color:{COLOR_FAINT}; font-size:12px; line-height:1.6; font-family:{FONT_STACK_BODY};">
+                &copy; {year} {settings.APP_NAME}. All rights reserved.<br>
+                This is a transactional email related to your {settings.APP_NAME} account.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+    def send_verification_code_email(
+        self,
+        to_email: str,
+        user_name: str,
+        code: str,
+        expires_in_minutes: int = 10,
+    ) -> bool:
+        """
+        Send the 6-digit email verification code issued at signup.
+
+        Args:
+            to_email: New user's email
+            user_name: User's display name
+            code: The plaintext 6-digit code (never stored, only ever emailed)
+            expires_in_minutes: How long the code remains valid
+
+        Returns:
+            True if sent successfully
+        """
+        subject = f"Your {settings.APP_NAME} verification code: {code}"
+
+        body_html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  <tr>
+    <td>
+      <h1 style="margin:0 0 14px 0; font-family:{FONT_STACK_HEADING}; font-size:23px; font-weight:800; color:{COLOR_PRIMARY}; letter-spacing:-0.3px;">
+        Verify your email
+      </h1>
+      <p style="margin:0 0 28px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
+        Hi {user_name}, enter this code to finish setting up your {settings.APP_NAME} account.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding-bottom:16px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" style="background-color:{COLOR_BG}; border:1px solid {COLOR_BORDER}; border-radius:10px;">
+        <tr>
+          <td style="padding:20px 30px; font-family:{FONT_STACK_MONO}; font-size:34px; font-weight:700; letter-spacing:10px; color:{COLOR_PRIMARY}; text-align:center;">
+            {code}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding-bottom:28px;">
+      <p style="margin:0; color:{COLOR_MUTED}; font-size:13px; font-family:{FONT_STACK_BODY};">
+        Expires in {expires_in_minutes} minutes
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td style="border-top:1px solid {COLOR_BORDER}; padding-top:20px;">
+      <p style="margin:0; color:{COLOR_FAINT}; font-size:13px; line-height:1.6; font-family:{FONT_STACK_BODY};">
+        Didn't request this? You can safely ignore this email — your account stays secure.
+      </p>
+    </td>
+  </tr>
+</table>
+"""
+
+        html_content = self._base_template(
+            title=subject,
+            preheader=f"Your verification code is {code} — expires in {expires_in_minutes} minutes.",
+            body_html=body_html,
+        )
+
+        text_content = (
+            f"Verify your email\n\n"
+            f"Hi {user_name}, enter this code to finish setting up your {settings.APP_NAME} account:\n\n"
+            f"    {code}\n\n"
+            f"Expires in {expires_in_minutes} minutes.\n\n"
+            f"Didn't request this? You can safely ignore this email — your account stays secure."
+        )
+
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content,
+        )
+
     def send_welcome_email(self, to_email: str, user_name: str) -> bool:
         """
         Send welcome email to new user
@@ -136,110 +302,74 @@ class EmailService:
         """
         subject = f"Welcome to {settings.APP_NAME}! 🎉"
 
-        html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to {settings.APP_NAME}</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f9fafb;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
-        <tr>
-            <td style="background-color: #ffffff; border-radius: 12px; padding: 40px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-                <!-- Header -->
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                    <tr>
-                        <td style="text-align: center; padding-bottom: 30px;">
-                            <h1 style="margin: 0; color: #111827; font-size: 28px; font-weight: 700;">
-                                Welcome to {settings.APP_NAME}!
-                            </h1>
-                        </td>
-                    </tr>
-                </table>
+        features = [
+            "Create detailed estimates with line items",
+            "Convert estimates to invoices with one click",
+            "Manage your customer database",
+            "Build your company's line item library",
+        ]
+        feature_rows = "\n".join(
+            f"""
+      <tr>
+        <td width="20" valign="top" style="padding:7px 10px 7px 0;">
+          <span style="display:inline-block; width:6px; height:6px; margin-top:8px; background-color:{COLOR_PRIMARY}; border-radius:1px;"></span>
+        </td>
+        <td style="padding:7px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.6; font-family:{FONT_STACK_BODY};">{feature}</td>
+      </tr>"""
+            for feature in features
+        )
 
-                <!-- Content -->
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                    <tr>
-                        <td style="padding-bottom: 20px;">
-                            <p style="margin: 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                                Hi {user_name},
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding-bottom: 20px;">
-                            <p style="margin: 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                                Thank you for signing up for {settings.APP_NAME}! We're excited to have you on board.
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding-bottom: 20px;">
-                            <p style="margin: 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                                {settings.APP_NAME} helps restoration contractors create professional estimates quickly and easily. Here's what you can do:
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding-bottom: 25px;">
-                            <ul style="margin: 0; padding-left: 20px; color: #374151; font-size: 16px; line-height: 1.8;">
-                                <li>Create detailed estimates with line items</li>
-                                <li>Convert estimates to invoices with one click</li>
-                                <li>Manage your customer database</li>
-                                <li>Build your company's line item library</li>
-                            </ul>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="text-align: center; padding: 25px 0;">
-                            <a href="{settings.FRONTEND_URL}/app/dashboard"
-                               style="display: inline-block; background-color: #111827; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 16px; font-weight: 600;">
-                                Get Started
-                            </a>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding-top: 20px;">
-                            <p style="margin: 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                                If you have any questions, feel free to reach out to our support team.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-
-                <!-- Footer -->
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                    <tr>
-                        <td style="padding-top: 40px; border-top: 1px solid #e5e7eb; margin-top: 40px;">
-                            <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
-                                Best regards,<br>
-                                The {settings.APP_NAME} Team
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding-top: 20px;">
-                            <p style="margin: 0; color: #9ca3af; font-size: 12px; text-align: center;">
-                                &copy; 2024 {settings.APP_NAME}. All rights reserved.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>
+        body_html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  <tr>
+    <td>
+      <h1 style="margin:0 0 20px 0; font-family:{FONT_STACK_HEADING}; font-size:23px; font-weight:800; color:{COLOR_PRIMARY}; letter-spacing:-0.3px;">
+        Welcome to {settings.APP_NAME}!
+      </h1>
+      <p style="margin:0 0 18px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
+        Hi {user_name}, your email is verified and your account is ready. We're excited to have you on board.
+      </p>
+      <p style="margin:0 0 6px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
+        {settings.APP_NAME} helps restoration contractors create professional estimates quickly and easily. Here's what you can do:
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0 8px 0;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {feature_rows}
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding:28px 0 24px 0;">
+      <a href="{settings.FRONTEND_URL}/app/dashboard"
+         style="display:inline-block; background-color:{COLOR_PRIMARY}; color:#ffffff; text-decoration:none; padding:14px 34px; border-radius:8px; font-family:{FONT_STACK_HEADING}; font-size:15px; font-weight:700;">
+        Get Started &rarr;
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td style="border-top:1px solid {COLOR_BORDER}; padding-top:20px;">
+      <p style="margin:0; color:{COLOR_MUTED}; font-size:14px; line-height:1.6; font-family:{FONT_STACK_BODY};">
+        Questions? Just reply to this email — our team is happy to help.
+      </p>
+    </td>
+  </tr>
+</table>
 """
 
-        text_content = f"""
-Welcome to {settings.APP_NAME}!
+        html_content = self._base_template(
+            title=subject,
+            preheader=f"Your {settings.APP_NAME} account is ready to go.",
+            body_html=body_html,
+        )
+
+        text_content = f"""Welcome to {settings.APP_NAME}!
 
 Hi {user_name},
 
-Thank you for signing up for {settings.APP_NAME}! We're excited to have you on board.
+Your email is verified and your account is ready. We're excited to have you on board.
 
 {settings.APP_NAME} helps restoration contractors create professional estimates quickly and easily. Here's what you can do:
 
@@ -250,7 +380,7 @@ Thank you for signing up for {settings.APP_NAME}! We're excited to have you on b
 
 Get started: {settings.FRONTEND_URL}/app/dashboard
 
-If you have any questions, feel free to reach out to our support team.
+Questions? Just reply to this email — our team is happy to help.
 
 Best regards,
 The {settings.APP_NAME} Team

@@ -33,6 +33,8 @@ export interface ToolSessionCreate {
 export interface ToolSessionUpdate {
   name?: string;
   data?: Record<string, unknown>;
+  /** Shallow-merge `data` into the existing session data instead of replacing it. */
+  merge?: boolean;
 }
 
 export interface CreateEstimateFromToolRequest {

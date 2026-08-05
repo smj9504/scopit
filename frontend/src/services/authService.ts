@@ -7,6 +7,9 @@ import type {
   LoginResponse,
   RegisterRequest,
   RegisterResponse,
+  VerifyEmailRequest,
+  VerifyEmailResponse,
+  ResendVerificationRequest,
   RefreshTokenResponse,
   ForgotPasswordRequest,
   ResetPasswordRequest,
@@ -40,7 +43,8 @@ export const authService = {
   },
 
   /**
-   * Register new user and company
+   * Register new user and company. Does not log in — a verification code is
+   * emailed and must be confirmed via verifyEmail() before tokens are issued.
    */
   register: async (data: RegisterRequest): Promise<RegisterResponse> => {
     // Convert camelCase to snake_case for backend
@@ -49,6 +53,21 @@ export const authService = {
       password: data.password,
       full_name: data.fullName,
       company_name: data.companyName,
+    });
+    return {
+      email: response.data.email,
+      message: response.data.message,
+    };
+  },
+
+  /**
+   * Confirm the emailed 6-digit code. Returns tokens + user on success, same
+   * shape as login().
+   */
+  verifyEmail: async (data: VerifyEmailRequest): Promise<VerifyEmailResponse> => {
+    const response = await api.post<any>('/auth/verify-email', {
+      email: data.email,
+      code: data.code,
     });
     // Convert snake_case to camelCase
     return {
@@ -68,6 +87,13 @@ export const authService = {
         createdAt: response.data.user.created_at,
       },
     };
+  },
+
+  /**
+   * Request a fresh verification code (invalidates the previous one).
+   */
+  resendVerificationCode: async (data: ResendVerificationRequest): Promise<void> => {
+    await api.post('/auth/resend-verification-code', data);
   },
 
   /**

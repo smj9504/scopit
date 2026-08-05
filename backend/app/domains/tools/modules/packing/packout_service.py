@@ -32,6 +32,7 @@ from .service import (
     snap_to_storage_unit,
     get_storage_setup_fee,
     build_storage_section_detail,
+    _crew_detail,
 )
 
 
@@ -272,13 +273,14 @@ class PackoutCalculator:
         section_details: Dict[str, Any] = {}
 
         # --- Pack-Out Labor ---
-        po_crew_ph = round(pack_out_hours * crew)
-        po_crew_amt = round(po_crew_ph * labor_rate, 2)
+        # Line items show ELAPSED hours; rate = per-person rate × crew size.
+        crew_labor_rate = round(labor_rate * crew, 2)
+        po_crew_amt = round(pack_out_hours * crew_labor_rate, 2)
         sv_amt = round(supervisor_hours * supervisor_rate, 2)
         po_lines = [
-            {"name": "Pack-Out Crew Labor", "qty": po_crew_ph, "unit": "HR",
-             "rate": round(labor_rate, 2),
-             "detail": f"{crew}-person crew · {pack_out_hours} elapsed hr × {crew} = {po_crew_ph} person-hrs × {_fmt(labor_rate)}/hr",
+            {"name": "Pack-Out Crew Labor", "qty": pack_out_hours, "unit": "HR",
+             "rate": crew_labor_rate,
+             "detail": _crew_detail("wrap, box, label, load", pack_out_hours, crew, labor_rate, po_crew_amt),
              "amount": po_crew_amt},
             {"name": "Supervisor/Foreman", "qty": supervisor_hours, "unit": "HR",
              "rate": round(supervisor_rate, 2),
@@ -312,28 +314,28 @@ class PackoutCalculator:
 
         if is_on_site:
             on_site_hours = max(1.5, num_rooms * 0.35)
-            on_site_fee = round(crew * on_site_hours * labor_rate, 2)
+            on_site_fee = round(on_site_hours * crew_labor_rate, 2)
             sections["On-Site Relocation"] = on_site_fee
             section_details["On-Site Relocation"] = {"lines": [
-                {"name": "On-Site Content Move", "qty": round(on_site_hours * crew, 1), "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{crew}-person crew moving contents within property",
+                {"name": "On-Site Content Move", "qty": on_site_hours, "unit": "HR",
+                 "rate": crew_labor_rate,
+                 "detail": _crew_detail("moving contents within property", on_site_hours, crew, labor_rate, on_site_fee),
                  "amount": on_site_fee},
             ]}
         else:
             _, truck_rate = self._ec.select_truck(storage_sf)
             truck_trips = max(1, math.ceil(storage_sf / 500)) if storage_sf > 0 else 1
-            load_ph = round(loading_hours * crew * 2) / 2
+            loading_amt = round(loading_hours * crew_labor_rate, 2)
 
             t_out_lines = [
                 {"name": "26' Moving Van", "qty": truck_trips, "unit": "DY",
                  "rate": round(truck_rate, 2),
                  "detail": f"{truck_trips} trip{'s' if truck_trips > 1 else ''}",
                  "amount": round(truck_rate * truck_trips, 2)},
-                {"name": "Loading Labor", "qty": load_ph, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{loading_hours:.1f} elapsed hr · {crew}-person crew",
-                 "amount": round(load_ph * labor_rate, 2)},
+                {"name": "Loading Labor", "qty": loading_hours, "unit": "HR",
+                 "rate": crew_labor_rate,
+                 "detail": _crew_detail("stage, load, secure", loading_hours, crew, labor_rate, loading_amt),
+                 "amount": loading_amt},
             ]
             sections["Transport Out"] = sum(ln["amount"] for ln in t_out_lines)
             section_details["Transport Out"] = {"lines": t_out_lines}
@@ -353,24 +355,23 @@ class PackoutCalculator:
                      "rate": round(truck_rate, 2),
                      "detail": f"{truck_trips} trip{'s' if truck_trips > 1 else ''}",
                      "amount": round(truck_rate * truck_trips, 2)},
-                    {"name": "Unloading Labor", "qty": load_ph, "unit": "HR",
-                     "rate": round(labor_rate, 2),
-                     "detail": f"{loading_hours:.1f} elapsed hr · {crew}-person crew",
-                     "amount": round(load_ph * labor_rate, 2)},
+                    {"name": "Unloading Labor", "qty": loading_hours, "unit": "HR",
+                     "rate": crew_labor_rate,
+                     "detail": _crew_detail("unload, stage at entry, distribute", loading_hours, crew, labor_rate, loading_amt),
+                     "amount": loading_amt},
                 ]
                 sections["Transport Back"] = sum(ln["amount"] for ln in t_back_lines)
                 section_details["Transport Back"] = {"lines": t_back_lines}
 
         # --- Pack-Back Labor ---
         if request.include_packback:
-            pb_crew_ph = round(pack_back_hours * crew)
             pb_supervisor = max(1, round(pack_back_hours * 0.12))
-            pb_crew_amt = round(pb_crew_ph * labor_rate, 2)
+            pb_crew_amt = round(pack_back_hours * crew_labor_rate, 2)
             pb_sv_amt = round(pb_supervisor * supervisor_rate, 2)
             pb_lines = [
-                {"name": "Pack-Back Crew Labor", "qty": pb_crew_ph, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{crew}-person crew · {pack_back_hours} elapsed hr × {crew} = {pb_crew_ph} person-hrs",
+                {"name": "Pack-Back Crew Labor", "qty": pack_back_hours, "unit": "HR",
+                 "rate": crew_labor_rate,
+                 "detail": _crew_detail("unpack, place, reassemble", pack_back_hours, crew, labor_rate, pb_crew_amt),
                  "amount": pb_crew_amt},
                 {"name": "Supervisor/Foreman", "qty": pb_supervisor, "unit": "HR",
                  "rate": round(supervisor_rate, 2),

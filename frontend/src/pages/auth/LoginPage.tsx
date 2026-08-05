@@ -8,7 +8,7 @@ import { MailOutlined, LockOutlined, GoogleOutlined } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '@/stores/authStore';
 import { authService } from '@/services/authService';
-import { getErrorMessage } from '@/services/api';
+import { getErrorMessage, getErrorCode } from '@/services/api';
 import { colors, fonts } from '@/styles/theme';
 
 interface LoginForm {
@@ -54,7 +54,12 @@ const LoginPage: React.FC = () => {
       navigate('/app/dashboard');
     } catch (error) {
       console.error('❌ Login Error:', error);
-      message.error(getErrorMessage(error));
+      if (getErrorCode(error) === 'EMAIL_NOT_VERIFIED') {
+        message.info('Please verify your email to continue.');
+        navigate('/register', { state: { step: 'verify', email: values.email } });
+      } else {
+        message.error(getErrorMessage(error));
+      }
     } finally {
       setLoading(false);
     }
