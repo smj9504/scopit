@@ -57,6 +57,7 @@ import PropertyPanel from './PropertyPanel';
 import MergeModal from './MergeModal';
 import ImportModal from './ImportModal';
 import SendForSignModal from './SendForSignModal';
+import FieldMappingModal from './FieldMappingModal';
 import SignRequestDetail from './SignRequestDetail';
 import ImageUploadPreview from './ImageUploadPreview';
 import SignatureModal from './SignatureModal';
@@ -84,20 +85,61 @@ const SIGN_STATUS_COLOR: Record<string, string> = {
   draft: colors.textMuted,
   sent: colors.textSecondary,
   viewed: '#6366f1',
+  partially_signed: colors.warning,
   signed: colors.success,
   declined: colors.error,
   expired: colors.warning,
   cancelled: colors.textMuted,
 };
 
+const SIGN_STATUS_LABEL: Record<string, string> = {
+  draft: 'Draft',
+  sent: 'Sent',
+  viewed: 'Viewed',
+  partially_signed: 'Partially Signed',
+  signed: 'Signed',
+  declined: 'Declined',
+  expired: 'Expired',
+  cancelled: 'Voided',
+};
+
 // ── Document Thumbnail ────────────────────────────────────────────────────────
 
 const DocThumbnail: React.FC<{ doc: PdfDocument }> = ({ doc }) => {
-  if (doc.thumbnailUrl) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    if (!doc.thumbnailUrl) return;
+    let cancelled = false;
+    let url: string | null = null;
+
+    pdfEditorApi
+      .getThumbnail(doc.id)
+      .then((objUrl) => {
+        if (cancelled) {
+          URL.revokeObjectURL(objUrl);
+          return;
+        }
+        url = objUrl;
+        setObjectUrl(objUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setImgError(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [doc.id, doc.thumbnailUrl]);
+
+  if (objectUrl && !imgError) {
     return (
       <img
-        src={doc.thumbnailUrl}
+        src={objectUrl}
         alt={doc.name}
+        onError={() => setImgError(true)}
         style={{
           width: 36,
           height: 48,
@@ -279,11 +321,6 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
   const getRowActions = useCallback(
     (doc: PdfDocument) => [
       {
-        key: 'open',
-        label: 'Open in Editor',
-        onClick: () => onOpenEditor(doc.id),
-      },
-      {
         key: 'download',
         label: 'Download',
         onClick: () => handleDownload(doc),
@@ -300,29 +337,13 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
       },
       { type: 'divider' as const },
       {
-        key: 'import-estimate',
-        label: 'Import from Estimate',
-        onClick: () => onOpenImport(),
-      },
-      {
-        key: 'import-invoice',
-        label: 'Import from Invoice',
-        onClick: () => onOpenImport(),
-      },
-      {
-        key: 'import-company-doc',
-        label: 'Import from Company Document',
-        onClick: () => onOpenImport(),
-      },
-      { type: 'divider' as const },
-      {
         key: 'delete',
         label: 'Delete',
         danger: true,
         onClick: () => handleDelete(doc),
       },
     ],
-    [duplicateMutation, openRename, onOpenEditor, onOpenImport, handleDownload, handleDelete],
+    [duplicateMutation, openRename, onOpenEditor, handleDownload, handleDelete],
   );
 
   const columns: ColumnsType<PdfDocument> = [
@@ -454,13 +475,13 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
             borderColor: colors.border,
           }}
         >
-          <p style={{ marginBottom: 8 }}>
+          <div style={{ marginBottom: 8 }}>
             {(uploadMutation.isPending || imagesToPdfMutation.isPending) ? (
               <Spin />
             ) : (
               <InboxOutlined style={{ fontSize: 40, color: colors.textMuted }} />
             )}
-          </p>
+          </div>
           <p style={{ fontFamily: fonts.body, fontSize: 14, color: colors.textPrimary, margin: 0 }}>
             Drag files here or <span style={{ color: colors.primary, fontWeight: 600 }}>click to browse</span>
           </p>
@@ -512,6 +533,10 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
             dataSource={data.items}
             rowKey="id"
             loading={isFetching && !isLoading}
+            onRow={(doc) => ({
+              onClick: () => onOpenEditor(doc.id),
+              style: { cursor: 'pointer' },
+            })}
             pagination={{
               current: page,
               pageSize: PAGE_SIZE,
@@ -591,8 +616,8 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => pdfEditorApi.cancelSignRequest(id),
-    onSuccess: () => message.success('Sign request cancelled'),
-    onError: () => message.error('Failed to cancel'),
+    onSuccess: () => message.success('Sign request voided'),
+    onError: () => message.error('Failed to void request'),
   });
 
   const handleDownloadSigned = useCallback(async (req: SignRequest) => {
@@ -617,10 +642,11 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
     { key: 'draft', label: 'Draft' },
     { key: 'sent', label: 'Sent' },
     { key: 'viewed', label: 'Viewed' },
+    { key: 'partially_signed', label: 'Partially Signed' },
     { key: 'signed', label: 'Signed' },
     { key: 'declined', label: 'Declined' },
     { key: 'expired', label: 'Expired' },
-    { key: 'cancelled', label: 'Cancelled' },
+    { key: 'cancelled', label: 'Voided' },
   ];
 
   const columns: ColumnsType<SignRequest> = [
@@ -636,16 +662,23 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
       ),
     },
     {
-      title: 'Recipient',
+      title: 'Recipients',
       key: 'recipient',
-      render: (_: unknown, req: SignRequest) => (
-        <div>
-          <Text style={{ fontSize: 14 }}>{req.recipientName}</Text>
+      render: (_: unknown, req: SignRequest) => {
+        const [first, ...rest] = req.recipients;
+        if (!first) return <Text type="secondary" style={{ fontSize: 14 }}>—</Text>;
+        return (
           <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>{req.recipientEmail}</Text>
+            <Text style={{ fontSize: 14 }}>
+              {first.name}
+              {rest.length > 0 && ` +${rest.length} more`}
+            </Text>
+            <div>
+              <Text type="secondary" style={{ fontSize: 12 }}>{first.email}</Text>
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'Status',
@@ -657,12 +690,11 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
             color: SIGN_STATUS_COLOR[status] || colors.textSecondary,
             borderColor: colors.border,
             background: colors.bgLight,
-            textTransform: 'capitalize',
             fontFamily: fonts.body,
             fontSize: 12,
           }}
         >
-          {status}
+          {SIGN_STATUS_LABEL[status] || status}
         </Tag>
       ),
     },
@@ -704,8 +736,8 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
               />
             </Tooltip>
           )}
-          {(req.status === 'draft' || req.status === 'sent' || req.status === 'viewed') && (
-            <Tooltip title="Cancel">
+          {(req.status === 'draft' || req.status === 'sent' || req.status === 'viewed' || req.status === 'partially_signed') && (
+            <Tooltip title="Void">
               <Button
                 type="text"
                 size="small"
@@ -714,9 +746,9 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
                 loading={cancelMutation.isPending}
                 onClick={() =>
                   Modal.confirm({
-                    title: 'Cancel sign request?',
-                    content: 'The recipient will no longer be able to sign this document.',
-                    okText: 'Cancel Request',
+                    title: 'Void this sign request?',
+                    content: 'No recipient will be able to sign this document after voiding.',
+                    okText: 'Void Request',
                     okButtonProps: { danger: true },
                     onOk: () => cancelMutation.mutate(req.id),
                   })
@@ -812,12 +844,17 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
 
 // ── Editor View ───────────────────────────────────────────────────────────────
 
-interface EditorViewProps {
+export interface EditorViewProps {
   documentId: string;
   onBack: () => void;
+  /** Pixels of fixed chrome above this view to subtract from 100vh.
+   * Defaults to the app's own top bar (56px) for the standalone Tools page;
+   * pass 0 when embedding full-screen inside something with no such bar
+   * (e.g. a full-screen Modal). */
+  heightOffset?: number;
 }
 
-const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack }) => {
+export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heightOffset = 56 }) => {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
 
@@ -985,6 +1022,7 @@ const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack }) => {
 
   // ── Send for Signature ──────────────────────────────────────────────────
   const [sendForSignOpen, setSendForSignOpen] = useState(false);
+  const [fieldMappingOpen, setFieldMappingOpen] = useState(false);
 
   // ── Sign (insert own signature) ────────────────────────────────────────
   const [signModalOpen, setSignModalOpen] = useState(false);
@@ -1093,7 +1131,7 @@ const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack }) => {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 56px)',
+        height: `calc(100vh - ${heightOffset}px)`,
         overflow: 'hidden',
         background: colors.bgLight,
       }}
@@ -1143,14 +1181,23 @@ const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack }) => {
         >
           {!isMobile && 'Pages'}
         </Button>
-        <Button
-          icon={<SendOutlined />}
-          onClick={() => setSendForSignOpen(true)}
-          size={isMobile ? 'small' : 'middle'}
-          style={{ fontFamily: fonts.body }}
-        >
-          {isMobile ? 'Sign' : 'Send for Signature'}
-        </Button>
+        <Space size={8}>
+          <Button
+            onClick={() => setFieldMappingOpen(true)}
+            size={isMobile ? 'small' : 'middle'}
+            style={{ fontFamily: fonts.body }}
+          >
+            {isMobile ? 'Fields' : 'Define Fields'}
+          </Button>
+          <Button
+            icon={<SendOutlined />}
+            onClick={() => setSendForSignOpen(true)}
+            size={isMobile ? 'small' : 'middle'}
+            style={{ fontFamily: fonts.body }}
+          >
+            {isMobile ? 'Sign' : 'Send for Signature'}
+          </Button>
+        </Space>
       </div>
 
       {/* Three-column body */}
@@ -1293,6 +1340,17 @@ const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack }) => {
         )}
       </div>
 
+      {/* Define Fields (template editor) Modal */}
+      <FieldMappingModal
+        open={fieldMappingOpen}
+        onClose={() => setFieldMappingOpen(false)}
+        documentId={documentId}
+        documentName={docName}
+        pageCount={pageCount}
+        initialFields={doc?.fieldDefinitions ?? []}
+        onSaved={() => queryClient.invalidateQueries({ queryKey: ['pdf-document', documentId] })}
+      />
+
       {/* Send for Signature Modal */}
       <SendForSignModal
         open={sendForSignOpen}
@@ -1300,6 +1358,7 @@ const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack }) => {
         documentId={documentId}
         documentName={docName}
         pageCount={pageCount}
+        fieldDefinitions={doc?.fieldDefinitions ?? []}
       />
 
       {/* Sign (insert own signature) Modal */}

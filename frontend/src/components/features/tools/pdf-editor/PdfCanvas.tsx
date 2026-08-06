@@ -24,13 +24,8 @@ import React, {
 import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { useAuthStore } from '@/stores/authStore';
+import './pdfWorker';
 // Theme not needed – bare canvas only
-
-// Configure PDF.js worker once at module load time
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url,
-).toString();
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

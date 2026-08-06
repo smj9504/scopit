@@ -6,6 +6,7 @@ page operations, annotations, signing workflow, and company document library.
 """
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 from typing import Optional
 from datetime import datetime
 
@@ -74,6 +75,16 @@ class PageRotateRequest(BaseModel):
 # ============================================
 
 class AnnotationStyle(BaseModel):
+    # The frontend's AnnotationStyle interface is camelCase (fontSize,
+    # backgroundColor, ...); without this alias, Pydantic's default
+    # extra="ignore" would silently drop every field here whose name
+    # differs by casing, keeping only color/opacity (no underscore to
+    # diverge) -- annotations would round-trip with font/border/background
+    # silently reset on every save. populate_by_name keeps snake_case input
+    # working too; model_dump() (no by_alias) still emits snake_case, which
+    # is what the annotation-burning code and DB storage already expect.
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
+
     font_family: Optional[str] = None
     font_size: Optional[int] = None
     font_weight: Optional[str] = None       # normal, bold
@@ -122,30 +133,61 @@ class ImportCompanyDocRequest(BaseModel):
 
 
 # ============================================
-# SIGN REQUEST SCHEMAS
+# FIELD MAPPING / DATA BINDING SCHEMAS
 # ============================================
 
-class SignFieldDef(BaseModel):
-    page: int
+class DataBinding(BaseModel):
+    mode: str  # "prefilled" | "signer_input" | "creator_input"
+    source_entity: Optional[str] = None   # "customer" | "company" | "custom" | None
+    source_field: Optional[str] = None
+
+
+class FieldDefinition(BaseModel):
+    key: str                     # unique within template, e.g. "customer.name", "custom.field_1", "sig.homeowner"
+    label: str
+    type: str = "text"           # text, date, signature, initials, checkbox, number, ... (open string, EX-1)
+    page: int                    # 1-indexed
     x: float
     y: float
     width: float
     height: float
-    type: str = "signature"  # signature, date, name, initials
-    label: Optional[str] = None
+    data_binding: DataBinding
+    signer_role: Optional[str] = None   # required when mode=="signer_input" or type in (signature, initials)
+    required: bool = False
+    font_size: Optional[int] = None     # points; None = auto-fit to field height
+
+
+class FieldDefinitionsUpdateRequest(BaseModel):
+    fields: list[FieldDefinition]
+
+
+# ============================================
+# SIGN REQUEST SCHEMAS
+# ============================================
+
+class SignRecipientCreate(BaseModel):
+    role: str
+    name: str
+    email: str
+    phone: Optional[str] = None
 
 
 class SignRequestCreate(BaseModel):
     document_id: str
-    recipient_email: str
-    recipient_name: str
+    recipients: list[SignRecipientCreate] = Field(..., min_length=1)
     customer_id: Optional[str] = None
+    delivery_method: str = "email_request"  # "direct_link" | "email_request"
     sender_email: Optional[str] = None
     sender_name: Optional[str] = None
-    sign_fields: list[SignFieldDef]
     email_subject: Optional[str] = None
     email_message: Optional[str] = None
+    cc_emails: list[str] = []
+    bcc_emails: list[str] = []
     expires_in_days: int = 14
+
+
+class CreatorFieldValuesRequest(BaseModel):
+    values: dict[str, str]
 
 
 class SignRequestResponse(BaseModel):
@@ -161,6 +203,8 @@ class SignRequestResponse(BaseModel):
     sign_fields: list = Field(default=[], serialization_alias="signFields")
     email_subject: Optional[str] = Field(default=None, serialization_alias="emailSubject")
     email_message: Optional[str] = Field(default=None, serialization_alias="emailMessage")
+    cc_emails: list[str] = Field(default=[], serialization_alias="ccEmails")
+    bcc_emails: list[str] = Field(default=[], serialization_alias="bccEmails")
     expires_at: Optional[datetime] = Field(default=None, serialization_alias="expiresAt")
     sent_at: Optional[datetime] = Field(default=None, serialization_alias="sentAt")
     viewed_at: Optional[datetime] = Field(default=None, serialization_alias="viewedAt")
@@ -197,7 +241,8 @@ class SignSubmitRequest(BaseModel):
     signature_data: str  # base64 PNG
     signature_type: str = "draw"  # "draw" or "type"
     signature_font: Optional[str] = None  # font name if type mode
-    signed_fields: list[dict] = []
+    field_values: dict[str, str] = {}  # this recipient's own signer_input values, keyed by field key
+    consent_agreed: bool = False
 
 
 class SignDeclineRequest(BaseModel):
@@ -242,18 +287,18 @@ class CompanyDocumentResponse(BaseModel):
     name: str
     description: Optional[str] = None
     category: Optional[str] = None
-    file_size: int
-    mime_type: str
-    page_count: int
-    thumbnail_url: Optional[str] = None
+    file_size: int = Field(serialization_alias="fileSize")
+    mime_type: str = Field(serialization_alias="mimeType")
+    page_count: int = Field(serialization_alias="pageCount")
+    thumbnail_url: Optional[str] = Field(default=None, serialization_alias="thumbnailUrl")
     tags: list[str] = []
-    use_count: int = 0
-    last_used_at: Optional[datetime] = None
-    is_active: bool
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    use_count: int = Field(default=0, serialization_alias="useCount")
+    last_used_at: Optional[datetime] = Field(default=None, serialization_alias="lastUsedAt")
+    is_active: bool = Field(serialization_alias="isActive")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: Optional[datetime] = Field(default=None, serialization_alias="updatedAt")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class CompanyDocumentListResponse(BaseModel):

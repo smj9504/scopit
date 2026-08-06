@@ -130,6 +130,7 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
 
   // Convert ClientInfo <-> CustomerData for the CustomerSelector
   const customerData: CustomerData = {
+    customerId: clientInfo.customer_id,
     name: clientInfo.name,
     email: clientInfo.email || undefined,
     phone: clientInfo.phone || undefined,
@@ -139,6 +140,7 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
   const handleCustomerChange = useCallback(
     (data: CustomerData) => {
       setClientInfo({
+        customer_id: data.customerId,
         name: data.name || '',
         email: data.email || '',
         phone: data.phone || '',
@@ -397,126 +399,122 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
 
   const companyOverrideBlock = (
     <section>
-      {sectionCard(
-        <>
-          <div
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <h4
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: showCompanyOverride ? 16 : 0,
+              fontFamily: fonts.heading,
+              fontSize: 14,
+              fontWeight: 600,
+              color: colors.textPrimary,
+              margin: 0,
+              letterSpacing: '-0.01em',
             }}
           >
-            <div>
-              <h4
-                style={{
-                  fontFamily: fonts.heading,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: colors.textPrimary,
-                  margin: 0,
-                  letterSpacing: '-0.01em',
-                }}
-              >
-                Company Override
-              </h4>
-              {!showCompanyOverride && (
-                <p style={{ fontSize: 12, color: colors.textMuted, margin: '4px 0 0' }}>
-                  Override company info on the exported estimate
-                </p>
-              )}
-            </div>
-            <Switch
-              size="small"
-              checked={showCompanyOverride}
-              onChange={setShowCompanyOverride}
-              aria-label="Toggle company override"
+            Company Override
+          </h4>
+          {!showCompanyOverride && (
+            <p style={{ fontSize: 12, color: colors.textMuted, margin: '4px 0 0' }}>
+              Override company info on the exported estimate
+            </p>
+          )}
+        </div>
+        <Switch
+          size="small"
+          checked={showCompanyOverride}
+          onChange={setShowCompanyOverride}
+          aria-label="Toggle company override"
+        />
+      </div>
+
+      {showCompanyOverride && sectionCard(
+        <>
+          {/* Saved profiles selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <Select
+              placeholder={profilesLoading ? 'Loading...' : 'Select saved company...'}
+              value={selectedProfileId}
+              onChange={handleSelectProfile}
+              loading={profilesLoading}
+              allowClear
+              onClear={() => {
+                setSelectedProfileId(undefined);
+                setCompanyOverride({});
+              }}
+              style={{ flex: 1 }}
+              size="middle"
+              options={profiles.map((p) => ({ value: p.id, label: p.label }))}
+              notFoundContent={
+                <span style={{ fontSize: 12, color: colors.textMuted }}>No saved profiles yet</span>
+              }
             />
+            <Tooltip title="Save current as profile">
+              <Button
+                icon={<SaveOutlined />}
+                size="middle"
+                onClick={handleSaveProfile}
+                disabled={!companyOverride.name?.trim()}
+              />
+            </Tooltip>
+            {selectedProfileId && (
+              <Popconfirm
+                title="Delete this profile?"
+                onConfirm={() => handleDeleteProfile(selectedProfileId)}
+                okText="Delete"
+                cancelText="Cancel"
+              >
+                <Button icon={<DeleteOutlined />} size="middle" danger />
+              </Popconfirm>
+            )}
           </div>
 
-          {showCompanyOverride && (
-            <>
-              {/* Saved profiles selector */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                <Select
-                  placeholder={profilesLoading ? 'Loading...' : 'Select saved company...'}
-                  value={selectedProfileId}
-                  onChange={handleSelectProfile}
-                  loading={profilesLoading}
-                  allowClear
-                  onClear={() => {
-                    setSelectedProfileId(undefined);
-                    setCompanyOverride({});
-                  }}
-                  style={{ flex: 1 }}
-                  size="middle"
-                  options={profiles.map((p) => ({ value: p.id, label: p.label }))}
-                  notFoundContent={
-                    <span style={{ fontSize: 12, color: colors.textMuted }}>No saved profiles yet</span>
-                  }
-                />
-                <Tooltip title="Save current as profile">
-                  <Button
-                    icon={<SaveOutlined />}
-                    size="middle"
-                    onClick={handleSaveProfile}
-                    disabled={!companyOverride.name?.trim()}
-                  />
-                </Tooltip>
-                {selectedProfileId && (
-                  <Popconfirm
-                    title="Delete this profile?"
-                    onConfirm={() => handleDeleteProfile(selectedProfileId)}
-                    okText="Delete"
-                    cancelText="Cancel"
-                  >
-                    <Button icon={<DeleteOutlined />} size="middle" danger />
-                  </Popconfirm>
-                )}
-              </div>
-
-              <Row gutter={[12, 12]}>
-                <Col xs={24} sm={12}>
-                  {fieldLabel('Company Name')}
-                  <Input
-                    placeholder="Restoration Co."
-                    value={companyOverride.name ?? ''}
-                    onChange={(e) => patchCompany({ name: e.target.value })}
-                    aria-label="Company name override"
-                  />
-                </Col>
-                <Col xs={24} sm={12}>
-                  {fieldLabel('Address')}
-                  <Input
-                    placeholder="456 Business Ave"
-                    value={companyOverride.address ?? ''}
-                    onChange={(e) => patchCompany({ address: e.target.value })}
-                    aria-label="Company address override"
-                  />
-                </Col>
-                <Col xs={24} sm={12}>
-                  {fieldLabel('Phone')}
-                  <Input
-                    placeholder="(555) 111-2222"
-                    value={companyOverride.phone ?? ''}
-                    onChange={(e) => patchCompany({ phone: e.target.value })}
-                    aria-label="Company phone override"
-                  />
-                </Col>
-                <Col xs={24} sm={12}>
-                  {fieldLabel('Email')}
-                  <Input
-                    type="email"
-                    placeholder="info@company.com"
-                    value={companyOverride.email ?? ''}
-                    onChange={(e) => patchCompany({ email: e.target.value })}
-                    aria-label="Company email override"
-                  />
-                </Col>
-              </Row>
-            </>
-          )}
-        </>
+          <Row gutter={[12, 12]}>
+            <Col xs={24} sm={12}>
+              {fieldLabel('Company Name')}
+              <Input
+                placeholder="Restoration Co."
+                value={companyOverride.name ?? ''}
+                onChange={(e) => patchCompany({ name: e.target.value })}
+                aria-label="Company name override"
+              />
+            </Col>
+            <Col xs={24} sm={12}>
+              {fieldLabel('Address')}
+              <Input
+                placeholder="456 Business Ave"
+                value={companyOverride.address ?? ''}
+                onChange={(e) => patchCompany({ address: e.target.value })}
+                aria-label="Company address override"
+              />
+            </Col>
+            <Col xs={24} sm={12}>
+              {fieldLabel('Phone')}
+              <Input
+                placeholder="(555) 111-2222"
+                value={companyOverride.phone ?? ''}
+                onChange={(e) => patchCompany({ phone: e.target.value })}
+                aria-label="Company phone override"
+              />
+            </Col>
+            <Col xs={24} sm={12}>
+              {fieldLabel('Email')}
+              <Input
+                type="email"
+                placeholder="info@company.com"
+                value={companyOverride.email ?? ''}
+                onChange={(e) => patchCompany({ email: e.target.value })}
+                aria-label="Company email override"
+              />
+            </Col>
+          </Row>
+        </>,
       )}
     </section>
   );
@@ -555,22 +553,14 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
 
       {/* ── Estimation Settings ──────────────────────────── */}
       <section>
-        {sectionCard(
-          <>
-            {sectionTitle('Estimation Settings')}
-            {estimationSettingsBlock}
-          </>
-        )}
+        {sectionTitle('Estimation Settings')}
+        {sectionCard(estimationSettingsBlock)}
       </section>
 
       {/* ── O&P & Materials ──────────────────────────────── */}
       <section>
-        {sectionCard(
-          <>
-            {sectionTitle('Pricing')}
-            {opContingencyBlock}
-          </>
-        )}
+        {sectionTitle('Pricing')}
+        {sectionCard(opContingencyBlock)}
       </section>
     </div>
   );

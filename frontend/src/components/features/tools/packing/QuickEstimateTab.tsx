@@ -1418,28 +1418,6 @@ export const QuickEstimateTab: React.FC<QuickEstimateTabProps> = ({
           Back
         </Button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {steps.map((_, idx) => (
-            <div
-              key={idx}
-              style={{
-                width: idx === currentStep ? 20 : 8,
-                height: 8,
-                borderRadius: borderRadius.full,
-                background: idx === currentStep ? colors.primary : colors.border,
-                transition: 'all 0.2s ease',
-                cursor: 'pointer',
-              }}
-              onClick={() => handleStepClick(idx)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && handleStepClick(idx)}
-              aria-label={`Go to step ${idx + 1}: ${steps[idx].title}`}
-              aria-current={idx === currentStep ? 'step' : undefined}
-            />
-          ))}
-        </div>
-
         {currentStep < steps.length - 1 ? (
           <Button
             type="primary"

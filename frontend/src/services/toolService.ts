@@ -55,6 +55,22 @@ export const toolService = {
     return response.data.map(transformSession);
   },
 
+  listSessionsPaged: async (params: {
+    toolId?: string;
+    skip?: number;
+    limit?: number;
+  }): Promise<{ sessions: ToolSession[]; total: number }> => {
+    const response = await api.get<any[]>('/tools/sessions', {
+      params: {
+        tool_id: params.toolId,
+        skip: params.skip ?? 0,
+        limit: params.limit ?? 20,
+      },
+    });
+    const total = Number(response.headers['x-total-count'] ?? response.data.length);
+    return { sessions: response.data.map(transformSession), total };
+  },
+
   createSession: async (data: ToolSessionCreate): Promise<ToolSession> => {
     const response = await api.post<any>('/tools/sessions', data);
     return transformSession(response.data);

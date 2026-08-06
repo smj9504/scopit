@@ -4,7 +4,7 @@
  * Allows users to upload, browse, edit, and delete company document templates
  * (contracts, W9s, insurance certificates, scope templates, warranties, etc.)
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Button,
   Table,
@@ -34,11 +34,17 @@ import {
   FileTextOutlined,
   SearchOutlined,
   PlusOutlined,
+  FormOutlined,
+  SendOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { pdfEditorApi } from '@/components/features/tools/pdf-editor/pdfEditorApi';
-import type { CompanyDocument } from '@/components/features/tools/pdf-editor/types';
+import FieldMappingModal from '@/components/features/tools/pdf-editor/FieldMappingModal';
+import SendForSignModal from '@/components/features/tools/pdf-editor/SendForSignModal';
+import type { CompanyDocument, PdfDocument } from '@/components/features/tools/pdf-editor/types';
+import { useTools } from '@/hooks/useTools';
 import { colors, fonts } from '@/styles/theme';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -364,12 +370,38 @@ interface ThumbnailProps {
 }
 
 const DocThumbnail: React.FC<ThumbnailProps> = ({ doc }) => {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [imgError, setImgError] = useState(false);
 
-  if (doc.thumbnailUrl && !imgError) {
+  useEffect(() => {
+    if (!doc.thumbnailUrl) return;
+    let cancelled = false;
+    let url: string | null = null;
+
+    pdfEditorApi
+      .getCompanyDocThumbnail(doc.id)
+      .then((objUrl) => {
+        if (cancelled) {
+          URL.revokeObjectURL(objUrl);
+          return;
+        }
+        url = objUrl;
+        setObjectUrl(objUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setImgError(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [doc.id, doc.thumbnailUrl]);
+
+  if (objectUrl && !imgError) {
     return (
       <img
-        src={doc.thumbnailUrl}
+        src={objectUrl}
         alt=""
         onError={() => setImgError(true)}
         style={{
@@ -417,6 +449,16 @@ const CompanyDocumentsSettings: React.FC = () => {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingDoc, setEditingDoc] = useState<CompanyDocument | null>(null);
+
+  // E-signature: field mapping / send, via the persistent linked PdfDocument
+  const [fieldMappingTarget, setFieldMappingTarget] = useState<PdfDocument | null>(null);
+  const [sendForSignTarget, setSendForSignTarget] = useState<PdfDocument | null>(null);
+  const [resolvingFieldsDocId, setResolvingFieldsDocId] = useState<string | null>(null);
+  const [resolvingSendDocId, setResolvingSendDocId] = useState<string | null>(null);
+
+  const { data: tools } = useTools();
+  const pdfEditorTool = tools?.find((t) => t.id === 'pdf_editor');
+  const canESign = pdfEditorTool?.hasAccess ?? true; // default open while tools are loading
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -484,7 +526,35 @@ const CompanyDocumentsSettings: React.FC = () => {
     },
   });
 
+  const resolveLinkedDocMutation = useMutation({
+    mutationFn: (companyDocumentId: string) =>
+      pdfEditorApi.getOrCreateLinkedDocument(companyDocumentId),
+    onError: () => {
+      message.error('Failed to prepare this document for e-signature');
+    },
+  });
+
   // ── Handlers ───────────────────────────────────────────────────────────────
+
+  const handleDefineFields = useCallback(async (doc: CompanyDocument) => {
+    setResolvingFieldsDocId(doc.id);
+    try {
+      const linked = await resolveLinkedDocMutation.mutateAsync(doc.id);
+      setFieldMappingTarget(linked);
+    } finally {
+      setResolvingFieldsDocId(null);
+    }
+  }, [resolveLinkedDocMutation]);
+
+  const handleSendForSignature = useCallback(async (doc: CompanyDocument) => {
+    setResolvingSendDocId(doc.id);
+    try {
+      const linked = await resolveLinkedDocMutation.mutateAsync(doc.id);
+      setSendForSignTarget(linked);
+    } finally {
+      setResolvingSendDocId(null);
+    }
+  }, [resolveLinkedDocMutation]);
 
   const handleDownload = useCallback(async (doc: CompanyDocument) => {
     try {
@@ -673,9 +743,36 @@ const CompanyDocumentsSettings: React.FC = () => {
     {
       title: '',
       key: 'actions',
-      width: 110,
-      render: (_, record) => (
+      width: 210,
+      render: (_, record) => {
+        const fieldsResolving = resolvingFieldsDocId === record.id;
+        const sendResolving = resolvingSendDocId === record.id;
+        return (
         <Space size={2}>
+          <Tooltip title={canESign ? 'Define Fields' : `Requires the ${pdfEditorTool?.requiredPlan ?? 'pro'} plan`}>
+            <Button
+              type="text"
+              size="small"
+              icon={canESign ? <FormOutlined style={{ color: colors.textSecondary }} /> : <LockOutlined style={{ color: colors.textMuted }} />}
+              loading={fieldsResolving}
+              disabled={!canESign}
+              onClick={() => handleDefineFields(record)}
+            >
+              Fields
+            </Button>
+          </Tooltip>
+          <Tooltip title={canESign ? 'Send for Signature' : `Requires the ${pdfEditorTool?.requiredPlan ?? 'pro'} plan`}>
+            <Button
+              type="text"
+              size="small"
+              icon={canESign ? <SendOutlined style={{ color: colors.textSecondary }} /> : <LockOutlined style={{ color: colors.textMuted }} />}
+              loading={sendResolving}
+              disabled={!canESign}
+              onClick={() => handleSendForSignature(record)}
+            >
+              Send
+            </Button>
+          </Tooltip>
           <Tooltip title="Download">
             <Button
               type="text"
@@ -709,7 +806,8 @@ const CompanyDocumentsSettings: React.FC = () => {
             </Tooltip>
           </Popconfirm>
         </Space>
-      ),
+        );
+      },
     },
   ];
 
@@ -839,6 +937,33 @@ const CompanyDocumentsSettings: React.FC = () => {
         onSave={handleSaveEdit}
         saving={updateMutation.isPending}
       />
+
+      {/* Define Fields -- operates on the persistent linked PdfDocument,
+          so the mapping is reused on every visit to this company document. */}
+      {fieldMappingTarget && (
+        <FieldMappingModal
+          open={!!fieldMappingTarget}
+          onClose={() => setFieldMappingTarget(null)}
+          documentId={fieldMappingTarget.id}
+          documentName={fieldMappingTarget.name}
+          pageCount={fieldMappingTarget.pageCount}
+          initialFields={fieldMappingTarget.fieldDefinitions}
+          onSaved={() => setFieldMappingTarget(null)}
+        />
+      )}
+
+      {/* Send for Signature -- same linked PdfDocument, so it always sends
+          using the fields last saved via Define Fields above. */}
+      {sendForSignTarget && (
+        <SendForSignModal
+          open={!!sendForSignTarget}
+          onClose={() => setSendForSignTarget(null)}
+          documentId={sendForSignTarget.id}
+          documentName={sendForSignTarget.name}
+          pageCount={sendForSignTarget.pageCount}
+          fieldDefinitions={sendForSignTarget.fieldDefinitions}
+        />
+      )}
     </div>
   );
 };

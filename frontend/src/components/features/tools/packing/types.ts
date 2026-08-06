@@ -414,6 +414,8 @@ export interface ClientInfo {
   phone: string;
   email: string;
   property_address: string;
+  /** Linked Customer record id, when this client info was loaded from (or saved to) the customer list */
+  customer_id?: string;
 }
 
 // ── Batch Analysis ───────────────────────────────────────────────────────────

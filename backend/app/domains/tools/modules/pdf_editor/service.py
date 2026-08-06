@@ -11,6 +11,7 @@ Storage: Abstracts file persistence via StorageBackend (local or R2).
 Database: SQLAlchemy 2.0 SYNC (Session, not AsyncSession).
 """
 
+import base64
 import os
 import uuid
 import tempfile
@@ -47,6 +48,190 @@ ALLOWED_CONVERT_TYPES = {
 }
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+
+
+def _hex_to_rgb(hex_color: Optional[str], default=(0.0, 0.0, 0.0)):
+    """'#rrggbb' -> (r, g, b) floats in [0, 1]. Falls back to `default` for
+    anything else (None, 'transparent', short/invalid hex, ...)."""
+    if not hex_color:
+        return default
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return default
+    try:
+        return (
+            int(h[0:2], 16) / 255,
+            int(h[2:4], 16) / 255,
+            int(h[4:6], 16) / 255,
+        )
+    except ValueError:
+        return default
+
+
+def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> bytes:
+    """Burn a document's annotations into its PDF pages.
+
+    Pure (doc, storage) -> bytes so callers that already hold the PdfDocument
+    ORM object -- e.g. sign_service, which reads the same "linked" document to
+    burn signatures -- can flatten without a redundant company-scoped re-fetch.
+    Returns the flattened PDF as bytes, or the original bytes unchanged if
+    there are no annotations.
+
+    Supports: text, image, stamp, shape (rect/circle/line). Each annotation
+    burns independently (one malformed annotation -- e.g. a corrupt image
+    data URL -- is skipped, not fatal to the rest of the page).
+
+    NOT supported: freehand "drawing" annotations (pencil tool) and
+    "sign_field" placeholders. Fabric.js's exported path data doesn't
+    unambiguously say where the path's on-page origin is relative to its own
+    point coordinates without either reading fabric's exact version-specific
+    internals or live-testing against it -- guessing would risk silently
+    misplaced or distorted ink on a document someone is about to sign, which
+    is worse than the current "not burned, still visible in the editor"
+    behavior. Both types stay visible in the app's own editor/canvas views
+    but are silently absent from flattened output, including documents sent
+    for e-signature.
+    """
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    pdf_data = storage.read(doc.file_path)
+
+    if not doc.annotations:
+        return pdf_data
+
+    with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        local_path = os.path.join(tmpdir, "document.pdf")
+        with open(local_path, "wb") as fh:
+            fh.write(pdf_data)
+
+        reader = PdfReader(local_path)
+        writer = PdfWriter()
+
+        by_page: dict[int, list] = {}
+        for ann in doc.annotations:
+            pg = ann.get("page", 0)
+            by_page.setdefault(pg, []).append(ann)
+
+        for i, page in enumerate(reader.pages):
+            page_anns = by_page.get(i, [])
+            if page_anns:
+                media_box = page.mediabox
+                pw = float(media_box.width)
+                ph = float(media_box.height)
+
+                packet = BytesIO()
+                c = rl_canvas.Canvas(packet, pagesize=(pw, ph))
+
+                drawn = 0
+                for ann in page_anns:
+                    try:
+                        if _burn_one_annotation(c, ann, ph):
+                            drawn += 1
+                    except Exception:
+                        continue  # skip this annotation, keep the rest of the page
+
+                # A Canvas with zero draw calls serializes to a zero-page PDF
+                # (reportlab only finalizes a page once something is drawn on
+                # it), which would make merge_page below blow up on an empty
+                # pages list -- e.g. every annotation on this page was an
+                # unsupported/malformed one. Nothing to merge is a no-op, not
+                # an error.
+                if drawn > 0:
+                    c.save()
+                    packet.seek(0)
+                    overlay_reader = PdfReader(packet)
+                    page.merge_page(overlay_reader.pages[0])
+
+            writer.add_page(page)
+
+        flat_path = os.path.join(tmpdir, "flattened.pdf")
+        with open(flat_path, "wb") as fh:
+            writer.write(fh)
+        with open(flat_path, "rb") as fh:
+            return fh.read()
+
+
+def _burn_one_annotation(c, ann: dict, ph: float) -> bool:
+    """Draw a single annotation onto the in-progress reportlab canvas `c`.
+    Returns whether it actually drew anything -- a Canvas that never draws
+    serializes to a zero-page PDF (see the zero-page guard around this
+    function's caller), so "didn't raise" alone isn't a safe proxy: several
+    branches below intentionally no-op on unusable data (empty image src,
+    missing dimensions, unsupported annotation type) without raising.
+
+    `ph` is the page height in points -- every coordinate conversion below
+    mirrors it because annotation x/y are stored top-down (matching the
+    browser canvas/fabric.js convention) while reportlab draws bottom-up.
+
+    Rotation is intentionally not applied (matches the pre-existing "text"
+    burn this was extracted from): fabric.js rotates around an object's
+    center by default, and getting the pivot math wrong would visibly
+    mis-place the annotation, which is worse than drawing it unrotated.
+    """
+    ann_type = ann.get("type")
+    style = ann.get("style") or {}
+    x = ann.get("x", 0)
+    y_top = ann.get("y", 0)
+    w = ann.get("width") or 0
+    h = ann.get("height") or 0
+
+    if ann_type == "text":
+        font_size = style.get("font_size") or 12
+        r, g, b = _hex_to_rgb(style.get("color"), default=(0.0, 0.0, 0.0))
+        c.setFillColorRGB(r, g, b)
+        c.setFont("Helvetica", font_size)
+        c.drawString(x, ph - y_top - font_size, ann.get("content") or "")
+        return True
+
+    if ann_type == "image":
+        content = ann.get("content") or ""
+        if not content.startswith("data:") or "," not in content or not w or not h:
+            return False
+        _, b64data = content.split(",", 1)
+        img_reader = ImageReader(BytesIO(base64.b64decode(b64data)))
+        opacity = style.get("opacity")
+        if opacity is not None and opacity < 1:
+            c.saveState()
+            c.setFillAlpha(opacity)
+            c.setStrokeAlpha(opacity)
+        c.drawImage(img_reader, x, ph - y_top - h, w, h, mask="auto")
+        if opacity is not None and opacity < 1:
+            c.restoreState()
+        return True
+
+    if ann_type == "stamp":
+        r, g, b = _hex_to_rgb(style.get("color"), default=(0.42, 0.45, 0.50))
+        c.setFillColorRGB(r, g, b)
+        c.setFont("Helvetica-Bold", 22)
+        c.drawString(x, ph - y_top - 22, ann.get("content") or "")
+        return True
+
+    if ann_type == "shape":
+        stroke_width = style.get("border_width") or 2
+        sr, sg, sb = _hex_to_rgb(style.get("color"), default=(0.07, 0.09, 0.16))
+        c.setStrokeColorRGB(sr, sg, sb)
+        c.setLineWidth(stroke_width)
+        fill_hex = style.get("background_color")
+        has_fill = bool(fill_hex) and fill_hex != "transparent"
+        if has_fill:
+            fr, fg, fb = _hex_to_rgb(fill_hex)
+            c.setFillColorRGB(fr, fg, fb)
+
+        kind = ann.get("content")
+        if kind == "rect" and w and h:
+            c.rect(x, ph - y_top - h, w, h, fill=1 if has_fill else 0, stroke=1)
+            return True
+        if kind == "circle" and w and h:
+            c.ellipse(x, ph - y_top - h, x + w, ph - y_top, fill=1 if has_fill else 0, stroke=1)
+            return True
+        if kind == "line" and w:
+            c.line(x, ph - y_top, x + w, ph - y_top)
+            return True
+        return False
+
+    return False  # unsupported type (drawing, sign_field, ...)
 
 
 # ===========================================================================
@@ -636,6 +821,43 @@ class PdfEditorService:
         self.db.refresh(doc)
         return doc
 
+    def save_field_definitions(
+        self, company_id: UUID, document_id: UUID, fields: list
+    ) -> PdfDocument:
+        """Persist the reusable field-mapping template for a document.
+        Every future SignRequest created against this document copies
+        these definitions as its starting sign_fields snapshot."""
+        from app.domains.tools.modules.pdf_editor.field_registry import (
+            is_valid_source,
+        )
+
+        keys = [f["key"] for f in fields]
+        if len(keys) != len(set(keys)):
+            raise HTTPException(
+                status_code=400,
+                detail="Field keys must be unique within a document",
+            )
+        for f in fields:
+            binding = f.get("data_binding") or {}
+            if binding.get("mode") == "prefilled" and not is_valid_source(
+                binding.get("source_entity"), binding.get("source_field")
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Field '{f.get('label') or f['key']}' is set to "
+                        "auto-fill but has no valid data source"
+                    ),
+                )
+
+        doc = self.get_document_or_404(company_id, document_id)
+        doc.field_definitions = fields
+        flag_modified(doc, "field_definitions")
+        doc.updated_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(doc)
+        return doc
+
     def flatten_annotations(
         self, company_id: UUID, document_id: UUID
     ) -> bytes:
@@ -644,74 +866,8 @@ class PdfEditorService:
         Returns the flattened PDF as bytes. If no annotations exist the
         original PDF bytes are returned unchanged.
         """
-        from pypdf import PdfReader, PdfWriter
-        from reportlab.pdfgen import canvas as rl_canvas
-
         doc = self.get_document_or_404(company_id, document_id)
-        pdf_data = self.storage.read(doc.file_path)
-
-        if not doc.annotations:
-            return pdf_data
-
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
-            local_path = os.path.join(tmpdir, "document.pdf")
-            with open(local_path, "wb") as fh:
-                fh.write(pdf_data)
-
-            reader = PdfReader(local_path)
-            writer = PdfWriter()
-
-            by_page: dict[int, list] = {}
-            for ann in doc.annotations:
-                pg = ann.get("page", 0)
-                by_page.setdefault(pg, []).append(ann)
-
-            for i, page in enumerate(reader.pages):
-                page_anns = by_page.get(i, [])
-                if page_anns:
-                    media_box = page.mediabox
-                    pw = float(media_box.width)
-                    ph = float(media_box.height)
-
-                    packet = BytesIO()
-                    c = rl_canvas.Canvas(packet, pagesize=(pw, ph))
-
-                    for ann in page_anns:
-                        ann_type = ann.get("type")
-                        if ann_type == "text":
-                            style = ann.get("style") or {}
-                            font_size = style.get("font_size") or 12
-                            color = style.get("color") or "#000000"
-
-                            color = color.lstrip("#")
-                            if len(color) == 6:
-                                r = int(color[0:2], 16) / 255
-                                g = int(color[2:4], 16) / 255
-                                b = int(color[4:6], 16) / 255
-                            else:
-                                r = g = b = 0.0
-
-                            c.setFillColorRGB(r, g, b)
-                            c.setFont("Helvetica", font_size)
-
-                            x = ann.get("x", 0)
-                            y = ph - ann.get("y", 0) - font_size
-                            c.drawString(
-                                x, y, ann.get("content") or ""
-                            )
-
-                    c.save()
-                    packet.seek(0)
-                    overlay_reader = PdfReader(packet)
-                    page.merge_page(overlay_reader.pages[0])
-
-                writer.add_page(page)
-
-            flat_path = os.path.join(tmpdir, "flattened.pdf")
-            with open(flat_path, "wb") as fh:
-                writer.write(fh)
-            with open(flat_path, "rb") as fh:
-                return fh.read()
+        return flatten_annotations_bytes(doc, self.storage)
 
     # ------------------------------------------------------------------
     # Multi-image -> PDF
@@ -941,6 +1097,36 @@ class PdfEditorService:
         self.db.commit()
         self.db.refresh(doc)
         return doc
+
+    def get_or_create_linked_document(
+        self,
+        company_id: UUID,
+        user_id: UUID,
+        company_document_id: str,
+    ) -> PdfDocument:
+        """Get the persistent, e-signature-capable PdfDocument copy linked
+        to a CompanyDocument, creating it on first use via
+        import_company_document(). Unlike that method's always-fresh-copy
+        semantics (used by the editor's one-off "Import" action), this
+        reuses the same linked copy on every call -- which is what makes
+        field mapping done once from the company document library stay
+        reusable rather than being redone on every visit."""
+        existing = (
+            self.db.query(PdfDocument)
+            .filter(
+                PdfDocument.company_id == company_id,
+                PdfDocument.source_type == "company_doc",
+                PdfDocument.source_id == UUID(company_document_id),
+                PdfDocument.is_active == True,
+            )
+            .order_by(PdfDocument.created_at.desc())
+            .first()
+        )
+        if existing:
+            return existing
+        return self.import_company_document(
+            company_id, user_id, company_document_id
+        )
 
     def import_company_document(
         self,

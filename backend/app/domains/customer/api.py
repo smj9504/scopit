@@ -328,8 +328,15 @@ async def get_customer_documents(
             {
                 "id": str(sr.id),
                 "document_name": sr.document.name if sr.document else None,
-                "recipient_email": sr.recipient_email,
-                "recipient_name": sr.recipient_name,
+                "recipients": [
+                    {
+                        "role": r.role,
+                        "name": r.name,
+                        "email": r.email,
+                        "status": r.status,
+                    }
+                    for r in sr.recipients
+                ],
                 "status": sr.status,
                 "created_at": sr.created_at,
                 "sent_at": sr.sent_at,

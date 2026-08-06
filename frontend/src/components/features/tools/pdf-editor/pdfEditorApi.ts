@@ -10,12 +10,15 @@ import type {
   PdfDocument,
   PdfDocumentListResponse,
   Annotation,
+  AvailableField,
+  FieldDefinition,
   SignRequest,
   SignRequestListResponse,
   SignAuditEvent,
   SignViewData,
   CompanyDocument,
   CompanyDocumentListResponse,
+  DeliveryMethod,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
@@ -26,6 +29,29 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
 async function blobToObjectUrl(promise: Promise<{ data: Blob }>): Promise<string> {
   const response = await promise;
   return URL.createObjectURL(response.data);
+}
+
+/** Normalize a company-document API response into the CompanyDocument shape.
+ * The backend's CompanyDocumentResponse schema already serializes with
+ * camelCase aliases (mimeType, fileSize, ...), so this mostly just fills in
+ * defaults for fields the API omits when null. */
+function mapCompanyDocument(raw: any): CompanyDocument {
+  return {
+    id: raw.id,
+    name: raw.name,
+    description: raw.description ?? null,
+    category: raw.category ?? null,
+    fileSize: raw.fileSize,
+    mimeType: raw.mimeType,
+    pageCount: raw.pageCount,
+    thumbnailUrl: raw.thumbnailUrl ?? null,
+    tags: raw.tags ?? [],
+    useCount: raw.useCount ?? 0,
+    lastUsedAt: raw.lastUsedAt ?? null,
+    isActive: raw.isActive,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt ?? null,
+  };
 }
 
 // ── PDF Documents ─────────────────────────────────────────────────────────────
@@ -98,6 +124,18 @@ export const pdfEditorApi = {
   getPageImage: async (id: string, pageNum: number): Promise<string> => {
     return blobToObjectUrl(
       api.get(`/tools/pdf-editor/documents/${id}/page/${pageNum}`, {
+        responseType: 'blob',
+      }),
+    );
+  },
+
+  /**
+   * Fetch a document's thumbnail image and return a browser object URL.
+   * Caller is responsible for calling URL.revokeObjectURL() when done.
+   */
+  getThumbnail: async (id: string): Promise<string> => {
+    return blobToObjectUrl(
+      api.get(`/tools/pdf-editor/documents/${id}/thumbnail`, {
         responseType: 'blob',
       }),
     );
@@ -203,6 +241,45 @@ export const pdfEditorApi = {
     return response.data;
   },
 
+  // ── Field Mapping (reusable template) ───────────────────────────────────
+
+  /**
+   * List source entity/field pairs available for "auto-fill" data binding.
+   */
+  getAvailableFields: async (): Promise<AvailableField[]> => {
+    const response = await api.get<AvailableField[]>('/tools/pdf-editor/fields/available');
+    return response.data;
+  },
+
+  /**
+   * Persist the reusable field-mapping template for a document. Every
+   * future sign request created against this document copies these
+   * definitions as its starting field set.
+   */
+  saveFieldDefinitions: async (id: string, fields: FieldDefinition[]): Promise<PdfDocument> => {
+    const response = await api.put<PdfDocument>(`/tools/pdf-editor/documents/${id}/fields`, {
+      fields: fields.map((f) => ({
+        key: f.key,
+        label: f.label,
+        type: f.type,
+        page: f.page,
+        x: f.x,
+        y: f.y,
+        width: f.width,
+        height: f.height,
+        data_binding: {
+          mode: f.dataBinding.mode,
+          source_entity: f.dataBinding.sourceEntity ?? null,
+          source_field: f.dataBinding.sourceField ?? null,
+        },
+        signer_role: f.signerRole ?? null,
+        required: f.required,
+        font_size: f.fontSize ?? null,
+      })),
+    });
+    return response.data;
+  },
+
   // ── Import ───────────────────────────────────────────────────────────────
 
   /**
@@ -241,44 +318,67 @@ export const pdfEditorApi = {
   // ── Sign Requests ────────────────────────────────────────────────────────
 
   /**
-   * Create a new e-signature request for a document.
+   * Create a new e-signature request (envelope) for a document. Field
+   * definitions are NOT passed here -- they're copied server-side from the
+   * document's saved field-mapping template (see saveFieldDefinitions).
    */
   createSignRequest: async (data: {
     documentId: string;
-    recipientEmail: string;
-    recipientName: string;
+    recipients: Array<{ role: string; name: string; email: string; phone?: string }>;
     customerId?: string;
-    signFields: Array<{
-      page: number;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      type: 'signature' | 'date' | 'name' | 'initials';
-      label?: string;
-    }>;
+    deliveryMethod?: DeliveryMethod;
+    senderEmail?: string;
+    senderName?: string;
     emailSubject?: string;
     emailMessage?: string;
+    ccEmails?: string[];
+    bccEmails?: string[];
     expiresInDays?: number;
   }): Promise<SignRequest> => {
     const response = await api.post<SignRequest>('/tools/pdf-editor/sign/requests', {
       document_id: data.documentId,
-      recipient_email: data.recipientEmail,
-      recipient_name: data.recipientName,
-      ...(data.customerId ? { customer_id: data.customerId } : {}),
-      sign_fields: data.signFields.map((f) => ({
-        page: f.page,
-        x: f.x,
-        y: f.y,
-        width: f.width,
-        height: f.height,
-        type: f.type,
-        ...(f.label ? { label: f.label } : {}),
+      recipients: data.recipients.map((r) => ({
+        role: r.role,
+        name: r.name,
+        email: r.email,
+        ...(r.phone ? { phone: r.phone } : {}),
       })),
+      ...(data.customerId ? { customer_id: data.customerId } : {}),
+      delivery_method: data.deliveryMethod || 'email_request',
+      ...(data.senderEmail ? { sender_email: data.senderEmail } : {}),
+      ...(data.senderName ? { sender_name: data.senderName } : {}),
       ...(data.emailSubject ? { email_subject: data.emailSubject } : {}),
       ...(data.emailMessage ? { email_message: data.emailMessage } : {}),
+      ...(data.ccEmails?.length ? { cc_emails: data.ccEmails } : {}),
+      ...(data.bccEmails?.length ? { bcc_emails: data.bccEmails } : {}),
       ...(data.expiresInDays !== undefined ? { expires_in_days: data.expiresInDays } : {}),
     });
+    return response.data;
+  },
+
+  /**
+   * Fill in the sender's own ("I fill in before sending") field values.
+   * Only allowed while the request is still a draft.
+   */
+  setCreatorFieldValues: async (
+    id: string,
+    values: Record<string, string>,
+  ): Promise<SignRequest> => {
+    const response = await api.patch<SignRequest>(
+      `/tools/pdf-editor/sign/requests/${id}/creator-fields`,
+      { values },
+    );
+    return response.data;
+  },
+
+  /**
+   * Preview resolved field values (auto-filled + creator-filled) before
+   * sending, rendered over the template's rasterized pages.
+   */
+  previewSignRequest: async (
+    id: string,
+  ): Promise<{ fields: FieldDefinition[]; values: Record<string, string>; pageCount: number; documentName: string | null }> => {
+    const response = await api.get(`/tools/pdf-editor/sign/requests/${id}/preview`);
     return response.data;
   },
 
@@ -313,18 +413,34 @@ export const pdfEditorApi = {
   },
 
   /**
-   * Send a reminder email to the recipient.
+   * Send a reminder email. Omit recipientId to remind everyone still
+   * outstanding, or pass it to remind a single recipient.
    */
-  sendReminder: async (id: string): Promise<SignRequest> => {
-    const response = await api.post<SignRequest>(`/tools/pdf-editor/sign/requests/${id}/reminder`);
+  sendReminder: async (id: string, recipientId?: string): Promise<SignRequest> => {
+    const response = await api.post<SignRequest>(
+      `/tools/pdf-editor/sign/requests/${id}/reminder`,
+      undefined,
+      { params: recipientId ? { recipient_id: recipientId } : undefined },
+    );
     return response.data;
   },
 
   /**
-   * Cancel a pending sign request.
+   * Void a pending sign request.
    */
   cancelSignRequest: async (id: string): Promise<SignRequest> => {
     const response = await api.post<SignRequest>(`/tools/pdf-editor/sign/requests/${id}/cancel`);
+    return response.data;
+  },
+
+  /**
+   * Re-send the fully-signed PDF (email, with attachment) to the sender
+   * and every recipient. Only valid once the envelope is fully signed.
+   */
+  resendSignedCopy: async (id: string): Promise<SignRequest> => {
+    const response = await api.post<SignRequest>(
+      `/tools/pdf-editor/sign/requests/${id}/resend-signed-copy`,
+    );
     return response.data;
   },
 
@@ -374,7 +490,7 @@ export const pdfEditorApi = {
   },
 
   /**
-   * Submit the completed signature data for a signing session.
+   * Submit this recipient's completed signature and field values.
    */
   submitSignature: async (
     token: string,
@@ -382,16 +498,20 @@ export const pdfEditorApi = {
       signatureDataUrl: string;
       signatureType?: 'draw' | 'type';
       signatureFont?: string;
-      signerName?: string;
+      fieldValues?: Record<string, string>;
+      consentAgreed: boolean;
     },
-  ): Promise<void> => {
+  ): Promise<{ status: string; envelopeStatus: string; signedAt: string | null }> => {
     // Strip data URL prefix to get raw base64
     const base64 = data.signatureDataUrl.replace(/^data:image\/\w+;base64,/, '');
-    await axios.post(`${API_BASE}/sign/submit/${token}`, {
+    const response = await axios.post(`${API_BASE}/sign/submit/${token}`, {
       signature_data: base64,
       signature_type: data.signatureType || 'draw',
       ...(data.signatureFont ? { signature_font: data.signatureFont } : {}),
+      field_values: data.fieldValues || {},
+      consent_agreed: data.consentAgreed,
     });
+    return response.data;
   },
 
   /**
@@ -406,6 +526,19 @@ export const pdfEditorApi = {
   // ── Company Documents ────────────────────────────────────────────────────
 
   /**
+   * Get (or create, on first use) the persistent e-signature-capable copy
+   * of a company document. Field definitions and sign requests are always
+   * created against this same linked copy, so field mapping done once
+   * from the company document library stays reusable on every visit.
+   */
+  getOrCreateLinkedDocument: async (companyDocumentId: string): Promise<PdfDocument> => {
+    const response = await api.post<PdfDocument>(
+      `/company-documents/${companyDocumentId}/linked-document`,
+    );
+    return response.data;
+  },
+
+  /**
    * List company document templates with optional search and category filter.
    */
   listCompanyDocs: async (
@@ -414,8 +547,8 @@ export const pdfEditorApi = {
     search?: string,
     category?: string,
   ): Promise<CompanyDocumentListResponse> => {
-    const response = await api.get<CompanyDocumentListResponse>(
-      '/tools/pdf-editor/company-docs',
+    const response = await api.get<any>(
+      '/company-documents',
       {
         params: {
           skip,
@@ -425,7 +558,12 @@ export const pdfEditorApi = {
         },
       },
     );
-    return response.data;
+    return {
+      items: response.data.items.map(mapCompanyDocument),
+      total: response.data.total,
+      skip: response.data.skip,
+      limit: response.data.limit,
+    };
   },
 
   /**
@@ -443,19 +581,19 @@ export const pdfEditorApi = {
     form.append('name', name);
     if (description) form.append('description', description);
     if (category) form.append('category', category);
-    if (tags?.length) form.append('tags', JSON.stringify(tags));
-    const response = await api.post<CompanyDocument>('/tools/pdf-editor/company-docs', form, {
+    if (tags?.length) form.append('tags', tags.join(','));
+    const response = await api.post<any>('/company-documents/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
-    return response.data;
+    return mapCompanyDocument(response.data);
   },
 
   /**
    * Get a single company document by ID.
    */
   getCompanyDoc: async (id: string): Promise<CompanyDocument> => {
-    const response = await api.get<CompanyDocument>(`/tools/pdf-editor/company-docs/${id}`);
-    return response.data;
+    const response = await api.get<any>(`/company-documents/${id}`);
+    return mapCompanyDocument(response.data);
   },
 
   /**
@@ -470,17 +608,29 @@ export const pdfEditorApi = {
       tags?: string[];
     },
   ): Promise<CompanyDocument> => {
-    const response = await api.patch<CompanyDocument>(
-      `/tools/pdf-editor/company-docs/${id}`,
+    const response = await api.patch<any>(
+      `/company-documents/${id}`,
       data,
     );
-    return response.data;
+    return mapCompanyDocument(response.data);
   },
 
   /**
    * Delete a company document template.
    */
   deleteCompanyDoc: async (id: string): Promise<void> => {
-    await api.delete(`/tools/pdf-editor/company-docs/${id}`);
+    await api.delete(`/company-documents/${id}`);
+  },
+
+  /**
+   * Fetch a company document's thumbnail image and return a browser object URL.
+   * Caller is responsible for calling URL.revokeObjectURL() when done.
+   */
+  getCompanyDocThumbnail: async (id: string): Promise<string> => {
+    return blobToObjectUrl(
+      api.get(`/company-documents/${id}/thumbnail`, {
+        responseType: 'blob',
+      }),
+    );
   },
 };

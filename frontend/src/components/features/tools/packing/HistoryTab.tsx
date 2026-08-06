@@ -15,6 +15,7 @@ import {
   Space,
   App,
   Grid,
+  Pagination,
 } from 'antd';
 import {
   DeleteOutlined,
@@ -29,7 +30,7 @@ import type { PackingSessionData } from './types';
 import { getGrandTotal, deriveHistoryStatus } from './sessionStatus';
 import { colors, fonts, borderRadius, fontSizes } from '@/styles/theme';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 const { useBreakpoint } = Grid;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -64,41 +65,59 @@ function getSessionData(session: ToolSession): PackingSessionData | null {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+const DEFAULT_PAGE_SIZE = 10;
+
 export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
   const { message } = App.useApp();
   const [sessions, setSessions] = useState<ToolSession[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
-  const fetchSessions = useCallback(async () => {
+  const fetchSessions = useCallback(async (targetPage: number, targetPageSize: number) => {
     setLoading(true);
     try {
-      const data = await toolService.listSessions('packing');
-      // Sort newest first
-      const sorted = [...data].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-      setSessions(sorted);
+      // Sessions are already ordered newest-first by the backend
+      const { sessions: data, total: count } = await toolService.listSessionsPaged({
+        toolId: 'packing',
+        skip: (targetPage - 1) * targetPageSize,
+        limit: targetPageSize,
+      });
+      setSessions(data);
+      setTotal(count);
     } catch {
       // Empty result is not an error — just show empty state
       setSessions([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchSessions();
-  }, [fetchSessions]);
+    fetchSessions(page, pageSize);
+  }, [fetchSessions, page, pageSize]);
+
+  const handlePageChange = useCallback((nextPage: number, nextPageSize: number) => {
+    setPage(nextPage);
+    if (nextPageSize !== pageSize) {
+      setPageSize(nextPageSize);
+    }
+  }, [pageSize]);
 
   const handleDelete = useCallback(
     async (session: ToolSession) => {
       setDeletingId(session.id);
       try {
         await toolService.deleteSession(session.id);
-        setSessions((prev) => prev.filter((s) => s.id !== session.id));
+        // Re-fetch the current page so pagination stays consistent with the server
+        const isLastItemOnPage = sessions.length === 1 && page > 1;
+        await fetchSessions(isLastItemOnPage ? page - 1 : page, pageSize);
+        if (isLastItemOnPage) setPage(page - 1);
         message.success('Estimate deleted');
       } catch {
         message.error('Failed to delete estimate');
@@ -106,7 +125,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
         setDeletingId(null);
       }
     },
-    [],
+    [sessions.length, page, pageSize, fetchSessions],
   );
 
   // ── Desktop table columns ────────────────────────────────────────────────
@@ -417,35 +436,6 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
 
   return (
     <div style={{ padding: 16 }}>
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 20,
-        }}
-      >
-        <div>
-          <Title
-            level={5}
-            style={{
-              margin: 0,
-              fontFamily: fonts.heading,
-              color: colors.textPrimary,
-              fontWeight: 600,
-            }}
-          >
-            Saved Estimates
-          </Title>
-          {!loading && sessions.length > 0 && (
-            <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary }}>
-              {sessions.length} estimate{sessions.length !== 1 ? 's' : ''} saved
-            </Text>
-          )}
-        </div>
-      </div>
-
       {/* Content */}
       {loading ? (
         <div
@@ -486,13 +476,33 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
           {sessions.map((session) => (
             <MobileCard key={session.id} session={session} />
           ))}
+          {total > pageSize && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+              <Pagination
+                current={page}
+                pageSize={pageSize}
+                total={total}
+                size="small"
+                showSizeChanger={false}
+                onChange={handlePageChange}
+              />
+            </div>
+          )}
         </div>
       ) : (
         <Table<ToolSession>
           dataSource={sessions}
           columns={columns}
           rowKey="id"
-          pagination={sessions.length > 20 ? { pageSize: 20, size: 'small' } : false}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            size: 'small',
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50'],
+            onChange: handlePageChange,
+          }}
           size="middle"
           style={{
             border: `1px solid ${colors.border}`,

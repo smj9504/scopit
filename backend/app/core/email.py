@@ -74,6 +74,8 @@ class EmailService:
         reply_to: Optional[str] = None,
         from_display_name: Optional[str] = None,
         attachments: Optional[list[dict]] = None,
+        cc_emails: Optional[list[str]] = None,
+        bcc_emails: Optional[list[str]] = None,
     ) -> bool:
         """
         Send an email
@@ -85,15 +87,22 @@ class EmailService:
             text_content: Plain text body (optional, fallback)
             reply_to: Reply-To address (e.g. the user who triggered the email)
             from_display_name: Override display name (e.g. "Minjee Song via ScopeIt")
+            cc_emails: Addresses to Cc, visible to all recipients
+            bcc_emails: Addresses to Bcc, invisible to all other recipients
 
         Returns:
             True if email was sent successfully, False otherwise
         """
+        cc_emails = cc_emails or []
+        bcc_emails = bcc_emails or []
+
         if not self.is_configured():
             logger.warning("Email service is not configured. Skipping email send.")
             # In development, log the email content instead
             if settings.DEBUG:
                 logger.info(f"[DEBUG EMAIL] To: {to_email}")
+                logger.info(f"[DEBUG EMAIL] Cc: {cc_emails}")
+                logger.info(f"[DEBUG EMAIL] Bcc: {bcc_emails}")
                 logger.info(f"[DEBUG EMAIL] Subject: {subject}")
                 logger.info(f"[DEBUG EMAIL] Reply-To: {reply_to}")
                 logger.info(f"[DEBUG EMAIL] Content: {html_content[:500]}...")
@@ -132,8 +141,12 @@ class EmailService:
             display_name = from_display_name or self.from_name
             message["From"] = f"{display_name} <{self.from_email}>"
             message["To"] = to_email
+            if cc_emails:
+                message["Cc"] = ", ".join(cc_emails)
             if reply_to:
                 message["Reply-To"] = reply_to
+            # Bcc is deliberately never set as a header -- SMTP RCPT TO below
+            # is what actually delivers it; a header would leak it to everyone.
 
             # Send email
             context = ssl.create_default_context()
@@ -143,7 +156,7 @@ class EmailService:
                 server.login(self.smtp_user, self.smtp_password)
                 server.sendmail(
                     self.from_email,
-                    to_email,
+                    [to_email, *cc_emails, *bcc_emails],
                     message.as_string()
                 )
 

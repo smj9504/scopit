@@ -1,9 +1,21 @@
 /**
  * ScopeIt - Send for Signature Modal
  *
- * Two-step wizard:
- *   Step 1: Click on PDF page images to place signature fields (signature, date, name, initials).
- *   Step 2: Configure recipient details and send the e-signature request.
+ * Three-step wizard over a document's saved field-mapping template:
+ *   Step 1: Preview the template's fields. "Edit Fields" and "Edit PDF" open
+ *           the same field-placement editor (FieldMappingModal's body) and
+ *           the same content editor (PdfEditorTool's EditorView) inline --
+ *           this modal expands full-screen while either is open and returns
+ *           to the wizard on save/cancel, rather than closing or navigating
+ *           away.
+ *   Step 2: Pick the delivery method, plus optional Cc/Bcc. One recipient
+ *           row is pinned per signer role the template requires (or a single
+ *           generic one if it requires none) -- just fill in who that person
+ *           is by name/email, no role picking. A customer picker only
+ *           appears here if the template needs one to resolve prefilled
+ *           values and none was already supplied via initialCustomer.
+ *   Step 3: Review auto-filled values, fill any required "I fill in
+ *           before sending" fields, then send.
  *
  * Usage:
  *   <SendForSignModal
@@ -12,73 +24,118 @@
  *     documentId={doc.id}
  *     documentName={doc.name}
  *     pageCount={doc.pageCount}
+ *     fieldDefinitions={doc.fieldDefinitions}
  *   />
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Modal, Button, Input, Radio, Select, Space, Tooltip, Typography, App, Divider, Empty } from 'antd';
 import {
-  Modal,
-  Button,
-  Form,
-  Input,
-  Select,
-  Space,
-  Typography,
-  Spin,
-  App,
-  Divider,
-  Badge,
-} from 'antd';
-import {
-  CloseOutlined,
   SendOutlined,
   ArrowLeftOutlined,
   ArrowRightOutlined,
-  LoadingOutlined,
+  CopyOutlined,
+  EditOutlined,
+  FileImageOutlined,
+  QuestionCircleOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import './pdfWorker';
+import FieldPlacementCanvas from './FieldPlacementCanvas';
 import { pdfEditorApi } from './pdfEditorApi';
-import type { SignFieldDef } from './types';
-import api from '@/services/api';
-import { useAuthStore } from '@/stores/authStore';
+import { isMultilineText, type FieldDefinition, type DeliveryMethod, type SignRequest } from './types';
+import { EditorView } from './PdfEditorTool';
+import { FieldEditorBody, useFieldEditorState, useAvailableFields, validateFieldsForSave } from './FieldMappingModal';
+import CustomerSelector, { type CustomerData } from '@/components/features/CustomerSelector';
+import { customerService } from '@/services/customerService';
+import { companyService, type Company } from '@/services/companyService';
 import type { Customer } from '@/types/entities';
-import { colors, fonts, fontSizes, borderRadius, shadows } from '@/styles/theme';
+import { getErrorMessage } from '@/services/api';
+import { useAuthStore } from '@/stores/authStore';
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { colors, fonts, fontSizes, borderRadius } from '@/styles/theme';
+
+/** Mirrors the backend's address-joining logic (field_registry.py /
+ * Customer.full_address) so the client-side preview matches what actually
+ * gets burned into the document. */
+function joinFullAddress(parts: {
+  line1?: string | null; line2?: string | null; city?: string | null; state?: string | null; zip?: string | null;
+}): string {
+  const segments = [parts.line1 || ''];
+  if (parts.line2) segments.push(parts.line2);
+  if (parts.city || parts.state || parts.zip) {
+    const cityStateZip: string[] = [];
+    if (parts.city) cityStateZip.push(parts.city);
+    const stateZip = [parts.state, parts.zip].filter(Boolean).join(' ');
+    if (stateZip) cityStateZip.push(stateZip);
+    segments.push(cityStateZip.join(', '));
+  }
+  return segments.filter(Boolean).join(', ');
+}
+
+/** Resolves a "customer" registry field (field_registry.py) client-side.
+ * Prefers the full Customer record; falls back to the flattened CustomerData
+ * summary (name/email/phone/one-line address only) while it's still loading
+ * or for a manually-entered, unsaved customer with no customerId to fetch. */
+function resolveCustomerField(
+  sourceField: string | null | undefined,
+  full: Customer | undefined,
+  fallback: CustomerData | undefined,
+): string | undefined {
+  if (!sourceField) return undefined;
+  if (full) {
+    switch (sourceField) {
+      case 'name': return full.name;
+      case 'contact_name': return full.contactName;
+      case 'email': return full.email;
+      case 'phone': return full.phone;
+      case 'address_line1': return full.addressLine1;
+      case 'address_line2': return full.addressLine2;
+      case 'city': return full.city;
+      case 'state': return full.state;
+      case 'zipcode': return full.zipcode;
+      case 'full_address':
+        return joinFullAddress({ line1: full.addressLine1, line2: full.addressLine2, city: full.city, state: full.state, zip: full.zipcode });
+      default: return undefined; // e.g. 'country' -- Customer has no country field client-side
+    }
+  }
+  if (!fallback) return undefined;
+  switch (sourceField) {
+    case 'name': return fallback.name;
+    case 'email': return fallback.email;
+    case 'phone': return fallback.phone;
+    case 'full_address':
+    case 'address_line1':
+      return fallback.address;
+    default: return undefined;
+  }
+}
+
+/** Resolves a "company" registry field (field_registry.py) client-side. */
+function resolveCompanyField(sourceField: string | null | undefined, company: Company): string | undefined {
+  if (!sourceField) return undefined;
+  switch (sourceField) {
+    case 'name': return company.name;
+    case 'legal_name': return company.legalName;
+    case 'email': return company.email;
+    case 'phone': return company.phone;
+    case 'website': return company.website;
+    case 'address_line1': return company.addressLine1;
+    case 'address_line2': return company.addressLine2;
+    case 'city': return company.city;
+    case 'state': return company.state;
+    case 'zipcode': return company.zipcode;
+    case 'country': return company.country;
+    case 'full_address':
+      return joinFullAddress({ line1: company.addressLine1, line2: company.addressLine2, city: company.city, state: company.state, zip: company.zipcode });
+    default: return undefined;
+  }
+}
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type FieldType = 'signature' | 'date' | 'name' | 'initials';
-
-interface PlacedField extends SignFieldDef {
-  id: string; // local unique id
-}
-
-export interface SendForSignModalProps {
-  open: boolean;
-  onClose: () => void;
-  documentId: string;
-  documentName: string;
-  pageCount: number;
-}
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const FIELD_DEFAULTS: Record<FieldType, { width: number; height: number; label: string }> = {
-  signature: { width: 180, height: 52, label: 'Sign here' },
-  date: { width: 120, height: 36, label: 'Date' },
-  name: { width: 150, height: 36, label: 'Full name' },
-  initials: { width: 72, height: 36, label: 'Initials' },
-};
-
-const FIELD_TYPE_LABELS: Record<FieldType, string> = {
-  signature: 'Signature',
-  date: 'Date',
-  name: 'Name',
-  initials: 'Initials',
-};
 
 const EXPIRY_OPTIONS = [
   { label: '7 days', value: 7 },
@@ -87,1220 +144,920 @@ const EXPIRY_OPTIONS = [
   { label: '60 days', value: 60 },
 ];
 
-let fieldIdCounter = 1;
-function nextFieldId() {
-  return `sf-${fieldIdCounter++}`;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** "signer_1" -> "Signer 1" -- field templates store role as a slug. */
+function formatRoleLabel(role: string): string {
+  return role.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// ── Field Type Button ─────────────────────────────────────────────────────────
-
-interface FieldTypeButtonProps {
-  type: FieldType;
-  active: boolean;
-  onClick: () => void;
+interface RecipientRow {
+  id: string;
+  role: string;
+  name: string;
+  email: string;
+  phone: string;
 }
 
-// Icons as inline SVG to stay grayscale per project rule
-const FIELD_ICONS: Record<FieldType, React.ReactNode> = {
-  signature: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 17c3.333-5.333 5.333-8 6-8 1 0 1 1 2 1s1-1 2-1 1.5 3 2.5 3 2-3 3-3" />
-      <line x1="3" y1="21" x2="21" y2="21" />
-    </svg>
-  ),
-  date: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  ),
-  name: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  ),
-  initials: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="4" y1="6" x2="20" y2="6" />
-      <line x1="4" y1="12" x2="14" y2="12" />
-      <line x1="4" y1="18" x2="20" y2="18" />
-    </svg>
-  ),
-};
-
-function FieldTypeButton({ type, active, onClick }: FieldTypeButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      title={`Place ${FIELD_TYPE_LABELS[type]} field`}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '6px 12px',
-        border: active
-          ? `2px solid ${colors.primary}`
-          : `1.5px solid ${colors.border}`,
-        borderRadius: borderRadius.base,
-        background: active ? colors.primary : colors.bgWhite,
-        color: active ? colors.textWhite : colors.textPrimary,
-        fontSize: fontSizes.xs,
-        fontFamily: fonts.body,
-        fontWeight: active ? 600 : 400,
-        cursor: 'pointer',
-        transition: 'all 0.15s ease',
-        userSelect: 'none',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <span style={{ opacity: 0.85 }}>{FIELD_ICONS[type]}</span>
-      {FIELD_TYPE_LABELS[type]}
-    </button>
-  );
+let rowCounter = 1;
+function nextRowId() {
+  return `recipient-${rowCounter++}`;
 }
 
-// ── Page Image with Field Overlays ────────────────────────────────────────────
-
-interface PageImageProps {
-  pdfDoc: PDFDocumentProxy | null;
-  pageNum: number;
-  fields: PlacedField[];
-  activeType: FieldType;
-  onPlaceField: (page: number, x: number, y: number, relW: number, relH: number) => void;
-  onRemoveField: (id: string) => void;
-  onMoveField: (id: string, x: number, y: number) => void;
+export interface SendForSignModalProps {
+  open: boolean;
+  onClose: () => void;
+  documentId: string;
+  documentName: string;
+  pageCount: number;
+  fieldDefinitions: FieldDefinition[];
+  /** Pre-select this customer in Step 2 (e.g. when launched from a Customer's own page). */
+  initialCustomer?: CustomerData;
+  /** Fired right after the signature request is successfully sent. */
+  onSent?: (result: SignRequest) => void;
 }
-
-function PageImage({
-  pdfDoc,
-  pageNum,
-  fields,
-  activeType,
-  onPlaceField,
-  onRemoveField,
-  onMoveField,
-}: PageImageProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [loading, setLoading] = useState(true);
-  const [canvasSize, setCanvasSize] = useState<{ w: number; h: number } | null>(null);
-
-  // Render PDF page to canvas using pdfjs (client-side, no poppler dependency)
-  useEffect(() => {
-    if (!pdfDoc) return;
-    let cancelled = false;
-
-    const render = async () => {
-      setLoading(true);
-      try {
-        const page = await pdfDoc.getPage(pageNum);
-        if (cancelled) { page.cleanup(); return; }
-
-        // Scale so width fills the container (~650px modal body)
-        const baseViewport = page.getViewport({ scale: 1 });
-        const scale = 1200 / baseViewport.width;
-        const viewport = page.getViewport({ scale });
-
-        const canvas = canvasRef.current;
-        if (!canvas || cancelled) { page.cleanup(); return; }
-
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { page.cleanup(); return; }
-
-        await page.render({ canvas: null, canvasContext: ctx, viewport }).promise;
-
-        if (!cancelled) {
-          setLoading(false);
-        }
-        page.cleanup();
-      } catch {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    render();
-    return () => { cancelled = true; };
-  }, [pdfDoc, pageNum]);
-
-  // Measure canvas size AFTER it becomes visible (loading=false → display: block)
-  useEffect(() => {
-    if (loading || !canvasRef.current) return;
-    // Wait one frame for the browser to paint the now-visible canvas
-    const raf = requestAnimationFrame(() => {
-      if (canvasRef.current) {
-        setCanvasSize({ w: canvasRef.current.offsetWidth, h: canvasRef.current.offsetHeight });
-      }
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [loading]);
-
-  // Re-measure on window resize
-  useEffect(() => {
-    if (loading || !canvasRef.current) return;
-    const measure = () => {
-      if (canvasRef.current) {
-        setCanvasSize({ w: canvasRef.current.offsetWidth, h: canvasRef.current.offsetHeight });
-      }
-    };
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [loading]);
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!canvasRef.current || !canvasSize) return;
-      const rect = canvasRef.current.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const clickY = e.clientY - rect.top;
-      const relX = clickX / canvasSize.w;
-      const relY = clickY / canvasSize.h;
-      const relW = FIELD_DEFAULTS[activeType].width / canvasSize.w;
-      const relH = FIELD_DEFAULTS[activeType].height / canvasSize.h;
-      onPlaceField(pageNum, relX, relY, relW, relH);
-    },
-    [activeType, canvasSize, onPlaceField, pageNum],
-  );
-
-  const pageFields = fields.filter((f) => f.page === pageNum);
-
-  return (
-    <div style={{ marginBottom: 24 }}>
-      <Text
-        style={{
-          display: 'block',
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginBottom: 6,
-          fontFamily: fonts.body,
-        }}
-      >
-        Page {pageNum}
-      </Text>
-      <div
-        ref={containerRef}
-        style={{
-          position: 'relative',
-          display: 'inline-block',
-          width: '100%',
-          border: `1px solid ${colors.border}`,
-          borderRadius: borderRadius.md,
-          overflow: 'hidden',
-          cursor: 'crosshair',
-          background: colors.bgLight,
-        }}
-        onClick={handleClick}
-      >
-        {loading && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minHeight: 280,
-            }}
-          >
-            <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: colors.textSecondary }} />} />
-          </div>
-        )}
-        <canvas
-          ref={canvasRef}
-          style={{
-            display: loading ? 'none' : 'block',
-            width: '100%',
-            height: 'auto',
-            pointerEvents: 'none',
-            userSelect: 'none',
-          }}
-        />
-        {/* Field overlays */}
-        {canvasSize &&
-          pageFields.map((field) => (
-            <SignFieldOverlay
-              key={field.id}
-              field={field}
-              imgWidth={canvasSize.w}
-              imgHeight={canvasSize.h}
-              onRemove={() => onRemoveField(field.id)}
-              onMove={(x, y) => onMoveField(field.id, x, y)}
-            />
-          ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Sign Field Overlay ────────────────────────────────────────────────────────
-
-interface SignFieldOverlayProps {
-  field: PlacedField;
-  imgWidth: number;
-  imgHeight: number;
-  onRemove: () => void;
-  onMove: (relX: number, relY: number) => void;
-}
-
-const FIELD_OVERLAY_BG: Record<FieldType, string> = {
-  signature: 'rgba(17,24,39,0.06)',
-  date: 'rgba(107,114,128,0.08)',
-  name: 'rgba(17,24,39,0.06)',
-  initials: 'rgba(107,114,128,0.08)',
-};
-
-function SignFieldOverlay({ field, imgWidth, imgHeight, onRemove, onMove }: SignFieldOverlayProps) {
-  const [dragging, setDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ dx: 0, dy: 0 });
-  const dragStartRef = useRef<{ startMouseX: number; startMouseY: number; startLeft: number; startTop: number } | null>(null);
-  const elRef = useRef<HTMLDivElement>(null);
-
-  const left = field.x * imgWidth;
-  const top = field.y * imgHeight;
-  const width = field.width * imgWidth;
-  const height = field.height * imgHeight;
-
-  const handleRemoveClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onRemove();
-  };
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    // Ignore if clicking remove button
-    if ((e.target as HTMLElement).closest('button')) return;
-    e.stopPropagation();
-    e.preventDefault();
-    setDragging(true);
-    setDragOffset({ dx: 0, dy: 0 });
-    dragStartRef.current = {
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
-      startLeft: left,
-      startTop: top,
-    };
-  }, [left, top]);
-
-  useEffect(() => {
-    if (!dragging) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragStartRef.current) return;
-      const dx = e.clientX - dragStartRef.current.startMouseX;
-      const dy = e.clientY - dragStartRef.current.startMouseY;
-      setDragOffset({ dx, dy });
-    };
-
-    const handleMouseUp = (e: MouseEvent) => {
-      if (!dragStartRef.current) { setDragging(false); return; }
-      const dx = e.clientX - dragStartRef.current.startMouseX;
-      const dy = e.clientY - dragStartRef.current.startMouseY;
-      // Convert pixel offset to relative coords
-      const newRelX = Math.max(0, Math.min(1 - field.width, (dragStartRef.current.startLeft + dx) / imgWidth));
-      const newRelY = Math.max(0, Math.min(1 - field.height, (dragStartRef.current.startTop + dy) / imgHeight));
-      onMove(newRelX, newRelY);
-      setDragging(false);
-      setDragOffset({ dx: 0, dy: 0 });
-      dragStartRef.current = null;
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [dragging, field.width, field.height, imgWidth, imgHeight, onMove]);
-
-  const displayLeft = dragging ? left + dragOffset.dx : left;
-  const displayTop = dragging ? top + dragOffset.dy : top;
-
-  return (
-    <div
-      ref={elRef}
-      onMouseDown={handleMouseDown}
-      style={{
-        position: 'absolute',
-        left: displayLeft,
-        top: displayTop,
-        width,
-        height,
-        background: FIELD_OVERLAY_BG[field.type],
-        border: `1.5px dashed ${dragging ? colors.primary : colors.textSecondary}`,
-        borderRadius: borderRadius.sm,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        pointerEvents: 'all',
-        cursor: dragging ? 'grabbing' : 'grab',
-        boxSizing: 'border-box',
-        boxShadow: dragging ? '0 2px 8px rgba(0,0,0,0.15)' : 'none',
-        transition: dragging ? 'none' : 'box-shadow 0.15s ease',
-        userSelect: 'none',
-        zIndex: dragging ? 10 : 1,
-      }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* Type label badge */}
-      <div
-        style={{
-          position: 'absolute',
-          top: -1,
-          left: 0,
-          background: colors.primary,
-          color: colors.textWhite,
-          fontSize: 10,
-          fontFamily: fonts.body,
-          fontWeight: 600,
-          padding: '1px 5px',
-          borderRadius: `${borderRadius.sm} 0 ${borderRadius.sm} 0`,
-          lineHeight: '16px',
-          whiteSpace: 'nowrap',
-          pointerEvents: 'none',
-        }}
-      >
-        {FIELD_TYPE_LABELS[field.type]}
-      </div>
-      {/* Close button */}
-      <button
-        onClick={handleRemoveClick}
-        title="Remove field"
-        style={{
-          position: 'absolute',
-          top: -1,
-          right: -1,
-          width: 18,
-          height: 18,
-          background: colors.textSecondary,
-          color: colors.textWhite,
-          border: 'none',
-          borderRadius: `0 ${borderRadius.sm} 0 ${borderRadius.sm}`,
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 0,
-          lineHeight: 1,
-        }}
-      >
-        <CloseOutlined style={{ fontSize: 9 }} />
-      </button>
-      {/* Field hint text */}
-      <Text
-        style={{
-          fontSize: 11,
-          color: colors.textSecondary,
-          fontFamily: fonts.body,
-          fontStyle: 'italic',
-          pointerEvents: 'none',
-          textAlign: 'center',
-          padding: '0 6px',
-          lineHeight: 1.2,
-        }}
-      >
-        {FIELD_DEFAULTS[field.type].label}
-      </Text>
-    </div>
-  );
-}
-
-// ── Field Summary ─────────────────────────────────────────────────────────────
-
-function fieldSummary(fields: PlacedField[]): string {
-  const counts: Partial<Record<FieldType, number>> = {};
-  for (const f of fields) {
-    counts[f.type] = (counts[f.type] ?? 0) + 1;
-  }
-  const parts: string[] = [];
-  const order: FieldType[] = ['signature', 'date', 'name', 'initials'];
-  for (const t of order) {
-    const c = counts[t];
-    if (c) parts.push(`${c} ${FIELD_TYPE_LABELS[t].toLowerCase()}${c > 1 ? 's' : ''}`);
-  }
-  return parts.join(', ');
-}
-
-// ── Main Modal ────────────────────────────────────────────────────────────────
 
 export default function SendForSignModal({
   open,
   onClose,
   documentId,
   documentName,
-  pageCount,
+  pageCount: initialPageCount,
+  fieldDefinitions: initialFieldDefinitions,
+  initialCustomer,
+  onSent,
 }: SendForSignModalProps) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const user = useAuthStore((s) => s.user);
-  const [form] = Form.useForm();
 
-  // Wizard state
-  const [step, setStep] = useState<1 | 2>(1);
+  const isMobile = useIsMobile();
 
-  // Step 1 state
-  const [activeType, setActiveType] = useState<FieldType>('signature');
-  const [fields, setFields] = useState<PlacedField[]>([]);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
+  const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
+  const [pdfReloadTick, setPdfReloadTick] = useState(0);
+
+  // The template as last known to this modal -- seeded from props, but kept
+  // locally so inline "Edit Fields"/"Edit PDF" (see editMode below) can
+  // update it in place without the parent re-fetching and passing new props.
+  const [fields, setFields] = useState<FieldDefinition[]>(initialFieldDefinitions);
+  const [pageCount, setPageCount] = useState(initialPageCount);
+
+  // 'fields' and 'pdf' take the whole modal full-screen, in place -- no
+  // navigating away and no separate modal stacked on top.
+  const [editMode, setEditMode] = useState<'none' | 'fields' | 'pdf'>('none');
+  const [savingFields, setSavingFields] = useState(false);
 
   // Step 2 state
+  const [customer, setCustomer] = useState<CustomerData | undefined>(undefined);
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('email_request');
+  const [recipients, setRecipients] = useState<RecipientRow[]>([]);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailMessage, setEmailMessage] = useState('');
+  const [ccEmails, setCcEmails] = useState<string[]>([]);
+  const [bccEmails, setBccEmails] = useState<string[]>([]);
+  const [ccBccOpen, setCcBccOpen] = useState(false);
+  const [expiresInDays, setExpiresInDays] = useState(14);
+
+  // Step 3 state
+  const [draft, setDraft] = useState<SignRequest | null>(null);
+  const [creatorValues, setCreatorValues] = useState<Record<string, string>>({});
+  const [creatingDraft, setCreatingDraft] = useState(false);
   const [sending, setSending] = useState(false);
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [successSignUrl, setSuccessSignUrl] = useState<string | null>(null);
+  const [sentResult, setSentResult] = useState<SignRequest | null>(null);
 
-  // PDF document loaded client-side for page rendering (no poppler dependency)
-  const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
+  const signerRoles = useMemo(
+    () => Array.from(new Set(fields.map((f) => f.signerRole).filter((r): r is string => !!r))),
+    [fields],
+  );
 
-  // Load the PDF document when modal opens
+  // Step 1 renders before a sign request exists, so there's no server-computed
+  // prefill_data yet. Resolve the same way the backend eventually will
+  // (field_registry.py's AVAILABLE_FIELD_REGISTRY) using the full Customer/
+  // Company records -- not just the flattened CustomerData summary, which is
+  // missing most address components and would silently under-resolve fields
+  // like "Full Address".
+  const fullCustomerQuery = useQuery({
+    queryKey: ['customer', customer?.customerId],
+    queryFn: () => customerService.getById(customer!.customerId!),
+    enabled: open && !!customer?.customerId,
+    staleTime: 60_000,
+  });
+  const companyQuery = useQuery({
+    queryKey: ['company'],
+    queryFn: () => companyService.get(),
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+
+  const step1ResolvedValues = useMemo(() => {
+    const fullCustomer = fullCustomerQuery.data;
+    const company = companyQuery.data;
+    const map: Record<string, string> = {};
+    for (const f of fields) {
+      if (f.dataBinding.mode !== 'prefilled') continue;
+      let value: string | null | undefined;
+      if (f.dataBinding.sourceEntity === 'customer') {
+        value = resolveCustomerField(f.dataBinding.sourceField, fullCustomer, customer);
+      } else if (f.dataBinding.sourceEntity === 'company' && company) {
+        value = resolveCompanyField(f.dataBinding.sourceField, company);
+      }
+      if (value) map[f.key] = value;
+    }
+    return Object.keys(map).length > 0 ? map : undefined;
+  }, [customer, fullCustomerQuery.data, companyQuery.data, fields]);
+
+  // A customer picker is only shown when the template actually needs one to
+  // resolve prefilled values (e.g. customer name/address burned into the
+  // document) and the caller hasn't already supplied one -- e.g. opened from
+  // the PDF Editor Tool or Company Documents, not from a Customer's own page.
+  const needsCustomerForPrefill = useMemo(
+    () => fields.some(
+      (f) => f.dataBinding.mode === 'prefilled' && f.dataBinding.sourceEntity === 'customer',
+    ),
+    [fields],
+  );
+  const showCustomerPicker = !initialCustomer && needsCustomerForPrefill;
+
+  // Reset wizard state whenever the modal opens for a (possibly new) document
+  useEffect(() => {
+    if (!open) return;
+    setStep(1);
+    setEditMode('none');
+    setCustomer(initialCustomer);
+    setFields(initialFieldDefinitions);
+    setPageCount(initialPageCount);
+    setDeliveryMethod('email_request');
+    // Pre-fill the first recipient row from initialCustomer, same convenience
+    // behavior as handleCustomerChange below when the customer is instead
+    // picked interactively (see showCustomerPicker). Computed straight from
+    // the incoming prop, not the signerRoles memo -- that's derived from the
+    // `fields` state this same effect is setting, so it would still reflect
+    // the *previous* document for this render.
+    const roles = Array.from(
+      new Set(initialFieldDefinitions.map((f) => f.signerRole).filter((r): r is string => !!r)),
+    );
+    setRecipients(
+      roles.length > 0
+        ? roles.map((role, idx) => ({
+            id: nextRowId(),
+            role,
+            name: idx === 0 ? (initialCustomer?.name ?? '') : '',
+            email: idx === 0 ? (initialCustomer?.email ?? '') : '',
+            phone: '',
+          }))
+        : [{ id: nextRowId(), role: 'signer', name: initialCustomer?.name ?? '', email: initialCustomer?.email ?? '', phone: '' }],
+    );
+    setEmailSubject(`Signature requested: ${documentName}`);
+    setEmailMessage('');
+    setCcEmails([]);
+    setBccEmails([]);
+    setCcBccOpen(false);
+    setExpiresInDays(14);
+    setDraft(null);
+    setCreatorValues({});
+    setSentResult(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, documentId]);
+
+  // Load the PDF client-side for the step-1 read-only field preview, and for
+  // the inline field editor (editMode === 'fields') -- both show the same
+  // document. pdfReloadTick forces a refetch after returning from the inline
+  // PDF editor (editMode === 'pdf'), whose content edits this won't otherwise
+  // know about.
   useEffect(() => {
     if (!open || !documentId) {
-      // Destroy previous doc when modal closes
       if (pdfDoc) { pdfDoc.destroy(); setPdfDoc(null); }
       return;
     }
-
     let cancelled = false;
     const load = async () => {
+      setPdfLoadError(null);
       try {
         const token = useAuthStore.getState().accessToken;
         const apiBase = import.meta.env.VITE_API_URL || '/api';
-        const url = `${apiBase}/tools/pdf-editor/documents/${documentId}/download`;
-        const response = await fetch(url, {
+        const response = await fetch(`${apiBase}/tools/pdf-editor/documents/${documentId}/download?flatten=true`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (!cancelled) setPdfLoadError(`Couldn't load the document (server returned ${response.status}).`);
+          return;
+        }
         const data = await response.arrayBuffer();
         if (cancelled) return;
         const pdf = await pdfjsLib.getDocument({ data }).promise;
         if (cancelled) { pdf.destroy(); return; }
         setPdfDoc(pdf);
       } catch {
-        // silent – page images will show loading spinner
+        if (!cancelled) setPdfLoadError("Couldn't load the document. Check your connection and try again.");
       }
     };
     load();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, documentId]);
+  }, [open, documentId, pdfReloadTick]);
 
-  // Reset on open/close
-  useEffect(() => {
-    if (open) {
-      setStep(1);
-      setActiveType('signature');
-      setFields([]);
-      setSending(false);
-      form.resetFields();
-      // Pre-fill sender email and default subject
-      form.setFieldsValue({
-        sender_email: user?.email ?? '',
-        email_subject: `Signature requested: ${documentName}`,
-        expires_in_days: 14,
-      });
-    }
-  }, [open, documentName, user, form]);
+  const handleCustomerChange = (data: CustomerData) => {
+    setCustomer(data);
+    // Convenience only: fill the first still-empty recipient row, never
+    // overwrite a row the user has already started editing.
+    setRecipients((prev) => {
+      if (prev.length === 0) return prev;
+      const [first, ...rest] = prev;
+      if (first.name.trim() || first.email.trim()) return prev;
+      return [{ ...first, name: data.name, email: data.email ?? '' }, ...rest];
+    });
+  };
 
-  // Customers query for selector
-  const { data: customersData } = useQuery({
-    queryKey: ['customers-for-sign', customerSearch],
-    queryFn: async () => {
-      const { data } = await api.get('/customers', {
-        params: { skip: 0, limit: 100, ...(customerSearch ? { search: customerSearch } : {}) },
-      });
-      return data;
-    },
-    enabled: open && step === 2,
-  });
+  // Cc/Bcc use a free-text tag input: split on paste/comma/space, keep only
+  // syntactically valid addresses, and warn once per batch about the rest.
+  const parseEmailTags = (values: string[]): string[] => {
+    const valid: string[] = [];
+    let hadInvalid = false;
+    values.forEach((raw) => {
+      const email = raw.trim();
+      if (!email) return;
+      if (EMAIL_RE.test(email)) valid.push(email);
+      else hadInvalid = true;
+    });
+    if (hadInvalid) message.warning('Enter a valid email address');
+    return Array.from(new Set(valid));
+  };
 
-  const customers: Customer[] = customersData?.items ?? customersData ?? [];
+  // One row per role the template requires -- who ends up in each slot is
+  // decided right here, by email, not by picking "Signer 1/2/3" anywhere.
+  const updateRecipient = (id: string, patch: Partial<RecipientRow>) =>
+    setRecipients((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
-  // Place field handler
-  const handlePlaceField = useCallback(
-    (page: number, x: number, y: number, relW: number, relH: number) => {
-      const def = FIELD_DEFAULTS[activeType];
-      setFields((prev) => [
-        ...prev,
-        {
-          id: nextFieldId(),
-          page,
-          x,
-          y,
-          width: relW,
-          height: relH,
-          type: activeType,
-          label: def.label,
-        },
-      ]);
-    },
-    [activeType],
+  const recipientsValid =
+    recipients.length > 0 && recipients.every((r) => r.name.trim() && r.email.trim());
+
+  const creatorFields = useMemo(
+    () => fields.filter((f) => f.dataBinding.mode === 'creator_input'),
+    [fields],
+  );
+  const missingRequiredCreatorFields = useMemo(
+    () => creatorFields.filter((f) => f.required && !(creatorValues[f.key] ?? '').trim()),
+    [creatorFields, creatorValues],
   );
 
-  const handleRemoveField = useCallback((id: string) => {
-    setFields((prev) => prev.filter((f) => f.id !== id));
-  }, []);
-
-  const handleMoveField = useCallback((id: string, x: number, y: number) => {
-    setFields((prev) => prev.map((f) => (f.id === id ? { ...f, x, y } : f)));
-  }, []);
-
-  // Customer select -> auto-fill name + email
-  const handleCustomerChange = (customerId: string) => {
-    const customer = customers.find((c) => c.id === customerId);
-    if (customer) {
-      form.setFieldsValue({
-        recipient_name: customer.contactName || customer.name,
-        recipient_email: customer.email ?? '',
+  const handleProceedToReview = async () => {
+    if (!recipientsValid) {
+      message.error('Enter a name and email for every recipient');
+      return;
+    }
+    setCreatingDraft(true);
+    try {
+      const created = await pdfEditorApi.createSignRequest({
+        documentId,
+        recipients: recipients.map((r) => ({
+          role: r.role.trim(),
+          name: r.name.trim(),
+          email: r.email.trim(),
+          ...(r.phone.trim() ? { phone: r.phone.trim() } : {}),
+        })),
+        customerId: customer?.customerId,
+        deliveryMethod,
+        senderEmail: user?.email,
+        senderName: user?.fullName || user?.email,
+        emailSubject: emailSubject || undefined,
+        emailMessage: emailMessage || undefined,
+        ccEmails,
+        bccEmails,
+        expiresInDays,
       });
+      setDraft(created);
+      setCreatorValues(created.prefillData ?? {});
+      setStep(3);
+    } catch (err) {
+      message.error(getErrorMessage(err) || 'Failed to create the sign request');
+    } finally {
+      setCreatingDraft(false);
     }
   };
 
-  // Send handler
   const handleSend = async () => {
-    try {
-      await form.validateFields();
-    } catch {
+    if (!draft) return;
+    if (missingRequiredCreatorFields.length > 0) {
+      message.error(`Fill required field(s): ${missingRequiredCreatorFields.map((f) => f.label).join(', ')}`);
       return;
     }
-
-    const values = form.getFieldsValue();
     setSending(true);
     try {
-      const signReq = await pdfEditorApi.createSignRequest({
-        documentId,
-        recipientEmail: values.recipient_email,
-        recipientName: values.recipient_name,
-        customerId: values.customer_id ?? undefined,
-        signFields: fields.map((f) => ({
-          page: f.page,
-          x: f.x,
-          y: f.y,
-          width: f.width,
-          height: f.height,
-          type: f.type,
-          label: f.label,
-        })),
-        emailSubject: values.email_subject || undefined,
-        emailMessage: values.email_message || undefined,
-        expiresInDays: values.expires_in_days,
-      });
-
-      const sendResult = await pdfEditorApi.sendSignRequest(signReq.id);
-
-      // If sign_url is returned (dev mode / email not configured), show it
-      const signUrl = sendResult?.sign_url;
-      if (signUrl) {
-        setSuccessSignUrl(signUrl);
-      } else {
-        message.success(`Signature request sent to ${values.recipient_email}`);
-        onClose();
+      if (creatorFields.length > 0) {
+        const values = creatorFields.reduce<Record<string, string>>((acc, f) => {
+          acc[f.key] = creatorValues[f.key] ?? '';
+          return acc;
+        }, {});
+        await pdfEditorApi.setCreatorFieldValues(draft.id, values);
       }
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      const errorMsg = Array.isArray(detail)
-        ? detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('; ')
-        : typeof detail === 'string' ? detail : 'Failed to send signature request. Please try again.';
-      console.error('[SendForSign] Error:', detail || err);
-      message.error(errorMsg);
+      const result = await pdfEditorApi.sendSignRequest(draft.id);
+      setSentResult(result);
+      onSent?.(result);
+      if (deliveryMethod === 'email_request') {
+        message.success('Signature request sent');
+      }
+    } catch (err) {
+      message.error(getErrorMessage(err) || 'Failed to send the signature request');
     } finally {
       setSending(false);
     }
   };
 
-  const canProceed = fields.length >= 1;
+  const canProceedStep1 = fields.length > 0;
 
-  // ── Step 1 footer
-  const step1Footer = (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '12px 0 0',
-      }}
-    >
-      <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary, fontFamily: fonts.body }}>
-        {fields.length === 0
-          ? 'Click on the page to place a field'
-          : `${fields.length} field${fields.length !== 1 ? 's' : ''} placed`}
+  // ── Inline "Edit Fields" sub-mode (editMode === 'fields') ───────────────────
+  // Same state/handlers FieldMappingModal uses -- see its module docblock.
+  const {
+    fields: editorFields, selectedKey, setSelectedKey, activeType, setActiveType, dirty: fieldsDirty, setDirty: setFieldsDirty,
+    handlePlaceField, updateSelected, handleMoveField, handleResizeField, handleRemoveField,
+  } = useFieldEditorState(fields, editMode === 'fields', documentId);
+  const editorAvailableFields = useAvailableFields(editMode === 'fields');
+
+  const handleSaveFields = async () => {
+    const error = validateFieldsForSave(editorFields);
+    if (error) {
+      message.error(error);
+      return;
+    }
+    setSavingFields(true);
+    try {
+      const doc = await pdfEditorApi.saveFieldDefinitions(documentId, editorFields);
+      setFields(doc.fieldDefinitions);
+      message.success('Field mapping saved');
+      setFieldsDirty(false);
+      setEditMode('none');
+    } catch {
+      message.error('Failed to save field mapping. Please try again.');
+    } finally {
+      setSavingFields(false);
+    }
+  };
+
+  const handleCancelFieldsEdit = () => {
+    if (savingFields) return;
+    if (!fieldsDirty) {
+      setEditMode('none');
+      return;
+    }
+    modal.confirm({
+      title: 'Discard unsaved fields?',
+      content: "Your field placements and settings for this template haven't been saved.",
+      okText: 'Discard',
+      okButtonProps: { danger: true },
+      cancelText: 'Keep Editing',
+      onOk: () => setEditMode('none'),
+    });
+  };
+
+  // ── Inline "Edit PDF" sub-mode (editMode === 'pdf') ─────────────────────────
+  // EditorView autosaves annotations itself -- returning here just means
+  // re-pulling the document (page count may have changed via page delete/
+  // reorder) and re-rendering the flattened preview to match.
+  const handleBackFromPdfEdit = async () => {
+    setEditMode('none');
+    try {
+      const doc = await pdfEditorApi.getDocument(documentId);
+      setPageCount(doc.pageCount);
+    } catch {
+      // non-fatal -- keep the previously known page count
+    }
+    setPdfReloadTick((t) => t + 1);
+  };
+
+  // ── Step 1: field preview ──────────────────────────────────────────────────
+  const step1Content = (
+    <>
+      {!canProceedStep1 ? (
+        <Empty
+          description={
+            <Space direction="vertical" size={4} style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: fontSizes.sm, color: colors.textSecondary, fontFamily: fonts.body }}>
+                This document has no fields defined yet.
+              </Text>
+              <Space>
+                <Button
+                  type="primary"
+                  icon={<EditOutlined />}
+                  onClick={() => setEditMode('fields')}
+                  style={{ background: colors.primary, borderColor: colors.primary, marginTop: 4 }}
+                >
+                  Define Fields
+                </Button>
+                <Button
+                  icon={<FileImageOutlined />}
+                  onClick={() => setEditMode('pdf')}
+                  style={{ marginTop: 4 }}
+                >
+                  Edit PDF
+                </Button>
+              </Space>
+            </Space>
+          }
+          style={{ padding: '48px 0' }}
+        />
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary, fontFamily: fonts.body }}>
+              {fields.length} field{fields.length !== 1 ? 's' : ''} defined on this template
+            </Text>
+            <Space size={4}>
+              <Button
+                size="small"
+                type="text"
+                icon={<FileImageOutlined />}
+                onClick={() => setEditMode('pdf')}
+                style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}
+              >
+                Edit PDF
+              </Button>
+              <Button
+                size="small"
+                type="text"
+                icon={<EditOutlined />}
+                onClick={() => setEditMode('fields')}
+                style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}
+              >
+                Edit Fields
+              </Button>
+            </Space>
+          </div>
+          <FieldPlacementCanvas
+            pdfDoc={pdfDoc}
+            pageCount={pageCount}
+            fields={fields}
+            readOnly
+            maxHeight="calc(100vh - 360px)"
+            resolvedValues={step1ResolvedValues}
+          />
+        </>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '12px 0 0' }}>
+        <Space>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            type="primary"
+            icon={<ArrowRightOutlined />}
+            iconPosition="end"
+            onClick={() => setStep(2)}
+            disabled={!canProceedStep1}
+            style={{ background: colors.primary, borderColor: colors.primary }}
+          >
+            Next
+          </Button>
+        </Space>
+      </div>
+    </>
+  );
+
+  // ── Step 2: recipients & delivery ──────────────────────────────────────────
+  const sectionLabelStyle: React.CSSProperties = {
+    fontSize: fontSizes.xs, fontWeight: 600, color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10, fontFamily: fonts.body,
+  };
+
+  const step2Content = (
+    <>
+      {showCustomerPicker && (
+        <>
+          <div style={sectionLabelStyle}>Customer</div>
+          <Text style={{ display: 'block', fontSize: 11, color: colors.textMuted, fontFamily: fonts.body, marginTop: -6, marginBottom: 10 }}>
+            This template pulls customer details (e.g. name, address) into the document.
+          </Text>
+          <div style={{ marginBottom: 16 }}>
+            <CustomerSelector value={customer} onChange={handleCustomerChange} />
+          </div>
+        </>
+      )}
+
+      <div style={sectionLabelStyle}>Delivery Method</div>
+      <Radio.Group
+        value={deliveryMethod}
+        onChange={(e) => setDeliveryMethod(e.target.value)}
+        style={{ marginBottom: 18, display: 'flex', gap: 8 }}
+      >
+        <Radio.Button value="email_request" style={{ flex: 1, textAlign: 'center', fontFamily: fonts.body }}>
+          Email Request
+        </Radio.Button>
+        <Radio.Button value="direct_link" style={{ flex: 1, textAlign: 'center', fontFamily: fonts.body }}>
+          Direct Link
+        </Radio.Button>
+      </Radio.Group>
+      <Text style={{ display: 'block', fontSize: 11, color: colors.textMuted, fontFamily: fonts.body, marginTop: -12, marginBottom: 16 }}>
+        {deliveryMethod === 'email_request'
+          ? 'Each recipient gets an email with their own signing link.'
+          : "No email is sent — you'll get a link per recipient to share yourself."}
       </Text>
-      <Space>
-        <Button onClick={onClose} disabled={sending}>
-          Cancel
-        </Button>
+
+      <div style={sectionLabelStyle}>Recipients</div>
+
+      <Space direction="vertical" size={10} style={{ width: '100%', marginBottom: 16 }}>
+        {recipients.map((r, index) => (
+          <div
+            key={r.id}
+            style={{
+              padding: 10, border: `1px solid ${colors.border}`, borderRadius: borderRadius.md, background: colors.bgLight,
+            }}
+          >
+            {recipients.length > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                <Text
+                  style={{
+                    fontSize: 10, fontWeight: 600, color: colors.textMuted, fontFamily: fonts.body,
+                    textTransform: 'uppercase', letterSpacing: '0.04em',
+                  }}
+                >
+                  {formatRoleLabel(r.role)}
+                </Text>
+                <Tooltip title="Which signature/fields on the document this recipient fills in. It's just a slot label from the template, not a real job title.">
+                  <QuestionCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
+                </Tooltip>
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 8 }}>
+              {index === 0 && customer ? (
+                <Input
+                  value={customer.name}
+                  disabled
+                  style={{ fontFamily: fonts.body, fontSize: fontSizes.xs }}
+                  size="small"
+                />
+              ) : (
+                <Input
+                  placeholder="Full name"
+                  value={r.name}
+                  onChange={(e) => updateRecipient(r.id, { name: e.target.value })}
+                  style={{ fontFamily: fonts.body, fontSize: fontSizes.xs }}
+                  size="small"
+                />
+              )}
+              <Input
+                placeholder="Email address"
+                value={r.email}
+                onChange={(e) => updateRecipient(r.id, { email: e.target.value })}
+                style={{ fontFamily: fonts.body, fontSize: fontSizes.xs }}
+                size="small"
+              />
+            </div>
+          </div>
+        ))}
+      </Space>
+
+      <Divider style={{ margin: '4px 0 16px', borderColor: colors.border }} />
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={sectionLabelStyle as React.CSSProperties}>Email Details</div>
+        {!ccBccOpen && deliveryMethod === 'email_request' && (
+          <Button
+            size="small"
+            type="text"
+            onClick={() => setCcBccOpen(true)}
+            style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}
+          >
+            Cc/Bcc
+          </Button>
+        )}
+      </div>
+      {ccBccOpen && deliveryMethod === 'email_request' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textPrimary, fontFamily: fonts.body, marginBottom: 4 }}>Cc</label>
+            <Select
+              mode="tags"
+              value={ccEmails}
+              onChange={(v) => setCcEmails(parseEmailTags(v))}
+              tokenSeparators={[',', ' ']}
+              notFoundContent={null}
+              suffixIcon={null}
+              placeholder="Add email, press Enter"
+              style={{ width: '100%', fontFamily: fonts.body }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textPrimary, fontFamily: fonts.body, marginBottom: 4 }}>Bcc</label>
+            <Select
+              mode="tags"
+              value={bccEmails}
+              onChange={(v) => setBccEmails(parseEmailTags(v))}
+              tokenSeparators={[',', ' ']}
+              notFoundContent={null}
+              suffixIcon={null}
+              placeholder="Add email, press Enter"
+              style={{ width: '100%', fontFamily: fonts.body }}
+            />
+          </div>
+        </div>
+      )}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textPrimary, fontFamily: fonts.body, marginBottom: 4 }}>Subject</label>
+        <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} style={{ fontFamily: fonts.body }} />
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textPrimary, fontFamily: fonts.body, marginBottom: 4 }}>
+          Message <span style={{ color: colors.textMuted, fontWeight: 400 }}>(optional)</span>
+        </label>
+        <TextArea
+          value={emailMessage}
+          onChange={(e) => setEmailMessage(e.target.value)}
+          autoSize={{ minRows: 3, maxRows: 8 }}
+          style={{ fontFamily: fonts.body }}
+        />
+      </div>
+      <div style={{ marginBottom: 4 }}>
+        <label style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textPrimary, fontFamily: fonts.body, marginBottom: 4 }}>Expires in</label>
+        <Radio.Group value={expiresInDays} onChange={(e) => setExpiresInDays(e.target.value)}>
+          {EXPIRY_OPTIONS.map((opt) => (
+            <Radio.Button key={opt.value} value={opt.value} style={{ fontFamily: fonts.body, fontSize: fontSizes.xs }}>
+              {opt.label}
+            </Radio.Button>
+          ))}
+        </Radio.Group>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0 0' }}>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => setStep(1)}>Back</Button>
         <Button
           type="primary"
           icon={<ArrowRightOutlined />}
           iconPosition="end"
-          onClick={() => setStep(2)}
-          disabled={!canProceed}
+          onClick={handleProceedToReview}
+          loading={creatingDraft}
           style={{ background: colors.primary, borderColor: colors.primary }}
         >
-          Next
+          Review
         </Button>
-      </Space>
-    </div>
-  );
-
-  // ── Step 2 footer
-  const step2Footer = (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '12px 0 0',
-      }}
-    >
-      <Button icon={<ArrowLeftOutlined />} onClick={() => setStep(1)} disabled={sending}>
-        Back
-      </Button>
-      <Button
-        type="primary"
-        icon={<SendOutlined />}
-        onClick={handleSend}
-        loading={sending}
-        style={{ background: colors.primary, borderColor: colors.primary }}
-      >
-        Send
-      </Button>
-    </div>
-  );
-
-  // ── Step 1 content
-  const step1Content = (
-    <>
-      {/* Toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '10px 12px',
-          background: colors.bgLight,
-          border: `1px solid ${colors.border}`,
-          borderRadius: borderRadius.md,
-          marginBottom: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Text
-          style={{
-            fontSize: fontSizes.xs,
-            color: colors.textSecondary,
-            fontFamily: fonts.body,
-            marginRight: 4,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Place:
-        </Text>
-        {(['signature', 'date', 'name', 'initials'] as FieldType[]).map((t) => (
-          <FieldTypeButton
-            key={t}
-            type={t}
-            active={activeType === t}
-            onClick={() => setActiveType(t)}
-          />
-        ))}
-        {fields.length > 0 && (
-          <button
-            onClick={() => setFields([])}
-            title="Clear all fields"
-            style={{
-              marginLeft: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '5px 10px',
-              border: `1px solid ${colors.border}`,
-              borderRadius: borderRadius.base,
-              background: colors.bgWhite,
-              color: colors.textSecondary,
-              fontSize: fontSizes.xs,
-              fontFamily: fonts.body,
-              cursor: 'pointer',
-            }}
-          >
-            <CloseOutlined style={{ fontSize: 10 }} />
-            Clear all
-          </button>
-        )}
       </div>
-
-      {/* Page images */}
-      <div
-        style={{
-          maxHeight: 480,
-          overflowY: 'auto',
-          paddingRight: 4,
-        }}
-      >
-        {Array.from({ length: pageCount }, (_, i) => i + 1).map((pageNum) => (
-          <PageImage
-            key={pageNum}
-            pdfDoc={pdfDoc}
-            pageNum={pageNum}
-            fields={fields}
-            activeType={activeType}
-            onPlaceField={handlePlaceField}
-            onRemoveField={handleRemoveField}
-            onMoveField={handleMoveField}
-          />
-        ))}
-      </div>
-
-      {step1Footer}
     </>
   );
 
-  // ── Step 2 content
-  const step2Content = (
-    <Form
-      form={form}
-      layout="vertical"
-      style={{ fontFamily: fonts.body }}
-      requiredMark={false}
-    >
-      {/* Recipient */}
-      <div
-        style={{
-          fontSize: fontSizes.xs,
-          fontWeight: 600,
-          color: colors.textSecondary,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          marginBottom: 10,
-          fontFamily: fonts.body,
-        }}
-      >
-        Recipient
-      </div>
+  // ── Step 3: review & send ───────────────────────────────────────────────────
+  const step3Content = draft && (
+    <>
+      <div style={sectionLabelStyle}>Recipients</div>
+      <Space direction="vertical" size={4} style={{ width: '100%', marginBottom: 16 }}>
+        {draft.recipients.map((r) => (
+          <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: fontSizes.sm, fontFamily: fonts.body }}>
+            <Text style={{ color: colors.textPrimary }}>{r.name} <Text style={{ color: colors.textMuted, fontSize: fontSizes.xs }}>({r.role})</Text></Text>
+            <Text style={{ color: colors.textSecondary }}>{r.email}</Text>
+          </div>
+        ))}
+      </Space>
 
-      <Form.Item
-        name="customer_id"
-        label={
-          <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary }}>
-            Customer <span style={{ color: colors.textMuted, fontWeight: 400 }}>(optional)</span>
-          </span>
-        }
-        style={{ marginBottom: 12 }}
-      >
-        <Select
-          showSearch
-          allowClear
-          placeholder="Select a customer to auto-fill..."
-          filterOption={false}
-          onSearch={setCustomerSearch}
-          onChange={handleCustomerChange}
-          onClear={() => setCustomerSearch('')}
-          notFoundContent={
-            <Text style={{ fontSize: fontSizes.xs, color: colors.textMuted }}>
-              No customers found
-            </Text>
-          }
-          style={{ width: '100%' }}
-        >
-          {customers.map((c) => (
-            <Select.Option key={c.id} value={c.id}>
-              <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm }}>
-                {c.name}
-                {c.email && (
-                  <span style={{ color: colors.textSecondary, marginLeft: 6 }}>
-                    — {c.email}
-                  </span>
+      {fields.filter((f) => f.dataBinding.mode === 'prefilled').length > 0 && (
+        <>
+          <div style={sectionLabelStyle}>Auto-Filled Values</div>
+          <Space direction="vertical" size={4} style={{ width: '100%', marginBottom: 16 }}>
+            {fields.filter((f) => f.dataBinding.mode === 'prefilled').map((f) => (
+              <div key={f.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: fontSizes.xs, fontFamily: fonts.body }}>
+                <Text style={{ color: colors.textSecondary }}>{f.label}</Text>
+                <Text style={{ color: colors.textPrimary, fontWeight: 500 }}>{creatorValues[f.key] || <Text style={{ color: colors.textMuted }}>—</Text>}</Text>
+              </div>
+            ))}
+          </Space>
+        </>
+      )}
+
+      {creatorFields.length > 0 && (
+        <>
+          <div style={sectionLabelStyle}>Fill In Before Sending</div>
+          <Space direction="vertical" size={10} style={{ width: '100%', marginBottom: 16 }}>
+            {creatorFields.map((f) => (
+              <div key={f.key}>
+                <label style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textPrimary, fontFamily: fonts.body, marginBottom: 4 }}>
+                  {f.label} {f.required && <span style={{ color: colors.error }}>*</span>}
+                </label>
+                {isMultilineText(f) ? (
+                  <TextArea
+                    value={creatorValues[f.key] ?? ''}
+                    onChange={(e) => setCreatorValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                    autoSize={{ minRows: 2, maxRows: 6 }}
+                    style={{ fontFamily: fonts.body }}
+                  />
+                ) : (
+                  <Input
+                    value={creatorValues[f.key] ?? ''}
+                    onChange={(e) => setCreatorValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                    style={{ fontFamily: fonts.body }}
+                  />
                 )}
-              </span>
-            </Select.Option>
-          ))}
-        </Select>
-      </Form.Item>
+              </div>
+            ))}
+          </Space>
+        </>
+      )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Form.Item
-          name="recipient_name"
-          label={
-            <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary }}>
-              Recipient Name
-            </span>
-          }
-          rules={[{ required: true, message: 'Recipient name is required' }]}
-          style={{ marginBottom: 12 }}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0 0' }}>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => setStep(2)} disabled={sending}>Back</Button>
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
+          onClick={handleSend}
+          loading={sending}
+          style={{ background: colors.primary, borderColor: colors.primary }}
         >
-          <Input placeholder="John Smith" style={{ fontFamily: fonts.body }} />
-        </Form.Item>
-
-        <Form.Item
-          name="recipient_email"
-          label={
-            <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary }}>
-              Recipient Email
-            </span>
-          }
-          rules={[
-            { required: true, message: 'Recipient email is required' },
-            { type: 'email', message: 'Enter a valid email address' },
-          ]}
-          style={{ marginBottom: 12 }}
-        >
-          <Input placeholder="recipient@example.com" style={{ fontFamily: fonts.body }} />
-        </Form.Item>
+          Send
+        </Button>
       </div>
-
-      <Divider style={{ margin: '4px 0 16px', borderColor: colors.border }} />
-
-      {/* Sender & email */}
-      <div
-        style={{
-          fontSize: fontSizes.xs,
-          fontWeight: 600,
-          color: colors.textSecondary,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          marginBottom: 10,
-          fontFamily: fonts.body,
-        }}
-      >
-        Email Details
-      </div>
-
-      <Form.Item
-        name="sender_email"
-        label={
-          <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary }}>
-            Sender Email
-          </span>
-        }
-        rules={[
-          { required: true, message: 'Sender email is required' },
-          { type: 'email', message: 'Enter a valid email address' },
-        ]}
-        style={{ marginBottom: 12 }}
-      >
-        <Input style={{ fontFamily: fonts.body }} />
-      </Form.Item>
-
-      <Form.Item
-        name="email_subject"
-        label={
-          <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary }}>
-            Subject
-          </span>
-        }
-        style={{ marginBottom: 12 }}
-      >
-        <Input style={{ fontFamily: fonts.body }} />
-      </Form.Item>
-
-      <Form.Item
-        name="email_message"
-        label={
-          <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary }}>
-            Message <span style={{ color: colors.textMuted, fontWeight: 400 }}>(optional)</span>
-          </span>
-        }
-        style={{ marginBottom: 12 }}
-      >
-        <TextArea
-          rows={3}
-          placeholder="Add a personal message to the recipient..."
-          style={{ fontFamily: fonts.body, resize: 'none' }}
-        />
-      </Form.Item>
-
-      <Form.Item
-        name="expires_in_days"
-        label={
-          <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary }}>
-            Expires in
-          </span>
-        }
-        style={{ marginBottom: 12 }}
-      >
-        <Select style={{ width: 160 }}>
-          {EXPIRY_OPTIONS.map((opt) => (
-            <Select.Option key={opt.value} value={opt.value}>
-              {opt.label}
-            </Select.Option>
-          ))}
-        </Select>
-      </Form.Item>
-
-      <Divider style={{ margin: '4px 0 14px', borderColor: colors.border }} />
-
-      {/* Fields summary */}
-      <div
-        style={{
-          background: colors.bgLight,
-          border: `1px solid ${colors.border}`,
-          borderRadius: borderRadius.md,
-          padding: '10px 14px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke={colors.textSecondary}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ flexShrink: 0 }}
-        >
-          <path d="M12 20h9" />
-          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-        </svg>
-        <Text
-          style={{
-            fontSize: fontSizes.xs,
-            color: colors.textSecondary,
-            fontFamily: fonts.body,
-          }}
-        >
-          {fields.length} field{fields.length !== 1 ? 's' : ''} placed
-          {fields.length > 0 && `: ${fieldSummary(fields)}`}
-        </Text>
-        <button
-          onClick={() => setStep(1)}
-          style={{
-            marginLeft: 'auto',
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            cursor: 'pointer',
-            color: colors.textSecondary,
-            fontSize: fontSizes.xs,
-            fontFamily: fonts.body,
-            textDecoration: 'underline',
-            textUnderlineOffset: 2,
-          }}
-        >
-          Edit fields
-        </button>
-      </div>
-
-      {step2Footer}
-    </Form>
+    </>
   );
 
-  // ── Modal header
   const modalTitle = (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <div>
-        <Title
-          level={5}
-          style={{
-            margin: 0,
-            fontFamily: fonts.heading,
-            fontSize: fontSizes.md,
-            color: colors.textPrimary,
-          }}
-        >
+        <Title level={5} style={{ margin: 0, fontFamily: fonts.heading, fontSize: fontSizes.md, color: colors.textPrimary }}>
           Send for Signature
         </Title>
-        <Text
-          style={{
-            fontSize: fontSizes.xs,
-            color: colors.textSecondary,
-            fontFamily: fonts.body,
-          }}
-        >
-          {documentName}
-        </Text>
+        <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary, fontFamily: fonts.body }}>{documentName}</Text>
       </div>
-      <Text
-        style={{
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          fontFamily: fonts.body,
-          fontWeight: 500,
-        }}
-      >
-        Step {step} of 2
+      <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary, fontFamily: fonts.body, fontWeight: 500 }}>
+        Step {step} of 3
       </Text>
     </div>
   );
 
-  return (
-    <>
-    <Modal
-      open={open}
-      onCancel={onClose}
-      title={modalTitle}
-      footer={null}
-      closable={!sending}
-      maskClosable={!sending}
-      width={step === 1 ? 720 : 520}
-      destroyOnHidden={false}
-      styles={{
-        body: { padding: '16px 24px 8px' },
-        header: {
-          padding: '16px 24px 12px',
-          borderBottom: `1px solid ${colors.border}`,
-          marginBottom: 0,
-          borderRadius: `${borderRadius.lg} ${borderRadius.lg} 0 0`,
-        },
-        content: {
-          borderRadius: borderRadius.lg,
-          fontFamily: fonts.body,
-        },
-      }}
-    >
-      {/* Step indicator */}
+  const fieldsEditorContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', fontFamily: fonts.body }}>
       <div
         style={{
-          display: 'flex',
-          gap: 0,
-          marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
+          padding: isMobile ? '10px 12px' : '12px 24px',
+          borderBottom: `1px solid ${colors.border}`, background: colors.bgWhite,
         }}
       >
-        {([1, 2] as const).map((s) => (
-          <div
-            key={s}
-            style={{
-              flex: 1,
-              height: 3,
-              background: step >= s ? colors.primary : colors.border,
-              borderRadius: s === 1 ? '2px 0 0 2px' : '0 2px 2px 0',
-              transition: 'background 0.2s ease',
-            }}
-          />
-        ))}
-      </div>
-
-      {step === 1 ? step1Content : step2Content}
-    </Modal>
-
-    {/* Success modal (dev mode / email not configured) */}
-    <Modal
-      open={!!successSignUrl}
-      onCancel={() => { setSuccessSignUrl(null); onClose(); }}
-      footer={null}
-      closable={false}
-      width={480}
-      centered
-      styles={{
-        body: { padding: '32px 28px 24px' },
-        content: {
-          borderRadius: borderRadius.lg,
-          fontFamily: fonts.body,
-        },
-      }}
-    >
-      <div style={{ textAlign: 'center' }}>
-        {/* Check icon */}
-        <div
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: '50%',
-            background: '#f0fdf4',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginBottom: 16,
-          }}
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={handleCancelFieldsEdit}
+          disabled={savingFields}
+          style={{ color: colors.textSecondary, flexShrink: 0 }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 6L9 17l-5-5" />
-          </svg>
+          {!isMobile && 'Cancel'}
+        </Button>
+
+        <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+          <Title level={5} style={{ margin: 0, fontFamily: fonts.heading, fontSize: fontSizes.md, color: colors.textPrimary, lineHeight: 1.3 }}>
+            Define Fields
+          </Title>
+          <Text ellipsis style={{ display: 'block', fontSize: fontSizes.xs, color: colors.textSecondary, fontFamily: fonts.body }}>
+            {documentName}
+          </Text>
         </div>
 
-        <Title
-          level={4}
-          style={{
-            margin: '0 0 8px',
-            fontFamily: fonts.heading,
-            fontSize: fontSizes.xl,
-            color: colors.textPrimary,
-          }}
-        >
-          Signature request created
-        </Title>
-
-        <Text
-          style={{
-            display: 'block',
-            fontSize: fontSizes.sm,
-            color: colors.textSecondary,
-            fontFamily: fonts.body,
-            marginBottom: 16,
-          }}
-        >
-          Email service is not configured. Use this link to sign:
-        </Text>
-
-        <div
-          style={{
-            background: colors.bgLight,
-            border: `1px solid ${colors.border}`,
-            borderRadius: borderRadius.md,
-            padding: '12px 14px',
-            marginBottom: 20,
-          }}
-        >
-          <a
-            href={successSignUrl ?? '#'}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              wordBreak: 'break-all',
-              fontSize: fontSizes.xs,
-              color: colors.textPrimary,
-              fontFamily: fonts.body,
-              textDecoration: 'underline',
-              textUnderlineOffset: 2,
-            }}
-          >
-            {successSignUrl}
-          </a>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-          <Button
-            onClick={() => {
-              if (successSignUrl) {
-                navigator.clipboard.writeText(successSignUrl);
-                message.success('Link copied');
-              }
-            }}
-            style={{
-              borderRadius: borderRadius.base,
-              fontFamily: fonts.body,
-              fontWeight: 500,
-              fontSize: fontSizes.sm,
-            }}
-          >
-            Copy Link
-          </Button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+          {!isMobile && (
+            <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary, fontFamily: fonts.body, whiteSpace: 'nowrap' }}>
+              {editorFields.length} field{editorFields.length !== 1 ? 's' : ''} defined
+            </Text>
+          )}
           <Button
             type="primary"
-            onClick={() => { setSuccessSignUrl(null); onClose(); }}
-            style={{
-              borderRadius: borderRadius.base,
-              background: colors.primary,
-              borderColor: colors.primary,
-              fontFamily: fonts.body,
-              fontWeight: 600,
-              fontSize: fontSizes.sm,
-            }}
+            icon={<SaveOutlined />}
+            onClick={handleSaveFields}
+            loading={savingFields}
+            style={{ background: colors.primary, borderColor: colors.primary }}
+          >
+            {isMobile ? 'Save' : 'Save Template'}
+          </Button>
+        </div>
+      </div>
+
+      <FieldEditorBody
+        fields={editorFields}
+        selectedKey={selectedKey}
+        onSelectField={setSelectedKey}
+        activeType={activeType}
+        onActiveTypeChange={setActiveType}
+        onPlaceField={handlePlaceField}
+        onMoveField={handleMoveField}
+        onResizeField={handleResizeField}
+        onRemoveField={handleRemoveField}
+        onFieldChange={updateSelected}
+        availableFields={editorAvailableFields}
+        pdfDoc={pdfDoc}
+        pageCount={pageCount}
+        pdfLoadError={pdfLoadError}
+        onReloadPdf={() => setPdfReloadTick((t) => t + 1)}
+        isMobile={isMobile}
+      />
+    </div>
+  );
+
+  const fullScreen = editMode !== 'none';
+
+  return (
+    <>
+      <Modal
+        open={open && !sentResult}
+        onCancel={editMode === 'fields' ? handleCancelFieldsEdit : editMode === 'pdf' ? handleBackFromPdfEdit : onClose}
+        title={fullScreen ? null : modalTitle}
+        footer={null}
+        closable={fullScreen ? false : (!sending && !creatingDraft)}
+        maskClosable={fullScreen ? false : (!sending && !creatingDraft)}
+        width={fullScreen ? '100vw' : (step === 1 ? 840 : 560)}
+        style={fullScreen ? { top: 0, paddingBottom: 0, margin: 0, maxWidth: '100vw' } : undefined}
+        styles={
+          fullScreen
+            ? {
+                content: { padding: 0, borderRadius: 0, height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+                body: { flex: 1, minHeight: 0, padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+              }
+            : {
+                body: { padding: '16px 24px 8px' },
+                header: { padding: '16px 24px 12px', borderBottom: `1px solid ${colors.border}` },
+                content: { borderRadius: borderRadius.lg, fontFamily: fonts.body },
+              }
+        }
+      >
+        {editMode === 'fields' ? (
+          fieldsEditorContent
+        ) : editMode === 'pdf' ? (
+          <EditorView documentId={documentId} onBack={handleBackFromPdfEdit} heightOffset={0} />
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 0, marginBottom: 16 }}>
+              {([1, 2, 3] as const).map((s) => (
+                <div
+                  key={s}
+                  style={{
+                    flex: 1, height: 3, background: step >= s ? colors.primary : colors.border,
+                    borderRadius: s === 1 ? '2px 0 0 2px' : s === 3 ? '0 2px 2px 0' : 0,
+                    transition: 'background 0.2s ease',
+                  }}
+                />
+              ))}
+            </div>
+
+            {step === 1 && step1Content}
+            {step === 2 && step2Content}
+            {step === 3 && step3Content}
+          </>
+        )}
+      </Modal>
+
+      {/* Success screen */}
+      <Modal
+        open={!!sentResult}
+        onCancel={() => { setSentResult(null); onClose(); }}
+        footer={null}
+        closable={false}
+        width={480}
+        centered
+        styles={{ body: { padding: '32px 28px 24px' }, content: { borderRadius: borderRadius.lg, fontFamily: fonts.body } }}
+      >
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#f0fdf4', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+          </div>
+          <Title level={4} style={{ margin: '0 0 8px', fontFamily: fonts.heading, fontSize: fontSizes.xl, color: colors.textPrimary }}>
+            Signature request sent
+          </Title>
+          <Text style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textSecondary, fontFamily: fonts.body, marginBottom: 16 }}>
+            {deliveryMethod === 'direct_link'
+              ? 'Copy each link below and share it with the recipient.'
+              : 'Each recipient has been emailed their own signing link.'}
+          </Text>
+
+          {sentResult?.signUrls && (
+            <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 20 }}>
+              {sentResult.recipients.map((r) => {
+                const url = sentResult.signUrls?.[r.id];
+                if (!url) return null;
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                      background: colors.bgLight, border: `1px solid ${colors.border}`, borderRadius: borderRadius.md, padding: '8px 12px',
+                    }}
+                  >
+                    <Text style={{ fontSize: fontSizes.xs, fontFamily: fonts.body, color: colors.textPrimary }}>
+                      {r.name} <Text style={{ color: colors.textMuted }}>({r.role})</Text>
+                    </Text>
+                    <Button
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={() => { navigator.clipboard.writeText(url); message.success('Link copied'); }}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                );
+              })}
+            </Space>
+          )}
+
+          <Button
+            type="primary"
+            onClick={() => { setSentResult(null); onClose(); }}
+            style={{ borderRadius: borderRadius.base, background: colors.primary, borderColor: colors.primary, fontFamily: fonts.body, fontWeight: 600, fontSize: fontSizes.sm }}
           >
             Done
           </Button>
         </div>
-      </div>
-    </Modal>
+      </Modal>
     </>
   );
 }

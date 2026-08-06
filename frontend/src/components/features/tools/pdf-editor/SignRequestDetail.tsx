@@ -36,6 +36,7 @@ import {
   FileTextOutlined,
   EditOutlined,
   UserOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { pdfEditorApi } from './pdfEditorApi';
@@ -47,13 +48,22 @@ const { Text, Title } = Typography;
 // ── Status config ─────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  draft:     { label: 'Draft',     color: '#6b7280' },
-  sent:      { label: 'Sent',      color: '#3b82f6' },
-  viewed:    { label: 'Viewed',    color: '#8b5cf6' },
-  signed:    { label: 'Signed',    color: '#10b981' },
-  declined:  { label: 'Declined',  color: '#ef4444' },
-  expired:   { label: 'Expired',   color: '#f59e0b' },
-  cancelled: { label: 'Cancelled', color: '#6b7280' },
+  draft:             { label: 'Draft',            color: '#6b7280' },
+  sent:              { label: 'Sent',              color: '#3b82f6' },
+  viewed:            { label: 'Viewed',            color: '#8b5cf6' },
+  partially_signed:  { label: 'Partially Signed',  color: '#f59e0b' },
+  signed:            { label: 'Signed',            color: '#10b981' },
+  declined:          { label: 'Declined',          color: '#ef4444' },
+  expired:           { label: 'Expired',           color: '#f59e0b' },
+  cancelled:         { label: 'Voided',            color: '#6b7280' },
+};
+
+const RECIPIENT_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  pending:  { label: 'Pending',  color: '#6b7280' },
+  sent:     { label: 'Sent',     color: '#3b82f6' },
+  viewed:   { label: 'Viewed',   color: '#8b5cf6' },
+  signed:   { label: 'Signed',   color: '#10b981' },
+  declined: { label: 'Declined', color: '#ef4444' },
 };
 
 // ── Audit event config ────────────────────────────────────────────────────────
@@ -93,8 +103,13 @@ function getAuditEventConfig(eventType: string): AuditEventConfig {
       icon: <StopOutlined style={iconStyle} />,
       dotColor: colors.error,
     },
+    voided: {
+      label: 'Voided',
+      icon: <CloseCircleOutlined style={iconStyle} />,
+      dotColor: colors.textMuted,
+    },
     cancelled: {
-      label: 'Cancelled',
+      label: 'Voided',
       icon: <CloseCircleOutlined style={iconStyle} />,
       dotColor: colors.textMuted,
     },
@@ -107,6 +122,21 @@ function getAuditEventConfig(eventType: string): AuditEventConfig {
       label: 'Reminder Sent',
       icon: <BellOutlined style={iconStyle} />,
       dotColor: colors.textSecondary,
+    },
+    signed_copy_sent: {
+      label: 'Signed Copy Emailed',
+      icon: <MailOutlined style={iconStyle} />,
+      dotColor: colors.success,
+    },
+    completed: {
+      label: 'Completed',
+      icon: <CheckCircleOutlined style={iconStyle} />,
+      dotColor: colors.success,
+    },
+    send_failed: {
+      label: 'Send Failed',
+      icon: <CloseCircleOutlined style={iconStyle} />,
+      dotColor: colors.error,
     },
   };
 
@@ -146,11 +176,15 @@ function formatDate(iso: string | null | undefined): string {
 export interface SignRequestDetailProps {
   requestId: string;
   onBack: () => void;
+  /** Hide the internal "Back to Sign Requests" button when the host already
+   * provides its own way out (e.g. a Drawer's close icon) -- PdfEditorTool
+   * swaps this in as a full view with no other nav, so it keeps the default. */
+  showBackButton?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack }) => {
+const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack, showBackButton = true }) => {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
 
@@ -175,12 +209,12 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
   const cancelMutation = useMutation({
     mutationFn: () => pdfEditorApi.cancelSignRequest(requestId),
     onSuccess: () => {
-      message.success('Sign request cancelled');
+      message.success('Sign request voided');
       queryClient.invalidateQueries({ queryKey: ['sign-request', requestId] });
       queryClient.invalidateQueries({ queryKey: ['sign-audit', requestId] });
       queryClient.invalidateQueries({ queryKey: ['sign-requests'] });
     },
-    onError: () => message.error('Failed to cancel sign request'),
+    onError: () => message.error('Failed to void sign request'),
   });
 
   // Download signed document
@@ -202,28 +236,36 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
     }
   }, [req, requestId, message]);
 
-  // Copy signing link
-  const handleCopyLink = useCallback(() => {
-    const url = `${window.location.origin}/sign/${requestId}`;
-    navigator.clipboard
-      .writeText(url)
-      .then(() => message.success('Signing link copied to clipboard'))
-      .catch(() => message.error('Failed to copy link'));
-  }, [requestId, message]);
+  // Copy one recipient's signing link
+  const handleCopyLink = useCallback(
+    (url: string) => {
+      navigator.clipboard
+        .writeText(url)
+        .then(() => message.success('Signing link copied to clipboard'))
+        .catch(() => message.error('Failed to copy link'));
+    },
+    [message],
+  );
 
-  // Send reminder
+  // Send reminder (all outstanding recipients, or a single one)
   const reminderMutation = useMutation({
-    mutationFn: () => pdfEditorApi.sendReminder(requestId),
-    onSuccess: () => {
-      message.success('Reminder sent to the recipient');
+    mutationFn: (recipientId?: string) => pdfEditorApi.sendReminder(requestId, recipientId),
+    onSuccess: (_data, recipientId) => {
+      message.success(recipientId ? 'Reminder sent' : 'Reminder sent to all outstanding recipients');
       queryClient.invalidateQueries({ queryKey: ['sign-audit', requestId] });
     },
     onError: () => message.error('Failed to send reminder'),
   });
 
-  const handleReminder = useCallback(() => {
-    reminderMutation.mutate();
-  }, [reminderMutation]);
+  // Re-send the signed PDF by email to the sender and every recipient
+  const resendSignedCopyMutation = useMutation({
+    mutationFn: () => pdfEditorApi.resendSignedCopy(requestId),
+    onSuccess: () => {
+      message.success('Signed copy emailed to the sender and all recipients');
+      queryClient.invalidateQueries({ queryKey: ['sign-audit', requestId] });
+    },
+    onError: () => message.error('Failed to email the signed copy'),
+  });
 
   // ── Loading / error states ────────────────────────────────────────────────
 
@@ -245,9 +287,11 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
   if (reqError || !req) {
     return (
       <div style={{ padding: spacing[6] }}>
-        <Button icon={<ArrowLeftOutlined />} type="text" onClick={onBack} style={{ marginBottom: spacing[4] }}>
-          Back to Sign Requests
-        </Button>
+        {showBackButton && (
+          <Button icon={<ArrowLeftOutlined />} type="text" onClick={onBack} style={{ marginBottom: spacing[4] }}>
+            Back to Sign Requests
+          </Button>
+        )}
         <Text type="danger">Failed to load sign request. Please try again.</Text>
       </div>
     );
@@ -256,9 +300,13 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
   // ── Derived values ────────────────────────────────────────────────────────
 
   const statusCfg = STATUS_CONFIG[req.status] ?? { label: req.status, color: colors.textMuted };
-  const canCancel = req.status === 'sent' || req.status === 'viewed';
+  const activeStatuses = ['sent', 'viewed', 'partially_signed'];
+  const canCancel = activeStatuses.includes(req.status);
   const canDownload = req.status === 'signed';
-  const canReminder = req.status === 'sent' || req.status === 'viewed';
+  const canReminder = activeStatuses.includes(req.status)
+    && req.recipients.some((r) => r.status === 'sent' || r.status === 'viewed');
+
+  const recipientById = new Map(req.recipients.map((r) => [r.id, r]));
 
   // ── Audit timeline items ──────────────────────────────────────────────────
 
@@ -326,6 +374,9 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
               }}
             >
               By: {event.actorEmail}
+              {event.recipientId && recipientById.get(event.recipientId) && (
+                <> ({recipientById.get(event.recipientId)!.role})</>
+              )}
             </Text>
           )}
 
@@ -387,21 +438,23 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
       }}
     >
       {/* Back button */}
-      <Button
-        icon={<ArrowLeftOutlined />}
-        type="text"
-        onClick={onBack}
-        style={{
-          marginBottom: spacing[5],
-          padding: `0 ${spacing[2]}`,
-          height: 32,
-          color: colors.textSecondary,
-          fontFamily: fonts.body,
-          fontSize: fontSizes.sm,
-        }}
-      >
-        Back to Sign Requests
-      </Button>
+      {showBackButton && (
+        <Button
+          icon={<ArrowLeftOutlined />}
+          type="text"
+          onClick={onBack}
+          style={{
+            marginBottom: spacing[5],
+            padding: `0 ${spacing[2]}`,
+            height: 32,
+            color: colors.textSecondary,
+            fontFamily: fonts.body,
+            fontSize: fontSizes.sm,
+          }}
+        >
+          Back to Sign Requests
+        </Button>
+      )}
 
       {/* Page title */}
       <div style={{ marginBottom: spacing[5] }}>
@@ -497,12 +550,6 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
               </Descriptions.Item>
             )}
 
-            {req.viewedAt && !req.signedAt && (
-              <Descriptions.Item label="Viewed">
-                {formatDate(req.viewedAt)}
-              </Descriptions.Item>
-            )}
-
             {req.declinedAt && (
               <Descriptions.Item label="Declined">
                 {formatDate(req.declinedAt)}
@@ -517,7 +564,7 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
           </Descriptions>
         </Card>
 
-        {/* Recipient */}
+        {/* Recipients */}
         <Card
           size="small"
           title={
@@ -530,11 +577,11 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
               }}
             >
               <UserOutlined style={{ marginRight: 8, color: colors.textMuted }} />
-              Recipient
+              {req.recipients.length === 1 ? 'Recipient' : `Recipients (${req.recipients.length})`}
             </span>
           }
           styles={{
-            body: { padding: `${spacing[3]} ${spacing[4]}` },
+            body: { padding: 0 },
             header: {
               borderBottom: `1px solid ${colors.border}`,
               minHeight: 40,
@@ -546,44 +593,101 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
             border: `1px solid ${colors.border}`,
           }}
         >
-          <Descriptions
-            column={2}
-            size="small"
-            labelStyle={{
-              color: colors.textSecondary,
-              fontSize: fontSizes.xs,
-              fontFamily: fonts.body,
-              fontWeight: fontWeights.medium,
-              width: 100,
-            }}
-            contentStyle={{
-              color: colors.textPrimary,
-              fontSize: fontSizes.sm,
-              fontFamily: fonts.body,
-            }}
-          >
-            <Descriptions.Item label="Name">
-              {req.recipientName || <Text type="secondary">—</Text>}
-            </Descriptions.Item>
+          {req.recipients.map((recipient, index) => {
+            const rCfg = RECIPIENT_STATUS_CONFIG[recipient.status] ?? {
+              label: recipient.status,
+              color: colors.textMuted,
+            };
+            const canRemindThis = recipient.status === 'sent' || recipient.status === 'viewed';
+            const signUrl = req.signUrls?.[recipient.id];
 
-            <Descriptions.Item label="Email">
-              {req.recipientEmail}
-            </Descriptions.Item>
+            return (
+              <div
+                key={recipient.id}
+                style={{
+                  padding: `${spacing[3]} ${spacing[4]}`,
+                  borderBottom: index < req.recipients.length - 1 ? `1px solid ${colors.border}` : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: spacing[3],
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: spacing[2], marginBottom: 2 }}>
+                    <Text
+                      strong
+                      style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary }}
+                    >
+                      {recipient.name}
+                    </Text>
+                    <Tag
+                      style={{
+                        margin: 0,
+                        color: colors.textSecondary,
+                        background: colors.bgSunken,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: borderRadius.sm,
+                        fontFamily: fonts.body,
+                        fontSize: fontSizes.xs,
+                        lineHeight: '18px',
+                      }}
+                    >
+                      {recipient.role}
+                    </Tag>
+                  </div>
+                  <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}>
+                    {recipient.email}
+                    {recipient.signedAt && ` · Signed ${formatDate(recipient.signedAt)}`}
+                    {!recipient.signedAt && recipient.viewedAt && ` · Viewed ${formatDate(recipient.viewedAt)}`}
+                    {!recipient.signedAt && recipient.declinedAt && ` · Declined ${formatDate(recipient.declinedAt)}`}
+                  </Text>
+                </div>
 
-            {req.customerId && (
-              <Descriptions.Item label="Customer ID" span={2}>
-                <Text
-                  style={{
-                    fontSize: fontSizes.xs,
-                    color: colors.textMuted,
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  {req.customerId}
-                </Text>
-              </Descriptions.Item>
-            )}
-          </Descriptions>
+                <Space size={8}>
+                  <Tag
+                    style={{
+                      margin: 0,
+                      color: rCfg.color,
+                      background: `${rCfg.color}18`,
+                      border: `1px solid ${rCfg.color}40`,
+                      borderRadius: borderRadius.sm,
+                      fontFamily: fonts.body,
+                      fontSize: fontSizes.xs,
+                      fontWeight: fontWeights.medium,
+                      lineHeight: '20px',
+                    }}
+                  >
+                    {rCfg.label}
+                  </Tag>
+                  {signUrl && (
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<LinkOutlined />}
+                      onClick={() => handleCopyLink(signUrl)}
+                      style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}
+                    >
+                      Copy Link
+                    </Button>
+                  )}
+                  {canRemindThis && (
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<BellOutlined />}
+                      loading={reminderMutation.isPending}
+                      onClick={() => reminderMutation.mutate(recipient.id)}
+                      style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}
+                    >
+                      Remind
+                    </Button>
+                  )}
+                </Space>
+              </div>
+            );
+          })}
         </Card>
 
         {/* Sender */}
@@ -688,10 +792,25 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
                 </Button>
               )}
 
+              {canDownload && (
+                <Button
+                  icon={<MailOutlined />}
+                  onClick={() => resendSignedCopyMutation.mutate()}
+                  loading={resendSignedCopyMutation.isPending}
+                  style={{
+                    fontFamily: fonts.body,
+                    fontWeight: fontWeights.medium,
+                    fontSize: fontSizes.sm,
+                  }}
+                >
+                  Email Signed Copy
+                </Button>
+              )}
+
               {canReminder && (
                 <Button
                   icon={<BellOutlined />}
-                  onClick={handleReminder}
+                  onClick={() => reminderMutation.mutate(undefined)}
                   loading={reminderMutation.isPending}
                   style={{
                     fontFamily: fonts.body,
@@ -699,27 +818,15 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
                     fontSize: fontSizes.sm,
                   }}
                 >
-                  Send Reminder
+                  Remind All Outstanding
                 </Button>
               )}
 
-              <Button
-                icon={<LinkOutlined />}
-                onClick={handleCopyLink}
-                style={{
-                  fontFamily: fonts.body,
-                  fontWeight: fontWeights.medium,
-                  fontSize: fontSizes.sm,
-                }}
-              >
-                Copy Signing Link
-              </Button>
-
               {canCancel && (
                 <Popconfirm
-                  title="Cancel this sign request?"
-                  description="The recipient will no longer be able to sign this document."
-                  okText="Cancel Request"
+                  title="Void this sign request?"
+                  description="No recipient will be able to sign this document after voiding."
+                  okText="Void Request"
                   cancelText="Keep"
                   okButtonProps={{ danger: true }}
                   onConfirm={() => cancelMutation.mutate()}
@@ -734,7 +841,7 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
                       fontSize: fontSizes.sm,
                     }}
                   >
-                    Cancel Request
+                    Void Request
                   </Button>
                 </Popconfirm>
               )}

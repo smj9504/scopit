@@ -45,6 +45,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { packingApi } from './packingApi';
 import { getGrandTotal } from './sessionStatus';
+import CustomerSelector from '@/components/features/CustomerSelector';
+import type { CustomerData } from '@/components/features/CustomerSelector';
 import type {
   EstimateResponse,
   SectionDetailLine,
@@ -561,6 +563,30 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     onDirtyChange?.(false);
   }, [onDirtyChange]);
 
+  // ── Customer link ──────────────────────────────────────────────────────────
+  // Mirrors SharedDetailsStep's ClientInfo <-> CustomerData mapping so this
+  // panel searches/updates the same linked Customer record instead of drifting.
+  const customerData: CustomerData = {
+    customerId: clientInfo.customer_id,
+    name: clientInfo.name,
+    email: clientInfo.email || undefined,
+    phone: clientInfo.phone || undefined,
+    address: clientInfo.property_address || undefined,
+  };
+  const handleCustomerChange = useCallback(
+    (data: CustomerData) => {
+      setClientInfo((ci) => ({
+        ...ci,
+        customer_id: data.customerId,
+        name: data.name || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        property_address: data.address || '',
+      }));
+    },
+    [setClientInfo],
+  );
+
   // ── Calculate handler ────────────────────────────────────────────────────
   const runCalculate = useCallback(async () => {
     if (!onCalculate) return;
@@ -620,6 +646,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.id, result?.created_at]); // safe: result null-checked at start of effect
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
+  const [exportOptionsFormat, setExportOptionsFormat] = useState<'pdf' | 'excel' | null>(null);
   const [showCompanyOverride, setShowCompanyOverride] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
 
@@ -1743,6 +1770,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                           style={{
                             marginTop: 4,
                             marginLeft: 28,
+                            width: 'calc(100% - 28px)',
                             fontSize: 12,
                             color: colors.textSecondary,
                           }}
@@ -1800,20 +1828,6 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                     style={{ width: 72 }}
                   />
                 </Space>
-              </Col>
-            </Row>
-
-            {/* Show Breakdown option */}
-            <Row align="middle" style={{ marginTop: 8, marginBottom: 2 }}>
-              <Col>
-                <Checkbox
-                  checked={showBreakdown}
-                  onChange={(e) => setShowBreakdown(e.target.checked)}
-                >
-                  <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                    Show labor hour breakdown in export
-                  </Text>
-                </Checkbox>
               </Col>
             </Row>
 
@@ -1883,44 +1897,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                 }
                 style={{ border: 'none' }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <Input
-                    size="small"
-                    placeholder="Client Name"
-                    value={clientInfo.name}
-                    onChange={(e) =>
-                      setClientInfo((ci) => ({ ...ci, name: e.target.value }))
-                    }
-                    prefix={<UserOutlined style={{ color: colors.textMuted, fontSize: 12 }} />}
-                  />
-                  <Input
-                    size="small"
-                    placeholder="Phone"
-                    value={clientInfo.phone}
-                    onChange={(e) =>
-                      setClientInfo((ci) => ({ ...ci, phone: e.target.value }))
-                    }
-                  />
-                  <Input
-                    size="small"
-                    placeholder="Email"
-                    value={clientInfo.email}
-                    onChange={(e) =>
-                      setClientInfo((ci) => ({ ...ci, email: e.target.value }))
-                    }
-                  />
-                  <Input
-                    size="small"
-                    placeholder="Property Address"
-                    value={clientInfo.property_address}
-                    onChange={(e) =>
-                      setClientInfo((ci) => ({
-                        ...ci,
-                        property_address: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
+                <CustomerSelector value={customerData} onChange={handleCustomerChange} />
               </Panel>
 
               {/* Company Override */}
@@ -2070,8 +2047,8 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                 { key: 'report', label: 'Report', icon: <FileTextOutlined /> },
               ],
               onClick: ({ key }) => {
-                if (key === 'pdf') handleExportPdf();
-                else if (key === 'excel') handleExportExcel();
+                if (key === 'pdf') setExportOptionsFormat('pdf');
+                else if (key === 'excel') setExportOptionsFormat('excel');
                 else if (key === 'report') setShowReportModal(true);
               },
             }}
@@ -2189,6 +2166,40 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             })}
           </div>
         )}
+      </Modal>
+
+      {/* PDF/Excel export options */}
+      <Modal
+        title={exportOptionsFormat === 'excel' ? 'Export as Excel' : 'Export as PDF'}
+        open={exportOptionsFormat !== null}
+        onCancel={() => setExportOptionsFormat(null)}
+        width={380}
+        footer={[
+          <Button key="cancel" onClick={() => setExportOptionsFormat(null)}>
+            Cancel
+          </Button>,
+          <Button
+            key="export"
+            type="primary"
+            loading={exporting !== null}
+            style={{ background: colors.primary, borderColor: colors.primary }}
+            onClick={() => {
+              const format = exportOptionsFormat;
+              setExportOptionsFormat(null);
+              if (format === 'excel') handleExportExcel();
+              else if (format === 'pdf') handleExportPdf();
+            }}
+          >
+            Export
+          </Button>,
+        ]}
+      >
+        <Checkbox
+          checked={showBreakdown}
+          onChange={(e) => setShowBreakdown(e.target.checked)}
+        >
+          <Text style={{ fontSize: 13 }}>Include labor hour breakdown</Text>
+        </Checkbox>
       </Modal>
 
       {/* Report Export Modal */}

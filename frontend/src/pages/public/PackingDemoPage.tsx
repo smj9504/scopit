@@ -18,10 +18,12 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Breadcrumb, Button, Modal, Typography, App as AntdApp } from 'antd';
+import { Alert, Button, Modal, Typography, App as AntdApp } from 'antd';
 import {
   ArrowLeftOutlined,
+  ArrowRightOutlined,
   CameraOutlined,
+  DollarOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius } from '@/styles/theme';
@@ -55,7 +57,12 @@ const { Text } = Typography;
 const DEMO_SESSION_ID = 'demo-session';
 
 function defaultClientInfo(): ClientInfo {
-  return { name: '', phone: '', email: '', property_address: '' };
+  return {
+    name: 'Sarah Mitchell',
+    phone: '(555) 123-4567',
+    email: 'sarah.mitchell@example.com',
+    property_address: '482 Maple Grove Lane, Springfield, IL',
+  };
 }
 
 function defaultCompanyOverride(): CompanyInfoOverride {
@@ -214,7 +221,7 @@ const PackingDemoPage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               gap: 12,
-              padding: '10px 16px',
+              padding: '14px 16px',
               borderBottom: `1px solid ${colors.border}`,
               background: colors.bgLight,
               position: 'sticky',
@@ -222,65 +229,105 @@ const PackingDemoPage: React.FC = () => {
               zIndex: 10,
             }}
           >
-            <Breadcrumb
-              items={[
-                {
-                  title: (
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      color: editorOpen ? colors.textSecondary : '#2563eb',
-                      fontWeight: editorOpen ? 500 : 700,
-                    }}>
-                      <CameraOutlined />
-                      AI Analysis
-                    </span>
-                  ),
-                  ...(editorOpen
-                    ? { href: '#', onClick: (e: React.MouseEvent) => { e.preventDefault(); setEditorOpen(false); } }
-                    : {}),
-                },
-                {
-                  title: (
-                    <span style={{
-                      color: editorOpen ? colors.textPrimary : result ? colors.textSecondary : colors.textMuted,
-                      fontWeight: editorOpen ? 700 : 500,
-                    }}>
-                      Estimate
-                    </span>
-                  ),
-                  ...(!editorOpen && result
-                    ? { href: '#', onClick: (e: React.MouseEvent) => { e.preventDefault(); setEditorOpen(true); } }
-                    : {}),
-                },
-              ]}
-              style={{ fontFamily: fonts.body, fontSize: 13 }}
-            />
-            {clientInfo.name && !isMobile && (
-              <Text
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                background: colors.bgSunken,
+                padding: 3,
+                borderRadius: borderRadius.md,
+                fontFamily: fonts.body,
+              }}
+            >
+              <button
+                type="button"
+                onClick={editorOpen ? () => setEditorOpen(false) : undefined}
                 style={{
-                  fontSize: 13,
-                  color: colors.textSecondary,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '9px 14px',
+                  border: 'none',
+                  borderRadius: borderRadius.base,
+                  fontSize: 14,
                   fontFamily: fonts.body,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: 160,
+                  cursor: editorOpen ? 'pointer' : 'default',
+                  background: editorOpen ? 'transparent' : colors.bgWhite,
+                  color: editorOpen ? colors.textSecondary : '#2563eb',
+                  fontWeight: editorOpen ? 500 : 700,
+                  boxShadow: editorOpen ? 'none' : '0 1px 2px rgba(0,0,0,0.06)',
+                  transition: 'background 0.15s, color 0.15s',
                 }}
               >
-                {clientInfo.name}
-              </Text>
+                <CameraOutlined />
+                AI Analysis
+              </button>
+              <ArrowRightOutlined style={{ fontSize: 11, color: colors.textMuted, margin: '0 8px' }} />
+              <button
+                type="button"
+                onClick={!editorOpen && result ? () => setEditorOpen(true) : undefined}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '9px 14px',
+                  border: 'none',
+                  borderRadius: borderRadius.base,
+                  fontSize: 14,
+                  fontFamily: fonts.body,
+                  cursor: !editorOpen && result ? 'pointer' : 'default',
+                  background: editorOpen ? colors.bgWhite : 'transparent',
+                  color: editorOpen ? colors.textPrimary : result ? colors.textSecondary : colors.textMuted,
+                  fontWeight: editorOpen ? 700 : 500,
+                  boxShadow: editorOpen ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+              >
+                <DollarOutlined />
+                Estimate
+              </button>
+            </div>
+            {clientInfo.name && !isMobile && (
+              <div style={{ minWidth: 0, maxWidth: 260, overflow: 'hidden' }}>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.textPrimary,
+                    fontFamily: fonts.body,
+                    fontWeight: 600,
+                    display: 'block',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {clientInfo.name}
+                </Text>
+                {clientInfo.property_address && (
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: colors.textMuted,
+                      fontFamily: fonts.body,
+                      display: 'block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {clientInfo.property_address}
+                  </Text>
+                )}
+              </div>
             )}
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-              <Button size="small" onClick={handleStartOver}>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Button onClick={handleStartOver} style={{ borderRadius: borderRadius.base, height: 40, fontSize: 14 }}>
                 Start Over
               </Button>
               <Button
                 icon={<SettingOutlined />}
                 onClick={() => setSettingsModalOpen(true)}
-                size="small"
-                style={{ borderRadius: borderRadius.base }}
+                style={{ borderRadius: borderRadius.base, height: 40, fontSize: 14 }}
               >
                 {!isMobile && 'Settings'}
               </Button>

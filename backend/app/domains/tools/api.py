@@ -3,7 +3,7 @@ ScopeIt - Tools API
 
 Registry, session management, and tool-to-estimate bridge endpoints.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, field_validator
 from typing import List, Optional
@@ -119,6 +119,7 @@ async def check_tool_access(
 
 @router.get("/sessions", response_model=List[ToolSessionResponse])
 async def list_sessions(
+    response: Response,
     tool_id: Optional[str] = None,
     skip: int = 0,
     limit: int = 20,
@@ -129,7 +130,9 @@ async def list_sessions(
     """List tool sessions for the current company.
 
     When summary=True (default), strips heavy binary data (base64 photos)
-    from session data to keep the response lightweight.
+    from session data to keep the response lightweight. The total number of
+    matching sessions (ignoring skip/limit) is returned via the
+    X-Total-Count header so callers can paginate.
     """
     service = ToolSessionService(db)
     sessions = service.get_sessions(
@@ -137,6 +140,9 @@ async def list_sessions(
         tool_id=tool_id,
         skip=skip,
         limit=limit,
+    )
+    response.headers["X-Total-Count"] = str(
+        service.count_sessions(company_id=current_user.company_id, tool_id=tool_id)
     )
     if summary:
         sessions = service.strip_heavy_data(sessions)

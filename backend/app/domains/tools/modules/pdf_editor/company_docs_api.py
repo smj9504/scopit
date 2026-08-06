@@ -28,7 +28,9 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.storage import get_storage
+from app.domains.tools.dependencies import require_tool_access
 from app.domains.user.models import User
+from app.domains.tools.modules.pdf_editor.api import _to_response as _to_pdf_document_response
 from app.domains.tools.modules.pdf_editor.schemas import (
     CompanyDocumentListResponse,
     CompanyDocumentResponse,
@@ -36,9 +38,11 @@ from app.domains.tools.modules.pdf_editor.schemas import (
 )
 from app.domains.tools.modules.pdf_editor.service import (
     CompanyDocumentService,
+    PdfEditorService,
 )
 
 router = APIRouter()
+_gate = require_tool_access("pdf_editor")
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +154,25 @@ def get_company_document(
         doc_id=document_id,
     )
     return CompanyDocumentResponse(**_to_response(doc))
+
+
+@router.post("/{document_id}/linked-document")
+def get_linked_pdf_document(
+    document_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Get (or create, on first use) the persistent e-signature-capable
+    PdfDocument copy of this company document. Field definitions and sign
+    requests are created against this copy and reused on every call, so
+    field mapping only needs to be done once per company document."""
+    service = PdfEditorService(db)
+    doc = service.get_or_create_linked_document(
+        company_id=current_user.company_id,
+        user_id=current_user.id,
+        company_document_id=str(document_id),
+    )
+    return _to_pdf_document_response(doc)
 
 
 @router.get("/{document_id}/download")

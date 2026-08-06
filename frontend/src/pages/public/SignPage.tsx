@@ -3,16 +3,21 @@
  * Route: /sign/:token  (no authentication required)
  *
  * Flow:
- *  1. User fills each field individually (signature, initials, date, name)
- *  2. Signature/Initials → draw/type modal
- *  3. Date/Name → auto-filled on click (date = today, name = recipient name)
- *  4. After all fields filled → review & submit
+ *  1. The server has already scoped the response to this recipient: fields
+ *     belonging to a different recipient's role are omitted entirely, and
+ *     non-signer fields (auto-filled / sender-filled) arrive as read-only
+ *     context with their resolved value (SignViewField.editable=false).
+ *  2. The signer fills each of their own editable fields individually
+ *     (signature/initials → draw/type modal; checkbox → toggle; date →
+ *     today's date; text/number → a small text-entry prompt).
+ *  3. Review & Submit requires checking a consent box before submitting.
  */
 
 import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -20,6 +25,7 @@ import { useParams } from 'react-router-dom';
 import {
   Button,
   Card,
+  Checkbox,
   Input,
   Modal,
   Radio,
@@ -30,12 +36,11 @@ import {
 } from 'antd';
 import {
   CheckCircleFilled,
-  EditOutlined,
 } from '@ant-design/icons';
 import SignaturePad from 'signature_pad';
 
 import { pdfEditorApi } from '@/components/features/tools/pdf-editor/pdfEditorApi';
-import type { SignFieldDef, SignViewData } from '@/components/features/tools/pdf-editor/types';
+import { isMultilineText, type SignViewData, type SignViewField } from '@/components/features/tools/pdf-editor/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -63,17 +68,13 @@ const GOOGLE_FONTS_URL =
 type PageStatus = 'idle' | 'loading' | 'error' | 'expired' | 'already_signed' | 'success' | 'declined';
 type SignMode = 'draw' | 'type';
 
-/** Per-field captured value */
+/** Per-field captured value, keyed by field.key */
 interface FieldValue {
-  /** base64 image (no prefix) for signature/initials, or display text for date/name */
+  /** For signature/initials: base64 image (no prefix). For everything else: the text/flag to submit. */
   data: string;
-  /** For signature/initials: 'draw' | 'type'. For date/name: 'auto' */
   mode: SignMode | 'auto';
-  /** Font used if typed */
   font?: string;
-  /** Display label shown on the field overlay */
   displayText?: string;
-  /** base64 image for rendering (signature/initials have this, date/name don't) */
   imageBase64?: string;
 }
 
@@ -98,6 +99,10 @@ function todayFormatted(): string {
   }).format(new Date());
 }
 
+function typeLabel(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
 function renderTextToCanvas(text: string, fontFamily: string): string {
   const canvas = document.createElement('canvas');
   canvas.width = 500;
@@ -111,25 +116,21 @@ function renderTextToCanvas(text: string, fontFamily: string): string {
   return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
 }
 
-/** Build a unique key for a field (by index, since fields have no id) */
-function fieldKey(idx: number): string {
-  return `field_${idx}`;
+function isSignatureLike(type: string): boolean {
+  return type === 'signature' || type === 'initials';
 }
 
 // ---------------------------------------------------------------------------
-// Sub-component: single PDF page with overlaid sign fields
+// Sub-component: single PDF page with overlaid fields
 // ---------------------------------------------------------------------------
 
 interface PageViewProps {
   token: string;
   pageNum: number;
-  totalPages: number;
-  signFields: SignFieldDef[];
+  signFields: SignViewField[];
   fieldValues: Record<string, FieldValue>;
   isSigned: boolean;
-  onFieldClick: (field: SignFieldDef, globalIndex: number) => void;
-  /** Global start index for fields on this page (for fieldKey) */
-  globalIndexOffset: number;
+  onFieldClick: (field: SignViewField) => void;
 }
 
 const PageView: React.FC<PageViewProps> = ({
@@ -139,7 +140,6 @@ const PageView: React.FC<PageViewProps> = ({
   fieldValues,
   isSigned,
   onFieldClick,
-  globalIndexOffset,
 }) => {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [imgLoading, setImgLoading] = useState(true);
@@ -210,35 +210,53 @@ const PageView: React.FC<PageViewProps> = ({
           <img src={imgUrl} alt={`Page ${pageNum}`} onLoad={handleImageLoad} style={{ display: 'block', width: '100%', height: 'auto' }} />
         )}
 
-        {/* Sign field overlays */}
         {!imgLoading && !imgError && naturalSize &&
           pageFields.map((field) => {
-            // Find global index for this field
-            const globalIdx = signFields.indexOf(field) >= 0
-              ? globalIndexOffset + pageFields.indexOf(field)
-              : globalIndexOffset;
-            // Recalculate: we need the actual global index from all fields
-            const allFieldGlobalIdx = globalIndexOffset + pageFields.indexOf(field);
-            const key = fieldKey(allFieldGlobalIdx);
-            const value = fieldValues[key];
+            const value = fieldValues[field.key];
             const isFilled = !!value;
-
+            const multiline = isMultilineText(field);
             const displayH = naturalSize.h * scaleFactor;
             const left = field.x * containerWidth;
             const top = field.y * displayH;
             const width = field.width * containerWidth;
             const height = field.height * displayH;
 
-            // Determine display content
             let overlayContent: React.ReactNode;
-            if (isSigned) {
+            let checked = false;
+
+            if (!field.editable) {
+              // Context field: read-only, shows its resolved value.
+              overlayContent = (
+                <span
+                  style={{
+                    fontSize: Math.max(10, Math.min(14, height * 0.35)), color: '#374151', pointerEvents: 'none',
+                    ...(multiline ? { whiteSpace: 'pre-wrap', textAlign: 'left', width: '100%', overflow: 'hidden' } : {}),
+                  }}
+                >
+                  {field.value || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>—</span>}
+                </span>
+              );
+            } else if (isSigned) {
               overlayContent = (
                 <span style={{ fontSize: Math.max(9, Math.min(13, height * 0.3)), color: '#10b981' }}>
                   <CheckCircleFilled style={{ marginRight: 3 }} />Signed
                 </span>
               );
+            } else if (field.type === 'checkbox') {
+              checked = value?.data === 'true';
+              overlayContent = (
+                <span
+                  style={{
+                    width: Math.min(width, height) * 0.7, height: Math.min(width, height) * 0.7,
+                    border: `2px solid ${checked ? '#10b981' : '#6b7280'}`, borderRadius: 4,
+                    background: checked ? '#10b981' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+                  }}
+                >
+                  {checked && <CheckCircleFilled style={{ color: '#fff', fontSize: Math.min(width, height) * 0.5 }} />}
+                </span>
+              );
             } else if (isFilled && value.imageBase64) {
-              // Show signature/initials image
               overlayContent = (
                 <img
                   src={`data:image/png;base64,${value.imageBase64}`}
@@ -247,63 +265,68 @@ const PageView: React.FC<PageViewProps> = ({
                 />
               );
             } else if (isFilled && value.displayText) {
-              // Show date/name text
               overlayContent = (
-                <span style={{ fontSize: Math.max(10, Math.min(14, height * 0.35)), color: '#111827', fontWeight: 500, pointerEvents: 'none' }}>
+                <span
+                  style={{
+                    fontSize: Math.max(10, Math.min(14, height * 0.35)), color: '#111827', fontWeight: 500, pointerEvents: 'none',
+                    ...(multiline ? { whiteSpace: 'pre-wrap', textAlign: 'left', width: '100%', overflow: 'hidden' } : {}),
+                  }}
+                >
                   {value.displayText}
                 </span>
               );
             } else {
-              // Not filled yet — show prompt
-              const label = field.label ?? ({
-                signature: 'Click to sign',
-                initials: 'Click for initials',
-                date: 'Click to add date',
-                name: 'Click to add name',
-              }[field.type] || 'Click to fill');
+              const label = field.label ?? `Click to fill ${typeLabel(field.type).toLowerCase()}`;
               overlayContent = (
                 <span style={{ fontSize: Math.max(9, Math.min(13, height * 0.3)), color: '#6b7280' }}>
-                  {label}
+                  {label}{field.required ? ' *' : ''}
                 </span>
               );
             }
 
+            const clickable = field.editable && !isSigned;
+
             return (
               <button
-                key={allFieldGlobalIdx}
-                onClick={() => !isSigned && onFieldClick(field, allFieldGlobalIdx)}
-                disabled={isSigned}
+                key={field.key}
+                onClick={() => clickable && onFieldClick(field)}
+                disabled={!clickable}
                 aria-label={field.label ?? `${field.type} field`}
                 style={{
                   position: 'absolute',
                   left, top, width, height,
-                  background: isSigned
-                    ? 'rgba(16,185,129,0.08)'
-                    : isFilled
-                      ? 'rgba(16,185,129,0.05)'
-                      : 'rgba(17,24,39,0.06)',
-                  border: isSigned
-                    ? '1.5px solid rgba(16,185,129,0.4)'
-                    : isFilled
-                      ? '1.5px solid rgba(16,185,129,0.3)'
-                      : '1.5px dashed rgba(17,24,39,0.3)',
+                  background: !field.editable
+                    ? 'rgba(107,114,128,0.05)'
+                    : isSigned
+                      ? 'rgba(16,185,129,0.08)'
+                      : isFilled || checked
+                        ? 'rgba(16,185,129,0.05)'
+                        : 'rgba(17,24,39,0.06)',
+                  border: !field.editable
+                    ? '1px solid rgba(107,114,128,0.25)'
+                    : isSigned
+                      ? '1.5px solid rgba(16,185,129,0.4)'
+                      : isFilled || checked
+                        ? '1.5px solid rgba(16,185,129,0.3)'
+                        : '1.5px dashed rgba(17,24,39,0.3)',
                   borderRadius: 4,
-                  cursor: isSigned ? 'default' : 'pointer',
+                  cursor: clickable ? 'pointer' : 'default',
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  alignItems: multiline && (isFilled || !field.editable) ? 'flex-start' : 'center',
+                  justifyContent: multiline && (isFilled || !field.editable) ? 'flex-start' : 'center',
                   padding: 4,
+                  overflow: 'hidden',
                   transition: 'background 0.15s, border-color 0.15s',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isSigned)
+                  if (clickable)
                     (e.currentTarget as HTMLButtonElement).style.background =
-                      isFilled ? 'rgba(16,185,129,0.1)' : 'rgba(17,24,39,0.12)';
+                      isFilled || checked ? 'rgba(16,185,129,0.1)' : 'rgba(17,24,39,0.12)';
                 }}
                 onMouseLeave={(e) => {
-                  if (!isSigned)
+                  if (clickable)
                     (e.currentTarget as HTMLButtonElement).style.background =
-                      isFilled ? 'rgba(16,185,129,0.05)' : 'rgba(17,24,39,0.06)';
+                      isFilled || checked ? 'rgba(16,185,129,0.05)' : 'rgba(17,24,39,0.06)';
                 }}
               >
                 {overlayContent}
@@ -409,7 +432,6 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ open, onClose, onApply,
       ]}
       destroyOnHidden
     >
-      {/* Mode tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: '1px solid #e5e7eb', paddingBottom: 12 }}>
         <button
           onClick={() => setMode('draw')}
@@ -502,6 +524,73 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ open, onClose, onApply,
 };
 
 // ---------------------------------------------------------------------------
+// Sub-component: Text Entry Modal (for text/date/number field types)
+// ---------------------------------------------------------------------------
+
+interface TextEntryModalProps {
+  open: boolean;
+  onClose: () => void;
+  onApply: (value: string) => void;
+  field: SignViewField | null;
+}
+
+const TextEntryModal: React.FC<TextEntryModalProps> = ({ open, onClose, onApply, field }) => {
+  const [value, setValue] = useState('');
+
+  useEffect(() => {
+    if (open) setValue('');
+  }, [open]);
+
+  if (!field) return null;
+
+  const multiline = isMultilineText(field);
+
+  return (
+    <Modal
+      open={open}
+      onCancel={onClose}
+      title={field.label || typeLabel(field.type)}
+      width={multiline ? 480 : 420}
+      footer={[
+        <Button key="cancel" onClick={onClose}>Cancel</Button>,
+        <Button
+          key="apply"
+          type="primary"
+          onClick={() => {
+            if (!value.trim()) { message.warning('Please enter a value.'); return; }
+            onApply(value.trim());
+          }}
+          style={{ background: '#111827', borderColor: '#111827' }}
+        >
+          Apply
+        </Button>,
+      ]}
+      destroyOnHidden
+    >
+      {multiline ? (
+        <TextArea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={field.label || 'Enter a value'}
+          autoSize={{ minRows: 3, maxRows: 8 }}
+          autoFocus
+        />
+      ) : (
+        <Input
+          type={field.type === 'number' ? 'number' : 'text'}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={field.label || 'Enter a value'}
+          size="large"
+          autoFocus
+          onPressEnter={() => value.trim() && onApply(value.trim())}
+        />
+      )}
+    </Modal>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Sub-component: Decline Modal
 // ---------------------------------------------------------------------------
 
@@ -543,11 +632,15 @@ interface ReviewModalProps {
   onClose: () => void;
   onSubmit: () => void;
   loading: boolean;
-  signFields: SignFieldDef[];
+  editableFields: SignViewField[];
   fieldValues: Record<string, FieldValue>;
+  consentAgreed: boolean;
+  onConsentChange: (agreed: boolean) => void;
 }
 
-const ReviewModal: React.FC<ReviewModalProps> = ({ open, onClose, onSubmit, loading, signFields, fieldValues }) => {
+const ReviewModal: React.FC<ReviewModalProps> = ({
+  open, onClose, onSubmit, loading, editableFields, fieldValues, consentAgreed, onConsentChange,
+}) => {
   return (
     <Modal
       open={open}
@@ -556,7 +649,14 @@ const ReviewModal: React.FC<ReviewModalProps> = ({ open, onClose, onSubmit, load
       width={520}
       footer={[
         <Button key="cancel" onClick={onClose} disabled={loading}>Back</Button>,
-        <Button key="submit" type="primary" onClick={onSubmit} loading={loading} style={{ background: '#111827', borderColor: '#111827' }}>
+        <Button
+          key="submit"
+          type="primary"
+          onClick={onSubmit}
+          loading={loading}
+          disabled={!consentAgreed}
+          style={{ background: '#111827', borderColor: '#111827' }}
+        >
           Submit Signature
         </Button>,
       ]}
@@ -565,27 +665,24 @@ const ReviewModal: React.FC<ReviewModalProps> = ({ open, onClose, onSubmit, load
         Please review your entries before submitting. Once submitted, this cannot be changed.
       </Paragraph>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {signFields.map((field, idx) => {
-          const key = fieldKey(idx);
-          const value = fieldValues[key];
-          const typeLabel = { signature: 'Signature', initials: 'Initials', date: 'Date', name: 'Name' }[field.type] || field.type;
-
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 20 }}>
+        {editableFields.map((field) => {
+          const value = fieldValues[field.key];
           return (
-            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-              <div style={{ flex: '0 0 80px' }}>
-                <Text strong style={{ fontSize: 13, color: '#374151' }}>{field.label || typeLabel}</Text>
+            <div key={field.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+              <div style={{ flex: '0 0 100px' }}>
+                <Text strong style={{ fontSize: 13, color: '#374151' }}>{field.label || typeLabel(field.type)}</Text>
                 <div style={{ fontSize: 11, color: '#9ca3af' }}>Page {field.page}</div>
               </div>
               <div style={{ flex: 1, minHeight: 36, display: 'flex', alignItems: 'center' }}>
                 {value?.imageBase64 ? (
                   <img
                     src={`data:image/png;base64,${value.imageBase64}`}
-                    alt={typeLabel}
+                    alt={typeLabel(field.type)}
                     style={{ maxHeight: 48, maxWidth: '100%', objectFit: 'contain' }}
                   />
-                ) : value?.displayText ? (
-                  <Text style={{ fontSize: 14, color: '#111827' }}>{value.displayText}</Text>
+                ) : value?.data ? (
+                  <Text style={{ fontSize: 14, color: '#111827' }}>{value.displayText ?? value.data}</Text>
                 ) : (
                   <Text type="secondary" style={{ fontSize: 13 }}>Not filled</Text>
                 )}
@@ -594,6 +691,14 @@ const ReviewModal: React.FC<ReviewModalProps> = ({ open, onClose, onSubmit, load
             </div>
           );
         })}
+      </div>
+
+      <div style={{ padding: '12px 14px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+        <Checkbox checked={consentAgreed} onChange={(e) => onConsentChange(e.target.checked)}>
+          <Text style={{ fontSize: 13, color: '#374151' }}>
+            I agree to sign this document electronically and understand this constitutes a legally binding signature.
+          </Text>
+        </Checkbox>
       </div>
     </Modal>
   );
@@ -612,16 +717,17 @@ const SignPage: React.FC = () => {
 
   const [signModalOpen, setSignModalOpen] = useState(false);
   const [signModalFieldType, setSignModalFieldType] = useState<'signature' | 'initials'>('signature');
-  const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
+  const [textEntryOpen, setTextEntryOpen] = useState(false);
+  const [textEntryField, setTextEntryField] = useState<SignViewField | null>(null);
+  const [activeFieldKey, setActiveFieldKey] = useState<string | null>(null);
   const [declineModalOpen, setDeclineModalOpen] = useState(false);
   const [declineLoading, setDeclineLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [consentAgreed, setConsentAgreed] = useState(false);
 
-  // Per-field captured values
   const [fieldValues, setFieldValues] = useState<Record<string, FieldValue>>({});
 
-  // Load Google Fonts
   useEffect(() => {
     const existing = document.querySelector('link[data-scopeit-sig-fonts]');
     if (existing) return;
@@ -632,15 +738,15 @@ const SignPage: React.FC = () => {
     document.head.appendChild(link);
   }, []);
 
-  // Fetch document info
   useEffect(() => {
     if (!token) { setStatus('error'); setErrorMessage('Invalid signing link.'); return; }
 
     pdfEditorApi.viewSignDocument(token).then((data) => {
       setViewData(data);
       const s = data.status?.toLowerCase();
-      if (s === 'signed' || s === 'completed') setStatus('already_signed');
-      else if (s === 'declined') setStatus('declined');
+      if (s === 'signed') setStatus('already_signed');
+      else if (data.recipientStatus === 'signed') setStatus('already_signed');
+      else if (data.recipientStatus === 'declined' || s === 'declined') setStatus('declined');
       else if (s === 'expired' || s === 'cancelled' || s === 'canceled') setStatus('expired');
       else setStatus('idle');
     }).catch((err) => {
@@ -651,124 +757,120 @@ const SignPage: React.FC = () => {
     });
   }, [token]);
 
-  // Compute global field index offsets per page
   const allFields = viewData?.signFields ?? [];
-  const totalFields = allFields.length;
-  const filledCount = Object.keys(fieldValues).length;
-  const allFilled = totalFields > 0 && filledCount >= totalFields;
+  const editableFields = useMemo(() => allFields.filter((f) => f.editable), [allFields]);
+  const requiredEditableFields = useMemo(() => editableFields.filter((f) => f.required), [editableFields]);
 
-  // Compute page-based global index offsets
-  const pageIndexOffsets: Record<number, number> = {};
-  let offset = 0;
-  const seenPages = new Set<number>();
-  for (let i = 0; i < allFields.length; i++) {
-    const pg = allFields[i].page;
-    if (!seenPages.has(pg)) {
-      pageIndexOffsets[pg] = offset;
-      seenPages.add(pg);
-    }
-    offset++;
-  }
-  // Actually, simpler: compute per-page offset properly
-  // allFields are already indexed 0..n-1, and per page we pass offset = index of first field on that page
-  // Let's compute it differently:
-  const fieldPageGroups: Record<number, number[]> = {};
-  allFields.forEach((f, i) => {
-    if (!fieldPageGroups[f.page]) fieldPageGroups[f.page] = [];
-    fieldPageGroups[f.page].push(i);
-  });
+  const isFieldFilled = useCallback((f: SignViewField) => {
+    const v = fieldValues[f.key];
+    if (!v) return false;
+    return isSignatureLike(f.type) ? !!v.imageBase64 : !!v.data;
+  }, [fieldValues]);
+
+  const filledRequiredCount = requiredEditableFields.filter(isFieldFilled).length;
+  const allRequiredFilled = requiredEditableFields.length > 0 && filledRequiredCount >= requiredEditableFields.length;
 
   // Handle field click
-  const handleFieldClick = useCallback((field: SignFieldDef, globalIndex: number) => {
-    const key = fieldKey(globalIndex);
-
+  const handleFieldClick = useCallback((field: SignViewField) => {
     if (field.type === 'signature' || field.type === 'initials') {
-      setActiveFieldIndex(globalIndex);
+      setActiveFieldKey(field.key);
       setSignModalFieldType(field.type);
       setSignModalOpen(true);
+    } else if (field.type === 'checkbox') {
+      setFieldValues((prev) => {
+        const nowChecked = prev[field.key]?.data !== 'true';
+        if (!nowChecked) {
+          const { [field.key]: _removed, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [field.key]: { data: 'true', mode: 'auto', displayText: '✓' } };
+      });
     } else if (field.type === 'date') {
       const dateStr = todayFormatted();
-      setFieldValues((prev) => ({
-        ...prev,
-        [key]: { data: dateStr, mode: 'auto', displayText: dateStr },
-      }));
-    } else if (field.type === 'name') {
-      const name = viewData?.recipientName ?? '';
-      if (name) {
-        setFieldValues((prev) => ({
-          ...prev,
-          [key]: { data: name, mode: 'auto', displayText: name },
-        }));
-      } else {
-        // If no recipient name, prompt
-        const entered = window.prompt('Enter your name:');
-        if (entered?.trim()) {
-          setFieldValues((prev) => ({
-            ...prev,
-            [key]: { data: entered.trim(), mode: 'auto', displayText: entered.trim() },
-          }));
-        }
-      }
+      setFieldValues((prev) => ({ ...prev, [field.key]: { data: dateStr, mode: 'auto', displayText: dateStr } }));
+    } else {
+      // text, number, or any other open-string type -> prompt for free text
+      setActiveFieldKey(field.key);
+      setTextEntryField(field);
+      setTextEntryOpen(true);
     }
-  }, [viewData]);
+  }, []);
 
-  // Handle signature/initials applied from modal
   const handleSignatureApply = useCallback((base64: string, mode: SignMode, font?: string) => {
-    if (activeFieldIndex === null) return;
-    const key = fieldKey(activeFieldIndex);
+    if (!activeFieldKey) return;
     setFieldValues((prev) => ({
       ...prev,
-      [key]: { data: base64, mode, font, imageBase64: base64 },
+      [activeFieldKey]: { data: base64, mode, font, imageBase64: base64 },
     }));
     setSignModalOpen(false);
-    setActiveFieldIndex(null);
-  }, [activeFieldIndex]);
+    setActiveFieldKey(null);
+  }, [activeFieldKey]);
 
-  // Find the primary signature data for API submission
+  const handleTextEntryApply = useCallback((value: string) => {
+    if (!activeFieldKey) return;
+    setFieldValues((prev) => ({
+      ...prev,
+      [activeFieldKey]: { data: value, mode: 'auto', displayText: value },
+    }));
+    setTextEntryOpen(false);
+    setActiveFieldKey(null);
+    setTextEntryField(null);
+  }, [activeFieldKey]);
+
+  // The recipient's canonical signature image: prefer a 'signature'-type
+  // field's capture, fall back to 'initials'. Submitted as signature_data.
   const getSignatureForSubmission = useCallback((): { base64: string; mode: SignMode | 'auto'; font?: string } | null => {
-    // Find the first 'signature' field value, or fall back to 'initials'
-    for (const field of allFields) {
-      const idx = allFields.indexOf(field);
-      const key = fieldKey(idx);
-      const val = fieldValues[key];
-      if (val && (field.type === 'signature') && val.imageBase64) {
-        return { base64: val.imageBase64, mode: val.mode, font: val.font };
-      }
+    for (const field of editableFields) {
+      if (field.type !== 'signature') continue;
+      const v = fieldValues[field.key];
+      if (v?.imageBase64) return { base64: v.imageBase64, mode: v.mode, font: v.font };
     }
-    // Fall back to initials
-    for (const field of allFields) {
-      const idx = allFields.indexOf(field);
-      const key = fieldKey(idx);
-      const val = fieldValues[key];
-      if (val && (field.type === 'initials') && val.imageBase64) {
-        return { base64: val.imageBase64, mode: val.mode, font: val.font };
-      }
+    for (const field of editableFields) {
+      if (field.type !== 'initials') continue;
+      const v = fieldValues[field.key];
+      if (v?.imageBase64) return { base64: v.imageBase64, mode: v.mode, font: v.font };
     }
     return null;
-  }, [allFields, fieldValues]);
+  }, [editableFields, fieldValues]);
 
-  // Submit signature
+  const buildFieldValuesPayload = useCallback((): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const field of editableFields) {
+      if (isSignatureLike(field.type)) continue;
+      const v = fieldValues[field.key];
+      if (v) out[field.key] = v.data;
+    }
+    return out;
+  }, [editableFields, fieldValues]);
+
   const handleSubmit = useCallback(async () => {
     if (!token || !viewData) return;
+    if (!consentAgreed) {
+      message.error('Please agree to sign electronically before submitting.');
+      return;
+    }
 
     const sig = getSignatureForSubmission();
-    if (!sig) {
-      message.error('Please complete at least the signature or initials field.');
+    const needsSignature = editableFields.some((f) => isSignatureLike(f.type));
+    if (needsSignature && !sig) {
+      message.error('Please complete the signature or initials field.');
       return;
     }
 
     setSubmitLoading(true);
     try {
       await pdfEditorApi.submitSignature(token, {
-        signatureDataUrl: `data:image/png;base64,${sig.base64}`,
-        signatureType: sig.mode === 'auto' ? 'type' : sig.mode,
-        signatureFont: sig.font,
+        signatureDataUrl: sig ? `data:image/png;base64,${sig.base64}` : 'data:image/png;base64,',
+        signatureType: sig?.mode === 'auto' ? 'type' : sig?.mode,
+        signatureFont: sig?.font,
+        fieldValues: buildFieldValuesPayload(),
+        consentAgreed: true,
       });
       setReviewOpen(false);
       setStatus('success');
     } catch (err: unknown) {
       const httpStatus = (err as { response?: { status?: number } })?.response?.status;
-      if (httpStatus === 409) {
+      if (httpStatus === 409 || httpStatus === 400) {
         message.error('This document has already been signed.');
         setStatus('already_signed');
       } else {
@@ -777,9 +879,8 @@ const SignPage: React.FC = () => {
     } finally {
       setSubmitLoading(false);
     }
-  }, [token, viewData, getSignatureForSubmission]);
+  }, [token, viewData, consentAgreed, getSignatureForSubmission, editableFields, buildFieldValuesPayload]);
 
-  // Decline flow
   const handleDeclineConfirm = useCallback(async (reason: string) => {
     if (!token) return;
     setDeclineLoading(true);
@@ -884,20 +985,8 @@ const SignPage: React.FC = () => {
   // ────────────────────────────────────────────────────────────────────────
   const pageCount = viewData?.pageCount ?? 0;
 
-  // Compute per-page global index offset for PageView
-  const pageFieldStartIndex: Record<number, number> = {};
-  {
-    let idx = 0;
-    const pages = [...new Set(allFields.map((f) => f.page))].sort((a, b) => a - b);
-    for (const pg of pages) {
-      pageFieldStartIndex[pg] = idx;
-      idx += allFields.filter((f) => f.page === pg).length;
-    }
-  }
-
   return (
     <div style={styles.pageRoot}>
-      {/* Header */}
       <header style={styles.header}>
         <div style={styles.headerInner}>
           <div style={styles.branding}>
@@ -917,35 +1006,38 @@ const SignPage: React.FC = () => {
           </div>
           <div style={styles.docMeta}>
             <Text style={{ fontSize: 13, color: '#374151' }}><strong>{viewData?.documentName}</strong></Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>From: {viewData?.senderName} &lt;{viewData?.senderEmail}&gt;</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              From: {viewData?.senderName} &lt;{viewData?.senderEmail}&gt;
+              {viewData?.recipientRole && ` · Signing as: ${viewData.recipientRole}`}
+            </Text>
             {viewData?.expiresAt && <Text type="secondary" style={{ fontSize: 12 }}>Expires: {formatDate(viewData.expiresAt)}</Text>}
           </div>
         </div>
       </header>
 
-      {/* Progress bar */}
-      {totalFields > 0 && (
+      {requiredEditableFields.length > 0 && (
         <div style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '10px 20px' }}>
           <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ flex: 1, height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
               <div
                 style={{
-                  width: `${Math.round((filledCount / totalFields) * 100)}%`,
+                  width: '100%',
                   height: '100%',
-                  background: allFilled ? '#10b981' : '#111827',
+                  background: allRequiredFilled ? '#10b981' : '#111827',
                   borderRadius: 3,
-                  transition: 'width 0.3s ease',
+                  transform: `scaleX(${filledRequiredCount / requiredEditableFields.length})`,
+                  transformOrigin: 'left',
+                  transition: 'transform 0.3s ease, background 0.2s ease',
                 }}
               />
             </div>
             <Text style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>
-              {filledCount} / {totalFields} fields
+              {filledRequiredCount} / {requiredEditableFields.length} required fields
             </Text>
           </div>
         </div>
       )}
 
-      {/* Body */}
       <main style={styles.main} aria-label="Document pages">
         <div style={styles.contentWrapper}>
           {pageCount === 0 ? (
@@ -956,23 +1048,20 @@ const SignPage: React.FC = () => {
                 key={pageNum}
                 token={token!}
                 pageNum={pageNum}
-                totalPages={pageCount}
                 signFields={allFields}
                 fieldValues={fieldValues}
                 isSigned={isSigned}
                 onFieldClick={handleFieldClick}
-                globalIndexOffset={pageFieldStartIndex[pageNum] ?? 0}
               />
             ))
           )}
         </div>
       </main>
 
-      {/* Footer */}
       <footer style={styles.footer}>
         <div style={styles.footerInner}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            {allFilled ? (
+            {allRequiredFilled || requiredEditableFields.length === 0 ? (
               <Button
                 type="primary"
                 size="large"
@@ -992,12 +1081,9 @@ const SignPage: React.FC = () => {
                 type="primary"
                 size="large"
                 disabled
-                style={{
-                  borderRadius: 8, fontWeight: 600, height: 44,
-                  paddingLeft: 22, paddingRight: 22,
-                }}
+                style={{ borderRadius: 8, fontWeight: 600, height: 44, paddingLeft: 22, paddingRight: 22 }}
               >
-                Fill all fields to submit ({filledCount}/{totalFields})
+                Fill all required fields ({filledRequiredCount}/{requiredEditableFields.length})
               </Button>
             )}
 
@@ -1018,12 +1104,18 @@ const SignPage: React.FC = () => {
         </div>
       </footer>
 
-      {/* Modals */}
       <SignatureModal
         open={signModalOpen}
-        onClose={() => { setSignModalOpen(false); setActiveFieldIndex(null); }}
+        onClose={() => { setSignModalOpen(false); setActiveFieldKey(null); }}
         onApply={handleSignatureApply}
         fieldType={signModalFieldType}
+      />
+
+      <TextEntryModal
+        open={textEntryOpen}
+        onClose={() => { setTextEntryOpen(false); setActiveFieldKey(null); setTextEntryField(null); }}
+        onApply={handleTextEntryApply}
+        field={textEntryField}
       />
 
       <ReviewModal
@@ -1031,8 +1123,10 @@ const SignPage: React.FC = () => {
         onClose={() => setReviewOpen(false)}
         onSubmit={handleSubmit}
         loading={submitLoading}
-        signFields={allFields}
+        editableFields={editableFields}
         fieldValues={fieldValues}
+        consentAgreed={consentAgreed}
+        onConsentChange={setConsentAgreed}
       />
 
       <DeclineModal

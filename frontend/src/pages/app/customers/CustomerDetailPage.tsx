@@ -20,6 +20,9 @@ import {
   App,
   Space,
   Modal,
+  Popover,
+  Tooltip,
+  Drawer,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -27,10 +30,16 @@ import {
   SaveOutlined,
   CloseOutlined,
   DeleteOutlined,
+  SendOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import api from '@/services/api';
 import { colors, fonts, fontSizes, borderRadius, shadows } from '@/styles/theme';
+import { useTools } from '@/hooks/useTools';
+import RequestSignatureModal from '@/components/features/tools/pdf-editor/RequestSignatureModal';
+import SignRequestDetail from '@/components/features/tools/pdf-editor/SignRequestDetail';
+import type { CustomerData } from '@/components/features/CustomerSelector';
 
 const { Title, Text } = Typography;
 
@@ -81,16 +90,21 @@ interface InvoiceDoc {
   created_at: string;
 }
 
+interface SignatureRecipientSummary {
+  role: string;
+  name: string;
+  email: string;
+  status: string;
+}
+
 interface SignatureDoc {
   id: string;
   document_name?: string;
-  recipient_name?: string;
-  recipient_email?: string;
+  recipients: SignatureRecipientSummary[];
   status: string;
   created_at: string;
   sent_at?: string;
   signed_at?: string;
-  access_token?: string;
 }
 
 interface CustomerDocuments {
@@ -113,19 +127,24 @@ function formatMoney(value: number): string {
   return `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function getSignatureTagProps(status: string): { color: string } {
+function getSignatureTagProps(status: string): { color: string; label: string } {
   switch (status) {
     case 'signed':
-      return { color: 'success' };
+      return { color: 'success', label: 'Signed' };
+    case 'partially_signed':
+      return { color: 'warning', label: 'Partially Signed' };
     case 'declined':
-      return { color: 'error' };
+      return { color: 'error', label: 'Declined' };
     case 'expired':
-      return { color: 'warning' };
+      return { color: 'warning', label: 'Expired' };
     case 'sent':
+      return { color: 'processing', label: 'Sent' };
     case 'viewed':
-      return { color: 'processing' };
+      return { color: 'processing', label: 'Viewed' };
+    case 'cancelled':
+      return { color: 'default', label: 'Voided' };
     default:
-      return { color: 'default' };
+      return { color: 'default', label: capitalizeFirst(status || 'draft') };
   }
 }
 
@@ -187,7 +206,14 @@ export default function CustomerDetailPage() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [requestSignOpen, setRequestSignOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('estimates');
+  const [signDetailId, setSignDetailId] = useState<string | null>(null);
   const [form] = Form.useForm<CustomerFormValues>();
+
+  const { data: tools } = useTools();
+  const pdfEditorTool = tools?.find((t) => t.id === 'pdf_editor');
+  const canESign = pdfEditorTool?.hasAccess ?? true; // default open while tools are loading
 
   // Fetch customer
   const {
@@ -276,6 +302,13 @@ export default function CustomerDetailPage() {
     } catch {
       // Validation errors shown inline by Ant Design
     }
+  };
+
+  // Closing the sign request detail drawer may follow actions (void, etc.)
+  // that change what this page's own Signatures table should show.
+  const closeSignDetail = () => {
+    setSignDetailId(null);
+    queryClient.invalidateQueries({ queryKey: ['customer-documents', id] });
   };
 
   // ─── Table columns ──────────────────────────────────────────────────────────
@@ -394,33 +427,52 @@ export default function CustomerDetailPage() {
       ),
     },
     {
-      title: 'Recipient',
+      title: 'Recipients',
       key: 'recipient',
-      render: (_: unknown, record: SignatureDoc) => (
-        <div>
-          {record.recipient_name && (
+      render: (_: unknown, record: SignatureDoc) => {
+        const [first, ...rest] = record.recipients ?? [];
+        if (!first) return <Text type="secondary" style={{ fontSize: fontSizes.sm }}>—</Text>;
+        const content = (
+          <div>
+            {record.recipients.map((r) => (
+              <div key={`${r.email}-${r.role}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: fontSizes.xs, fontFamily: fonts.body, padding: '2px 0' }}>
+                <span style={{ color: colors.textPrimary }}>{r.name} <span style={{ color: colors.textMuted }}>({r.role})</span></span>
+                <Tag color={getSignatureTagProps(r.status).color} style={{ margin: 0, fontSize: 11 }}>
+                  {getSignatureTagProps(r.status).label}
+                </Tag>
+              </div>
+            ))}
+          </div>
+        );
+        return (
+          <div>
             <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textPrimary, display: 'block' }}>
-              {record.recipient_name}
+              {first.name}
+              {rest.length > 0 && (
+                <Popover content={content} title="Recipients" trigger="hover">
+                  <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary, marginLeft: 6, cursor: 'default' }}>
+                    +{rest.length} more
+                  </Text>
+                </Popover>
+              )}
             </Text>
-          )}
-          {record.recipient_email && (
             <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}>
-              {record.recipient_email}
+              {first.email}
             </Text>
-          )}
-        </div>
-      ),
+          </div>
+        );
+      },
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 130,
       render: (status: string) => {
-        const { color } = getSignatureTagProps(status);
+        const { color, label } = getSignatureTagProps(status);
         return (
           <Tag color={color} style={{ fontFamily: fonts.body, fontSize: fontSizes.xs }}>
-            {capitalizeFirst(status)}
+            {label}
           </Tag>
         );
       },
@@ -519,6 +571,10 @@ export default function CustomerDetailPage() {
           size="middle"
           loading={isLoadingDocs}
           pagination={false}
+          onRow={(record) => ({
+            onClick: () => setSignDetailId(record.id),
+            style: { cursor: 'pointer' },
+          })}
           locale={{
             emptyText: (
               <div style={{ padding: '32px 0', color: colors.textMuted, fontFamily: fonts.body, fontSize: fontSizes.sm }}>
@@ -586,6 +642,20 @@ export default function CustomerDetailPage() {
       </div>
     );
   }
+
+  const customerData: CustomerData = {
+    customerId: customer.id,
+    name: customer.name,
+    email: customer.email,
+    phone: customer.phone,
+    address: [
+      customer.address_line1,
+      customer.address_line2,
+      customer.city,
+      customer.state,
+      customer.zipcode,
+    ].filter(Boolean).join(', '),
+  };
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
@@ -902,7 +972,8 @@ export default function CustomerDetailPage() {
             styles={{ body: { padding: '0 0 8px' } }}
           >
             <Tabs
-              defaultActiveKey="estimates"
+              activeKey={activeTab}
+              onChange={setActiveTab}
               items={tabItems}
               style={{ fontFamily: fonts.body }}
               tabBarStyle={{
@@ -911,10 +982,49 @@ export default function CustomerDetailPage() {
                 fontFamily: fonts.body,
                 fontSize: fontSizes.sm,
               }}
+              tabBarExtraContent={
+                activeTab === 'signatures' ? (
+                  <Tooltip title={canESign ? undefined : `Requires the ${pdfEditorTool?.requiredPlan ?? 'pro'} plan`}>
+                    <Button
+                      type="primary"
+                      icon={canESign ? <SendOutlined /> : <LockOutlined />}
+                      disabled={!canESign}
+                      onClick={() => setRequestSignOpen(true)}
+                      style={{ background: colors.primary, borderColor: colors.primary, fontFamily: fonts.body, borderRadius: borderRadius.base }}
+                    >
+                      Request Signature
+                    </Button>
+                  </Tooltip>
+                ) : undefined
+              }
             />
           </Card>
         </div>
       </div>
+
+      {/* Request Signature -- template picker, hands off into SendForSignModal
+          with this customer pre-selected. */}
+      <RequestSignatureModal
+        open={requestSignOpen}
+        onClose={() => setRequestSignOpen(false)}
+        customer={customerData}
+        onSent={() => {
+          queryClient.invalidateQueries({ queryKey: ['customer-documents', id] });
+        }}
+      />
+
+      {/* Sign request detail -- audit history, reminders, signed-copy email, download */}
+      <Drawer
+        open={!!signDetailId}
+        onClose={closeSignDetail}
+        width={640}
+        destroyOnHidden
+        styles={{ body: { padding: 0 } }}
+      >
+        {signDetailId && (
+          <SignRequestDetail requestId={signDetailId} onBack={closeSignDetail} showBackButton={false} />
+        )}
+      </Drawer>
 
       {/* Delete confirmation modal */}
       <Modal

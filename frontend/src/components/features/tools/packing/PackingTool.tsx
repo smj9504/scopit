@@ -25,7 +25,6 @@ import {
   DollarOutlined,
   LockOutlined,
   SettingOutlined,
-  ReloadOutlined,
   InboxOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
@@ -682,20 +681,6 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
           }}
           tabBarExtraContent={
             <Space size={6}>
-              <Button
-                size="small"
-                icon={<ReloadOutlined />}
-                onClick={() => setHistoryKey((k) => k + 1)}
-                style={{
-                  borderRadius: borderRadius.base,
-                  borderColor: colors.border,
-                  color: colors.textSecondary,
-                  minWidth: 32,
-                  minHeight: 32,
-                }}
-              >
-                {!isMobile && 'Refresh'}
-              </Button>
               <Button
                 type="primary"
                 icon={<PlusOutlined />}

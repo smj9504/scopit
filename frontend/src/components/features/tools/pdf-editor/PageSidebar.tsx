@@ -52,12 +52,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useAuthStore } from '@/stores/authStore';
 import { colors, fonts, borderRadius, shadows } from '@/styles/theme';
-
-// Worker is configured once globally (PdfCanvas does it too, idempotent)
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url,
-).toString();
+import './pdfWorker';
 
 const { Text } = Typography;
 

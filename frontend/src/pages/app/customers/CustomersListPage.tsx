@@ -179,14 +179,27 @@ const CustomersListPage: React.FC = () => {
     {
       title: 'Location',
       key: 'location',
-      width: 150,
+      width: 220,
       ellipsis: true,
       responsive: ['md'] as const,
-      render: (_, record) => (
-        <span style={{ color: colors.textSecondary, fontSize: 13 }}>
-          {[record.city, record.state].filter(Boolean).join(', ') || '\u2014'}
-        </span>
-      ),
+      render: (_, record) => {
+        const cityState = [record.city, record.state].filter(Boolean).join(', ');
+        if (!record.addressLine1 && !cityState) {
+          return <span style={{ color: colors.textSecondary, fontSize: 13 }}>{'\u2014'}</span>;
+        }
+        return (
+          <div>
+            {record.addressLine1 && (
+              <div style={{ fontSize: 13, color: colors.textSecondary }}>{record.addressLine1}</div>
+            )}
+            {cityState && (
+              <div style={{ fontSize: 12, color: colors.textMuted, marginTop: record.addressLine1 ? 2 : 0 }}>
+                {cityState}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
@@ -304,13 +317,16 @@ const CustomersListPage: React.FC = () => {
                   <span className="mobile-card-value">{record.phone}</span>
                 </div>
               )}
-              {(record.city || record.state) && (
+              {(record.addressLine1 || record.city || record.state) && (
                 <div className="mobile-card-row" style={{ borderBottom: 'none' }}>
                   <span className="mobile-card-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <EnvironmentOutlined /> Location
                   </span>
-                  <span className="mobile-card-value">
-                    {[record.city, record.state].filter(Boolean).join(', ')}
+                  <span className="mobile-card-value" style={{ textAlign: 'right' }}>
+                    {record.addressLine1 && <div>{record.addressLine1}</div>}
+                    {(record.city || record.state) && (
+                      <div>{[record.city, record.state].filter(Boolean).join(', ')}</div>
+                    )}
                   </span>
                 </div>
               )}

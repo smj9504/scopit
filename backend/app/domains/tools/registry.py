@@ -60,7 +60,13 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         description="Edit PDFs, add text and images, merge documents, and send for electronic signatures.",
         icon="FileTextOutlined",
         category="Documents",
-        required_plan="free",
+        # Bumped from "free": reusable field-mapping templates, the
+        # Available Field Registry (auto-fill from Customer/Company data),
+        # and multi-recipient signing make this a paid-tier capability.
+        # NOTE: BETA_MODE currently bypasses this gate for everyone and
+        # the per-company plan lookup is hardcoded to "free" -- this value
+        # only takes effect once both are addressed (see ToolAccessService).
+        required_plan="pro",
         can_create_estimate=False,
         tags=["pdf", "editor", "e-sign", "documents", "signature"],
     ),

@@ -80,6 +80,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
 
   // Direct input state
   const [directInput, setDirectInput] = useState<CustomerData>({
+    customerId: value?.customerId,
     name: value?.name || '',
     email: value?.email || '',
     phone: value?.phone || '',
@@ -136,6 +137,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
       setIsManualEntry(!value.customerId && !!value.name);
     }
     setDirectInput({
+      customerId: value.customerId,
       name: value.name || '',
       email: value.email || '',
       phone: value.phone || '',
@@ -200,6 +202,43 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
     },
   });
 
+  // Mutation for updating an already-linked customer
+  const updateCustomerMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<CustomerCreate> }) =>
+      customerService.update(id, data),
+    onSuccess: (updatedCustomer) => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer', updatedCustomer.id] });
+      message.success('Customer updated successfully');
+
+      setSelectedCustomerId(updatedCustomer.id);
+      setIsManualEntry(false);
+      setDirectInput({ name: '', email: '', phone: '', address: '' });
+
+      const fullAddress = [
+        updatedCustomer.addressLine1,
+        updatedCustomer.city,
+        updatedCustomer.state,
+        updatedCustomer.zipcode,
+      ]
+        .filter(Boolean)
+        .join(', ');
+
+      onChange?.({
+        customerId: updatedCustomer.id,
+        name: updatedCustomer.name,
+        email: updatedCustomer.email,
+        phone: updatedCustomer.phone,
+        address: fullAddress,
+      });
+
+      setSaveModalOpen(false);
+    },
+    onError: () => {
+      message.error('Failed to update customer');
+    },
+  });
+
   // Normalize undefined and '' for consistent fingerprint comparison
   const pushFingerprint = (data: CustomerData) => {
     const norm = (v: string | undefined) => v || '';
@@ -234,10 +273,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
   // Update parent when direct input changes
   useEffect(() => {
     if (isManualEntry) {
-      const data: CustomerData = {
-        customerId: undefined,
-        ...directInput,
-      };
+      const data: CustomerData = { ...directInput };
       pushFingerprint(data);
       onChange?.(data);
     }
@@ -247,6 +283,26 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
   const handleManualEntryChange = (checked: boolean) => {
     setIsManualEntry(checked);
     if (checked) {
+      // Carry the currently selected customer's data (and id) into the editable form,
+      // so editing an existing customer's details updates that record instead of creating a duplicate.
+      if (selectedCustomer) {
+        const fullAddress = [
+          selectedCustomer.addressLine1,
+          selectedCustomer.addressLine2,
+          selectedCustomer.city,
+          selectedCustomer.state,
+          selectedCustomer.zipcode,
+        ]
+          .filter(Boolean)
+          .join(', ');
+        setDirectInput({
+          customerId: selectedCustomer.id,
+          name: selectedCustomer.name,
+          email: selectedCustomer.email,
+          phone: selectedCustomer.phone,
+          address: fullAddress,
+        });
+      }
       setSelectedCustomerId(undefined);
       setSearchInput('');
     } else {
@@ -279,6 +335,9 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
     }));
   };
 
+  // Whether the currently edited manual entry corresponds to an already-saved customer
+  const isExistingCustomer = !!directInput.customerId;
+
   // Handle save customer
   const handleSaveCustomer = () => {
     if (!directInput.name.trim()) {
@@ -299,7 +358,11 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
       zipcode: addressParts[3] || undefined,
     };
 
-    createCustomerMutation.mutate(customerData);
+    if (directInput.customerId) {
+      updateCustomerMutation.mutate({ id: directInput.customerId, data: customerData });
+    } else {
+      createCustomerMutation.mutate(customerData);
+    }
   };
 
   // Show save modal prompt
@@ -553,7 +616,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
               />
             </AutoComplete>
 
-            {/* Save Customer Button */}
+            {/* Save/Update Customer Button */}
             {directInput.name.trim() && (
               <Button
                 type="default"
@@ -561,16 +624,16 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
                 onClick={() => setSaveModalOpen(true)}
                 style={isMobile ? { width: '100%', minHeight: 44 } : { alignSelf: 'flex-start' }}
               >
-                Save to Customer List
+                {isExistingCustomer ? 'Update Customer' : 'Save to Customer List'}
               </Button>
             )}
           </div>
         )}
       </Card>
 
-      {/* Save Customer Modal */}
+      {/* Save/Update Customer Modal */}
       <Modal
-        title="Save Customer"
+        title={isExistingCustomer ? 'Update Customer' : 'Save Customer'}
         open={saveModalOpen}
         onCancel={() => setSaveModalOpen(false)}
         footer={
@@ -586,24 +649,26 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
               onClick={() => setSaveModalOpen(false)}
               style={{ flex: '1 1 auto' }}
             >
-              No, Just Use Once
+              {isExistingCustomer ? 'Cancel' : 'No, Just Use Once'}
             </Button>
             <Button
               key="save"
               type="primary"
               icon={<SaveOutlined />}
               onClick={handleSaveCustomer}
-              loading={createCustomerMutation.isPending}
+              loading={isExistingCustomer ? updateCustomerMutation.isPending : createCustomerMutation.isPending}
               style={{ background: colors.primary, flex: '1 1 auto' }}
             >
-              Yes, Save Customer
+              {isExistingCustomer ? 'Yes, Update Customer' : 'Yes, Save Customer'}
             </Button>
           </div>
         }
       >
         <div style={{ padding: '16px 0' }}>
           <Text style={{ fontSize: 15 }}>
-            Would you like to save this customer to your customer list for future use?
+            {isExistingCustomer
+              ? 'Update this customer’s info in your customer list with the changes below?'
+              : 'Would you like to save this customer to your customer list for future use?'}
           </Text>
 
           <div

@@ -27,9 +27,11 @@ from app.core.database import get_db
 from app.core.storage import get_storage
 from app.domains.tools.dependencies import require_tool_access
 from app.domains.user.models import User
+from app.domains.tools.modules.pdf_editor.field_registry import get_available_fields
 from app.domains.tools.modules.pdf_editor.service import PdfEditorService
 from app.domains.tools.modules.pdf_editor.schemas import (
     AnnotationSaveRequest,
+    FieldDefinitionsUpdateRequest,
     ImportCompanyDocRequest,
     ImportEstimateRequest,
     ImportInvoiceRequest,
@@ -48,6 +50,56 @@ _gate = require_tool_access("pdf_editor")
 # Internal helper
 # ---------------------------------------------------------------------------
 
+def _annotation_to_camel(ann: dict) -> dict:
+    """Annotation top-level fields (id/type/page/x/y/width/height/rotation/
+    content) are already case-identical between storage and the frontend --
+    only `style`'s multi-word keys (font_size, background_color, ...) need
+    converting at this response boundary, same reasoning as
+    _field_def_to_camel below."""
+    style = ann.get("style") or {}
+    return {
+        **ann,
+        "style": {
+            "fontFamily": style.get("font_family"),
+            "fontSize": style.get("font_size"),
+            "fontWeight": style.get("font_weight"),
+            "fontStyle": style.get("font_style"),
+            "textDecoration": style.get("text_decoration"),
+            "color": style.get("color"),
+            "backgroundColor": style.get("background_color"),
+            "borderColor": style.get("border_color"),
+            "borderWidth": style.get("border_width"),
+            "opacity": style.get("opacity"),
+        },
+    }
+
+
+def _field_def_to_camel(field: dict) -> dict:
+    """Field definitions are stored (and processed by sign_service) with
+    snake_case keys matching the FieldDefinition/DataBinding Pydantic model
+    attribute names. Convert to camelCase only at this JSON response
+    boundary, matching every other field in this response."""
+    binding = field.get("data_binding") or {}
+    return {
+        "key": field.get("key"),
+        "label": field.get("label"),
+        "type": field.get("type"),
+        "page": field.get("page"),
+        "x": field.get("x"),
+        "y": field.get("y"),
+        "width": field.get("width"),
+        "height": field.get("height"),
+        "dataBinding": {
+            "mode": binding.get("mode"),
+            "sourceEntity": binding.get("source_entity"),
+            "sourceField": binding.get("source_field"),
+        },
+        "signerRole": field.get("signer_role"),
+        "required": field.get("required", False),
+        "fontSize": field.get("font_size"),
+    }
+
+
 def _to_response(doc) -> dict:
     """Convert a PdfDocument ORM instance to a response-compatible dict."""
     return {
@@ -58,7 +110,8 @@ def _to_response(doc) -> dict:
         "mimeType": doc.mime_type,
         "sourceType": doc.source_type,
         "sourceId": str(doc.source_id) if doc.source_id else None,
-        "annotations": doc.annotations or [],
+        "annotations": [_annotation_to_camel(a) for a in (doc.annotations or [])],
+        "fieldDefinitions": [_field_def_to_camel(f) for f in (doc.field_definitions or [])],
         "thumbnailUrl": (
             f"/api/tools/pdf-editor/documents/{doc.id}/thumbnail"
             if doc.thumbnail_path
@@ -68,6 +121,27 @@ def _to_response(doc) -> dict:
         "createdAt": doc.created_at,
         "updatedAt": doc.updated_at,
     }
+
+
+# ---------------------------------------------------------------------------
+# Available Field Registry
+# ---------------------------------------------------------------------------
+
+@router.get("/fields/available")
+async def list_available_fields(
+    current_user: User = Depends(_gate),
+):
+    """List source entity/field pairs that a template's 'prefilled' fields
+    can auto-map from (Customer, Company, ...)."""
+    return [
+        {
+            "sourceEntity": f["source_entity"],
+            "sourceField": f["source_field"],
+            "label": f["label"],
+            "type": f["type"],
+        }
+        for f in get_available_fields()
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +516,24 @@ async def save_annotations(
         company_id=current_user.company_id,
         document_id=document_id,
         annotations=serialized,
+    )
+    return _to_response(doc)
+
+
+@router.put("/documents/{document_id}/fields")
+async def save_field_definitions(
+    document_id: UUID,
+    body: FieldDefinitionsUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Save the reusable field-mapping template for a document."""
+    service = PdfEditorService(db)
+    serialized = [f.model_dump() for f in body.fields]
+    doc = service.save_field_definitions(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        fields=serialized,
     )
     return _to_response(doc)
 

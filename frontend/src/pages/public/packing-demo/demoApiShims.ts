@@ -224,6 +224,7 @@ export function installPackingDemoShims() {
 
   // ── Session management — no real sessions exist in a public demo ──────
   toolService.listSessions = async () => [];
+  toolService.listSessionsPaged = async () => ({ sessions: [], total: 0 });
   toolService.getSession = async () => {
     throw new Error('Loading saved estimates is not available in the demo.');
   };

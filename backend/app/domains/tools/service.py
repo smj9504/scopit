@@ -74,6 +74,18 @@ class ToolSessionService:
             query = query.filter(ToolSession.tool_id == tool_id)
         return query.order_by(ToolSession.created_at.desc()).offset(skip).limit(limit).all()
 
+    def count_sessions(self, company_id: UUID, tool_id: Optional[str] = None) -> int:
+        query = (
+            self.db.query(ToolSession)
+            .filter(
+                ToolSession.company_id == company_id,
+                ToolSession.is_active == True,
+            )
+        )
+        if tool_id:
+            query = query.filter(ToolSession.tool_id == tool_id)
+        return query.count()
+
     def strip_heavy_data(self, sessions: List[ToolSession]) -> List[ToolSession]:
         """Strip heavy data from session data for list views.
 

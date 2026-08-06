@@ -21,13 +21,18 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.storage import get_storage
 from app.domains.tools.dependencies import require_tool_access
-from app.domains.tools.modules.pdf_editor.models import SignRequest
+from app.domains.tools.modules.pdf_editor.models import SignRecipient, SignRequest
 from app.domains.tools.modules.pdf_editor.schemas import (
+    CreatorFieldValuesRequest,
     SignDeclineRequest,
     SignRequestCreate,
     SignSubmitRequest,
 )
-from app.domains.tools.modules.pdf_editor.sign_service import SignService
+from app.domains.tools.modules.pdf_editor.service import flatten_annotations_bytes
+from app.domains.tools.modules.pdf_editor.sign_service import (
+    BLOCKED_STATUSES,
+    SignService,
+)
 from app.domains.user.models import User
 
 # ---------------------------------------------------------------------------
@@ -41,41 +46,87 @@ _gate = require_tool_access("pdf_editor")
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Helpers
 # ---------------------------------------------------------------------------
 
-def _to_sign_response(
-    req: SignRequest, include_sign_url: bool = False
-) -> dict:
+def _field_def_to_camel(field: dict) -> dict:
+    """sign_fields is a snake_case-keyed copy of the template's
+    field_definitions (see api.py::_field_def_to_camel for why)."""
+    binding = field.get("data_binding") or {}
+    return {
+        "key": field.get("key"),
+        "label": field.get("label"),
+        "type": field.get("type"),
+        "page": field.get("page"),
+        "x": field.get("x"),
+        "y": field.get("y"),
+        "width": field.get("width"),
+        "height": field.get("height"),
+        "dataBinding": {
+            "mode": binding.get("mode"),
+            "sourceEntity": binding.get("source_entity"),
+            "sourceField": binding.get("source_field"),
+        },
+        "signerRole": field.get("signer_role"),
+        "required": field.get("required", False),
+        "fontSize": field.get("font_size"),
+    }
+
+
+def _to_recipient_dict(r: SignRecipient) -> dict:
+    return {
+        "id": str(r.id),
+        "role": r.role,
+        "name": r.name,
+        "email": r.email,
+        "phone": r.phone,
+        "sequence": r.sequence,
+        "status": r.status,
+        "viewedAt": r.viewed_at,
+        "signedAt": r.signed_at,
+        "declinedAt": r.declined_at,
+        "consentAgreed": r.consent_agreed,
+    }
+
+
+def _to_sign_response(req: SignRequest) -> dict:
     resp = {
         "id": str(req.id),
         "documentId": str(req.document_id),
         "documentName": (
             req.document.name if req.document else None
         ),
-        "recipientEmail": req.recipient_email,
-        "recipientName": req.recipient_name,
+        "recipients": [
+            _to_recipient_dict(r)
+            for r in sorted(req.recipients, key=lambda r: r.sequence)
+        ],
         "senderEmail": req.sender_email,
         "senderName": req.sender_name,
         "customerId": (
             str(req.customer_id) if req.customer_id else None
         ),
         "status": req.status,
-        "signFields": req.sign_fields or [],
+        "deliveryMethod": req.delivery_method,
+        "signFields": [_field_def_to_camel(f) for f in (req.sign_fields or [])],
+        "prefillData": req.prefill_data or {},
         "emailSubject": req.email_subject,
         "emailMessage": req.email_message,
+        "ccEmails": req.cc_emails or [],
+        "bccEmails": req.bcc_emails or [],
         "expiresAt": req.expires_at,
         "sentAt": req.sent_at,
-        "viewedAt": req.viewed_at,
         "signedAt": req.signed_at,
         "declinedAt": req.declined_at,
         "createdAt": req.created_at,
         "updatedAt": req.updated_at,
     }
-    if include_sign_url and req.access_token:
-        resp["sign_url"] = (
-            f"{settings.FRONTEND_URL}/sign/{req.access_token}"
-        )
+    # Always included: the sender is already authorized to view/manage this
+    # request, so seeing each recipient's link is equivalent information to
+    # what's already been (or would be) emailed to them.
+    resp["signUrls"] = {
+        str(r.id): f"{settings.FRONTEND_URL}/sign/{r.access_token}"
+        for r in req.recipients
+    }
     return resp
 
 
@@ -92,25 +143,22 @@ async def create_sign_request(
 ):
     """Create a new sign request (status: draft)."""
     service = SignService(db)
-    sender_name = (
-        data.sender_name
-        if hasattr(data, "sender_name") and data.sender_name
-        else (current_user.full_name or current_user.email)
-    )
+    sender_name = data.sender_name or (current_user.full_name or current_user.email)
     sign_req = service.create_sign_request(
         company_id=current_user.company_id,
         user_id=current_user.id,
         document_id=UUID(data.document_id),
-        recipient_email=data.recipient_email,
-        recipient_name=data.recipient_name,
+        recipients=[r.model_dump() for r in data.recipients],
         sender_email=data.sender_email or current_user.email,
         sender_name=sender_name,
-        sign_fields=data.sign_fields,
         customer_id=(
             UUID(data.customer_id) if data.customer_id else None
         ),
+        delivery_method=data.delivery_method,
         email_subject=data.email_subject,
         email_message=data.email_message,
+        cc_emails=data.cc_emails,
+        bcc_emails=data.bcc_emails,
         expires_in_days=data.expires_in_days,
     )
     return _to_sign_response(sign_req)
@@ -159,37 +207,89 @@ async def get_sign_request(
     return _to_sign_response(sign_req)
 
 
+@router.patch("/requests/{request_id}/creator-fields")
+async def set_creator_field_values(
+    request_id: UUID,
+    data: CreatorFieldValuesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Fill in the sender's own ('creator_input') field values before send."""
+    service = SignService(db)
+    sign_req = service.set_creator_field_values(
+        company_id=current_user.company_id,
+        request_id=request_id,
+        values=data.values,
+    )
+    return _to_sign_response(sign_req)
+
+
+@router.get("/requests/{request_id}/preview")
+async def preview_sign_request(
+    request_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Preview resolved field values before sending (FR-3.4)."""
+    service = SignService(db)
+    preview = service.get_preview(
+        company_id=current_user.company_id,
+        request_id=request_id,
+    )
+    return {
+        "fields": [_field_def_to_camel(f) for f in preview["fields"]],
+        "values": preview["values"],
+        "pageCount": preview["page_count"],
+        "documentName": preview["document_name"],
+    }
+
+
 @router.post("/requests/{request_id}/send")
 async def send_sign_request(
     request_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(_gate),
 ):
-    """Send the signing invitation email to the recipient."""
-    from app.core.email import email_service
-
+    """Send the signing invitation (email, or make direct links available)."""
     service = SignService(db)
     sign_req = service.send_sign_request(
         company_id=current_user.company_id,
         request_id=request_id,
     )
-    return _to_sign_response(
-        sign_req,
-        include_sign_url=not email_service.is_configured(),
-    )
+    return _to_sign_response(sign_req)
 
 
 @router.post("/requests/{request_id}/reminder")
 async def send_reminder(
     request_id: UUID,
+    recipient_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(_gate),
 ):
-    """Send a reminder email to the recipient."""
+    """Send a reminder email. Omit recipient_id to remind everyone
+    outstanding, or pass it to remind a single recipient."""
     service = SignService(db)
     sign_req = service.send_reminder(
         company_id=current_user.company_id,
         request_id=request_id,
+        recipient_id=recipient_id,
+    )
+    return _to_sign_response(sign_req)
+
+
+@router.post("/requests/{request_id}/resend-signed-copy")
+async def resend_signed_copy(
+    request_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Re-send the fully-signed PDF (email, with attachment) to the sender
+    and every recipient. Only available once the envelope is fully signed."""
+    service = SignService(db)
+    sign_req = service.resend_signed_copies(
+        company_id=current_user.company_id,
+        request_id=request_id,
+        actor_email=current_user.email,
     )
     return _to_sign_response(sign_req)
 
@@ -200,7 +300,7 @@ async def cancel_sign_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_gate),
 ):
-    """Cancel a pending sign request."""
+    """Void a pending sign request."""
     service = SignService(db)
     sign_req = service.cancel_sign_request(
         company_id=current_user.company_id,
@@ -225,6 +325,7 @@ async def get_audit_trail(
         {
             "id": str(e.id),
             "eventType": e.event_type,
+            "recipientId": str(e.recipient_id) if e.recipient_id else None,
             "actorEmail": e.actor_email,
             "actorIp": e.actor_ip,
             "eventMetadata": e.event_metadata or {},
@@ -253,7 +354,7 @@ async def download_signed_document(
     if sign_req.status != "signed":
         raise HTTPException(
             status_code=400,
-            detail="Document has not been signed yet",
+            detail="Document has not been fully signed yet",
         )
 
     storage = get_storage()
@@ -293,29 +394,47 @@ async def view_document(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """View document metadata before signing (public, token-based)."""
+    """View document metadata before signing (public, token-based).
+    Fields belonging to a different recipient's role are omitted entirely,
+    not just hidden (FR-5.3)."""
     ip = request.client.host if request.client else ""
     user_agent = request.headers.get("user-agent", "")
 
     service = SignService(db)
-    sign_req = service.view_document(
+    sign_req, recipient = service.view_document(
         token=token, ip=ip, user_agent=user_agent
     )
 
     doc = sign_req.document
     company = sign_req.company
 
+    visible_fields = []
+    for field in sign_req.sign_fields or []:
+        role = field.get("signer_role")
+        if role and role != recipient.role:
+            continue  # another recipient's field -- omit, not just hide
+        item = _field_def_to_camel(field)
+        if role == recipient.role:
+            item["editable"] = True
+        else:
+            item["editable"] = False
+            item["value"] = (sign_req.prefill_data or {}).get(field.get("key"))
+        visible_fields.append(item)
+
     return {
         "documentName": doc.name if doc else "Document",
         "senderName": sign_req.sender_name,
         "senderEmail": sign_req.sender_email,
-        "recipientName": sign_req.recipient_name,
+        "recipientName": recipient.name,
+        "recipientRole": recipient.role,
+        "recipientStatus": recipient.status,
         "companyName": company.name if company else None,
         "companyLogoUrl": None,
         "pageCount": doc.page_count if doc else 0,
-        "signFields": sign_req.sign_fields or [],
+        "signFields": visible_fields,
         "status": sign_req.status,
         "expiresAt": sign_req.expires_at,
+        "consentRequired": True,
     }
 
 
@@ -333,7 +452,7 @@ async def get_page_image(
         raise HTTPException(
             status_code=404, detail="Sign request not found"
         )
-    if sign_req.status in ("cancelled", "expired"):
+    if sign_req.status in BLOCKED_STATUSES:
         raise HTTPException(
             status_code=410,
             detail="This signing request is no longer available",
@@ -358,7 +477,14 @@ async def get_page_image(
         )
 
     mime = (doc.mime_type or "").lower()
-    pdf_data = storage.read(doc.file_path)
+    # Match _burn_document: annotation edits (PDF editor, inline or
+    # standalone) must render here as what the signer sees, since that's
+    # also what ends up burned into the final signed document.
+    pdf_data = (
+        flatten_annotations_bytes(doc, storage)
+        if not mime.startswith("image/") and doc.annotations
+        else storage.read(doc.file_path)
+    )
 
     # Image files: serve directly
     if mime.startswith("image/"):
@@ -424,22 +550,25 @@ async def submit_signature(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Submit a completed signature for the document."""
+    """Submit this recipient's completed signature + field values."""
     ip = request.client.host if request.client else ""
     user_agent = request.headers.get("user-agent", "")
 
     service = SignService(db)
-    sign_req = service.submit_signature(
+    recipient = service.submit_signature(
         token=token,
         signature_data=data.signature_data,
         signature_type=data.signature_type,
         signature_font=data.signature_font or "",
+        field_values=data.field_values,
+        consent_agreed=data.consent_agreed,
         ip=ip,
         user_agent=user_agent,
     )
     return {
-        "status": sign_req.status,
-        "signed_at": sign_req.signed_at,
+        "status": recipient.status,
+        "envelopeStatus": recipient.sign_request.status,
+        "signedAt": recipient.signed_at,
     }
 
 
@@ -455,13 +584,13 @@ async def decline_signature(
     user_agent = request.headers.get("user-agent", "")
 
     service = SignService(db)
-    sign_req = service.decline_signature(
+    recipient = service.decline_signature(
         token=token,
         reason=data.reason or "",
         ip=ip,
         user_agent=user_agent,
     )
     return {
-        "status": sign_req.status,
-        "declined_at": sign_req.declined_at,
+        "status": recipient.status,
+        "declinedAt": recipient.declined_at,
     }

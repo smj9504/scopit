@@ -116,6 +116,16 @@ function setAnnotationId(obj: FabricObject, id: string): void {
   (obj as FabricObject & { data?: unknown }).data = { annotationId: id };
 }
 
+/**
+ * Hide the edge/midpoint resize handles (mt/mb/ml/mr) on a text object.
+ * Those controls scale only scaleX or scaleY independently, which stretches
+ * the glyph shapes. Leaving only the corner handles keeps resizing uniform
+ * (fabric's default `canvas.uniformScaling` applies proportional scale there).
+ */
+function restrictTextScaling(obj: IText): void {
+  obj.setControlsVisibility({ mt: false, mb: false, ml: false, mr: false });
+}
+
 /** Extract position / size / rotation from a fabric object into an Annotation. */
 function fabricToAnnotation(obj: FabricObject, existing: Annotation): Annotation {
   const scaleX = (obj.scaleX ?? 1);
@@ -157,6 +167,7 @@ function buildTextObject(ann: Annotation): IText {
     selectable: true,
     editable: true,
   });
+  restrictTextScaling(obj);
   setAnnotationId(obj, ann.id);
   return obj;
 }
@@ -200,6 +211,7 @@ function buildStampObject(ann: Annotation, color: string): IText {
     // Padding acts as visual spacing inside the selection box
     padding: 8,
   });
+  restrictTextScaling(obj);
   setAnnotationId(obj, ann.id);
   return obj;
 }
@@ -783,6 +795,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             selectable: true,
             editable: true,
           });
+          restrictTextScaling(textObj);
           setAnnotationId(textObj, id);
           fc.add(textObj);
           fc.setActiveObject(textObj);
@@ -969,6 +982,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         selectable: true,
         padding: 8,
       });
+      restrictTextScaling(stampText);
       setAnnotationId(stampText, id);
       fc.add(stampText);
       fc.setActiveObject(stampText);

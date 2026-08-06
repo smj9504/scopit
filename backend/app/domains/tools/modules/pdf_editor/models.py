@@ -31,6 +31,11 @@ class PdfDocument(Base):
 
     annotations = Column(JSONB, default=[])
 
+    # Reusable field-mapping template: list of field definitions (position, type,
+    # data binding). Copied into SignRequest.sign_fields at instance-creation time
+    # so template edits never retroactively alter already-sent envelopes.
+    field_definitions = Column(JSONB, default=[])
+
     thumbnail_path = Column(String(500))
     is_active = Column(Boolean, default=True)
 
@@ -46,6 +51,7 @@ class SignRequestStatus(str, enum.Enum):
     DRAFT = "draft"
     SENT = "sent"
     VIEWED = "viewed"
+    PARTIALLY_SIGNED = "partially_signed"
     SIGNED = "signed"
     DECLINED = "declined"
     EXPIRED = "expired"
@@ -65,13 +71,29 @@ class SignRequest(Base):
     sender_name = Column(String(255), nullable=False)
 
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"))
-    recipient_email = Column(String(255), nullable=False)
-    recipient_name = Column(String(255), nullable=False)
 
+    # Legacy singular-recipient columns. Frozen (kept nullable-readable for old
+    # rows) since the sign_recipients backfill migration; new code no longer
+    # writes to these -- recipients now live on SignRecipient.
+    recipient_email = Column(String(255), nullable=True)
+    recipient_name = Column(String(255), nullable=True)
+
+    # Per-instance frozen copy of PdfDocument.field_definitions, taken once at
+    # creation time so later template edits don't alter already-sent envelopes.
     sign_fields = Column(JSONB, default=[])
+
+    # Snapshot of resolved values for "prefilled" and "creator_input" fields,
+    # keyed by field key. Computed once at creation (prefilled) / filled in
+    # pre-send (creator_input); never recomputed from live Customer/Company data.
+    prefill_data = Column(JSONB, default={})
+
+    # "direct_link" | "email_request" -- plain string for future extensibility (e.g. sms)
+    delivery_method = Column(String(20), nullable=False, default="email_request")
 
     email_subject = Column(String(500))
     email_message = Column(Text)
+    cc_emails = Column(JSONB, nullable=False, default=[])
+    bcc_emails = Column(JSONB, nullable=False, default=[])
 
     status = Column(String(20), nullable=False, default="draft", index=True)
 
@@ -80,10 +102,15 @@ class SignRequest(Base):
 
     sent_at = Column(TIMESTAMP(timezone=True))
     viewed_at = Column(TIMESTAMP(timezone=True))
+    # Envelope-level "fully completed at" -- set once ALL recipients have signed.
     signed_at = Column(TIMESTAMP(timezone=True))
     declined_at = Column(TIMESTAMP(timezone=True))
 
+    # Envelope-level final combined PDF (all recipients' values/signatures
+    # burned in), generated once when every recipient has signed.
     signed_file_path = Column(String(500))
+
+    # Legacy singular-signature columns. Frozen (see recipient_email note above).
     signature_data = Column(Text)
     signature_type = Column(String(20))
     signature_font = Column(String(100))
@@ -98,6 +125,50 @@ class SignRequest(Base):
     sender = relationship("User", foreign_keys=[sent_by])
     customer = relationship("Customer")
     audit_events = relationship("SignAuditEvent", back_populates="sign_request", cascade="all, delete-orphan")
+    recipients = relationship(
+        "SignRecipient",
+        back_populates="sign_request",
+        cascade="all, delete-orphan",
+        order_by="SignRecipient.sequence",
+    )
+
+
+class SignRecipient(Base):
+    __tablename__ = "sign_recipients"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+
+    sign_request_id = Column(UUID(as_uuid=True), ForeignKey("sign_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    role = Column(String(50), nullable=False)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    phone = Column(String(50))
+    sequence = Column(Integer, nullable=False, default=0)
+
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    access_token = Column(String(255), nullable=False, unique=True, index=True)
+
+    viewed_at = Column(TIMESTAMP(timezone=True))
+    signed_at = Column(TIMESTAMP(timezone=True))
+    declined_at = Column(TIMESTAMP(timezone=True))
+
+    signature_data = Column(Text)
+    signature_type = Column(String(20))
+    signature_font = Column(String(100))
+    signer_ip = Column(String(45))
+    signer_user_agent = Column(String(500))
+
+    consent_agreed = Column(Boolean, nullable=False, default=False)
+    document_hash = Column(String(64))
+    # This recipient's own signer_input field values, keyed by field key
+    # (excludes the signature image itself, which has its own columns above).
+    signed_field_values = Column(JSONB, default={})
+
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(TIMESTAMP(timezone=True), onupdate=func.now())
+
+    sign_request = relationship("SignRequest", back_populates="recipients")
 
 
 class SignAuditEvent(Base):
@@ -106,6 +177,7 @@ class SignAuditEvent(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
 
     sign_request_id = Column(UUID(as_uuid=True), ForeignKey("sign_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    recipient_id = Column(UUID(as_uuid=True), ForeignKey("sign_recipients.id", ondelete="CASCADE"), nullable=True, index=True)
 
     event_type = Column(String(50), nullable=False)
     actor_email = Column(String(255))
@@ -116,6 +188,7 @@ class SignAuditEvent(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
 
     sign_request = relationship("SignRequest", back_populates="audit_events")
+    recipient = relationship("SignRecipient")
 
 
 class CompanyDocument(Base):
