@@ -66,14 +66,14 @@
 
 | 환경 | Host | Database | Port | 용도 |
 |------|------|----------|------|------|
-| **Local** | localhost | scopit_local | 5432 | 개발 |
+| **Local** | ep-xxx.neon.tech (dev branch 권장) | scopit_local | 5432 | 개발 |
 | **Stage** | stage-db.neon.tech | scopit_stage | 5432 | 테스트 |
 | **Production** | prod-db.neon.tech | scopit_prod | 5432 | 운영 |
 
 ### 연결 문자열
 ```bash
-# Local
-DATABASE_URL=postgresql://scopit:scopit123@localhost:5432/scopit_local
+# Local (Neon dev branch)
+DATABASE_URL=postgresql://scopit:${PASSWORD}@ep-xxx.us-east-1.aws.neon.tech/scopit_local?sslmode=require
 
 # Stage
 DATABASE_URL=postgresql://scopit:${PASSWORD}@ep-xxx.us-east-1.aws.neon.tech/scopit_stage?sslmode=require

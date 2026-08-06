@@ -1,31 +1,14 @@
 # Scopit - Docker Compose (Local Development)
+# Database is Neon (cloud Postgres) - set DATABASE_URL in .env to your Neon
+# connection string. There is no local Postgres container.
 services:
-  # PostgreSQL Database
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: scopit
-      POSTGRES_PASSWORD: scopit123
-      POSTGRES_DB: scopit_local
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scopit -d scopit_local"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # Backend API
   backend:
     build: ./backend
     environment:
       - ENV=local
       - DEBUG=True
-      # Points at the "db" service (docker network hostname), not localhost -
-      # keep this hardcoded even though .env's DATABASE_URL uses localhost for host tooling.
-      - DATABASE_URL=postgresql://scopit:scopit123@db:5432/scopit_local
+      - DATABASE_URL=${DATABASE_URL}
       - DATABASE_POOL_SIZE=${DATABASE_POOL_SIZE:-5}
       - DATABASE_MAX_OVERFLOW=${DATABASE_MAX_OVERFLOW:-10}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
@@ -75,9 +58,6 @@ services:
       - STRIPE_PRICE_ID_PRO_YEARLY=${STRIPE_PRICE_ID_PRO_YEARLY:-}
     ports:
       - "8001:8001"
-    depends_on:
-      db:
-        condition: service_healthy
     volumes:
       - ./backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
@@ -89,6 +69,3 @@ services:
       - "3001:80"
     depends_on:
       - backend
-
-volumes:
-  postgres_data:

@@ -59,12 +59,12 @@ frontend/dev-dist/
 # ===================
 # Environment & Secrets
 # ===================
+# Catches .env, .env.local, .env.dev, .env.production, .env.<anything> —
+# config.py loads f".env.{ENV}" for arbitrary ENV values, so any variant can
+# hold real credentials. *.example files are templates and stay tracked.
 .env
-.env.local
-.env.production
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env*.example
 *.local.env
 .envrc
 

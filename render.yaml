@@ -72,7 +72,7 @@ services:
       - key: SMTP_PASSWORD
         sync: false
       - key: EMAIL_FROM
-        value: noreply@scopit.work
+        value: info@scopit.work
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "1440"
       - key: REFRESH_TOKEN_EXPIRE_DAYS

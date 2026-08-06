@@ -8,12 +8,13 @@ Simple estimating software for restoration contractors.
 
 - Node.js 20+
 - Python 3.11+
-- PostgreSQL 15+ (local) or NeonDB (cloud)
+- A [Neon](https://neon.tech) PostgreSQL project (used for local dev and production)
 - Docker (optional)
 
 ### Option 1: Docker
 
 ```bash
+# Set DATABASE_URL in .env to your Neon connection string first (see below)
 docker-compose up -d
 
 # Frontend: http://localhost:3001
@@ -31,8 +32,7 @@ python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Local DB
-createdb scopit_local
+# Set DATABASE_URL in .env.local to your Neon connection string, then:
 alembic upgrade head
 
 # Run server
@@ -84,7 +84,7 @@ scopit/
 |-------|-----------|
 | Frontend | React 18 + TypeScript, Vite 5, Ant Design 5, Zustand, TanStack Query |
 | Backend | FastAPI, Python 3.11+, SQLAlchemy 2.0 (sync), Pydantic V2 |
-| Database | PostgreSQL 15 (NeonDB in production) |
+| Database | PostgreSQL 15 (NeonDB) |
 | File Storage | Local (dev) / Cloudflare R2 (production) |
 | Auth | JWT (HS256), Google OAuth |
 | PDF | WeasyPrint, PyPDF, ReportLab, pdf2image |
@@ -110,10 +110,14 @@ Users → Vercel (Frontend) → Render (Backend API) → NeonDB (PostgreSQL)
 
 1. Create project at [neon.tech](https://neon.tech)
 2. Copy connection string: `postgresql://user:pass@ep-xxx.neon.tech/scopit?sslmode=require`
-3. To use the same DB locally, update `backend/.env.local`:
+3. Local dev uses the same Neon DB (no local Postgres container) — set `DATABASE_URL`
+   in `backend/.env.local` (manual/uvicorn workflow) and in the root `.env`
+   (docker-compose workflow):
    ```
    DATABASE_URL=postgresql://user:pass@ep-xxx.neon.tech/scopit?sslmode=require
    ```
+   Consider creating a separate Neon branch (e.g. `dev`) for local work so it
+   doesn't share data with production.
 
 #### Migrate Local Data to NeonDB
 
@@ -226,7 +230,7 @@ api.scopit.work    → CNAME → scopit-api.onrender.com
 ```env
 ENV=local
 DEBUG=True
-DATABASE_URL=postgresql://scopit:scopit123@localhost:5432/scopit_local
+DATABASE_URL=postgresql://user:pass@ep-xxx.neon.tech/scopit?sslmode=require
 SECRET_KEY=dev-secret-key
 CORS_ORIGINS=http://localhost:3001
 BETA_MODE=True
