@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Status Migration Modal
+ * Scopit - Status Migration Modal
  * Shows when deleting a status that's in use, allowing user to select a replacement status
  */
 import React, { useState, useEffect } from 'react';

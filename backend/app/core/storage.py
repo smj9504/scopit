@@ -1,5 +1,5 @@
 """
-ScopeIt - Storage Service
+Scopit - Storage Service
 
 Abstracts file storage behind a unified interface.
 Supports local filesystem (development) and Cloudflare R2 (production).
@@ -43,7 +43,7 @@ class StorageBackend:
     @contextmanager
     def temp_workspace(self) -> Generator[str, None, None]:
         """Provide a temporary directory for multi-file processing."""
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             yield tmpdir
 
 
@@ -136,7 +136,7 @@ class R2Storage(StorageBackend):
         """Download from R2 to temp, yield path, upload back on exit."""
         if not suffix:
             _, suffix = os.path.splitext(key)
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="scopeit_")
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="scopit_")
         try:
             # Download existing file if it exists
             try:

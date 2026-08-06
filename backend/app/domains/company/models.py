@@ -1,5 +1,5 @@
 """
-ScopeIt - Company Models
+Scopit - Company Models
 """
 from sqlalchemy import Column, String, Text, Boolean, Integer, DECIMAL
 from sqlalchemy.orm import relationship

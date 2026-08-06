@@ -1,4 +1,4 @@
-# ScopeIt - Render Deployment Configuration
+# Scopit - Render Deployment Configuration
 # Deploy at: https://dashboard.render.com
 # Docs: https://render.com/docs/blueprint-spec
 #
@@ -10,7 +10,7 @@
 
 services:
   - type: web
-    name: scopeit-api
+    name: scopit-api
     runtime: docker
     plan: free
     region: oregon
@@ -55,12 +55,12 @@ services:
       - key: R2_SECRET_ACCESS_KEY
         sync: false
       - key: R2_BUCKET_NAME
-        value: scopeit-uploads
+        value: scopit-uploads
       # External services (set in dashboard)
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: EMAIL_FROM
-        value: noreply@scopeit.work
+        value: noreply@scopit.work
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "1440"
       - key: REFRESH_TOKEN_EXPIRE_DAYS

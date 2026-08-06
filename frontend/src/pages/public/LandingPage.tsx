@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// ScopeIt Landing Page
+// Scopit Landing Page
 // Save as: frontend/src/pages/public/LandingPage.tsx
 
 function useInView<T extends HTMLElement>(options?: IntersectionObserverInit) {
@@ -184,7 +184,7 @@ const LandingPage: React.FC = () => {
   ];
 
   const faqs = [
-    { q: 'Is the beta really free?', a: 'Yes. During the beta period, all features are completely free. We want your feedback to make ScopeIt better.' },
+    { q: 'Is the beta really free?', a: 'Yes. During the beta period, all features are completely free. We want your feedback to make Scopit better.' },
     { q: 'How long will the beta last?', a: 'We expect the beta to run for 2-3 months. Beta users will get special pricing when we launch.' },
     { q: 'Will I lose my data after beta?', a: 'No. All your estimates, invoices, and customer data will be preserved when we move to full launch.' },
     { q: 'What kind of feedback are you looking for?', a: 'Anything that helps us improve: bugs, feature requests, workflow suggestions, or things that feel awkward.' },
@@ -453,7 +453,7 @@ const LandingPage: React.FC = () => {
         }}>
           <a href="/" style={{ textDecoration: 'none' }}>
             <span className="headline" style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>
-              ScopeIt
+              Scopit
             </span>
           </a>
           
@@ -583,7 +583,7 @@ const LandingPage: React.FC = () => {
                   textAlign: 'center',
                   margin: '0 40px',
                 }}>
-                  app.scopeit.com/estimates/123
+                  app.scopit.com/estimates/123
                 </div>
               </div>
 
@@ -1026,7 +1026,7 @@ const LandingPage: React.FC = () => {
                 marginBottom: 16,
                 letterSpacing: '0.5px',
               }}>
-                WITH SCOPEIT
+                WITH SCOPIT
               </div>
               <ul style={{ color: '#e5e7eb', lineHeight: 2.2, listStyle: 'none' }}>
                 <li>5 minutes per estimate</li>
@@ -1273,7 +1273,7 @@ const LandingPage: React.FC = () => {
           }}>
             <div>
               <span className="headline" style={{ color: 'white', fontWeight: 700, fontSize: 18 }}>
-                ScopeIt
+                Scopit
               </span>
               <p style={{ fontSize: 14, marginTop: 8, maxWidth: 250 }}>
                 Simple estimating software for restoration contractors.
@@ -1301,7 +1301,7 @@ const LandingPage: React.FC = () => {
               <div>
                 <div style={{ color: 'white', fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Contact</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <a href="mailto:hello@scopeit.work" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>hello@scopeit.work</a>
+                  <a href="mailto:hello@scopit.work" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>hello@scopit.work</a>
                 </div>
               </div>
             </div>
@@ -1313,7 +1313,7 @@ const LandingPage: React.FC = () => {
             fontSize: 13,
             color: '#6b7280',
           }}>
-            © 2026 ScopeIt. All rights reserved.
+            © 2026 Scopit. All rights reserved.
           </div>
         </div>
       </footer>

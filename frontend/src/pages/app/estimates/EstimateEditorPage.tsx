@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Estimate Editor Page
+ * Scopit - Estimate Editor Page
  * Section-based line item management with multi-select, copy/paste, drag & drop
  */
 import React, { useState, useEffect, useCallback } from 'react';
@@ -1334,11 +1334,11 @@ const EstimateEditorPage: React.FC = () => {
 
   // Save-to-library preference for custom items
   const [saveToLibraryDefault, setSaveToLibraryDefault] = useState<boolean>(() => {
-    const stored = localStorage.getItem('scopeit-save-custom-to-library');
+    const stored = localStorage.getItem('scopit-save-custom-to-library');
     return stored === 'true';
   });
   const [hasAskedSavePreference, setHasAskedSavePreference] = useState(() => {
-    return localStorage.getItem('scopeit-save-custom-to-library') !== null;
+    return localStorage.getItem('scopit-save-custom-to-library') !== null;
   });
 
   // DnD sensors
@@ -1530,13 +1530,13 @@ const EstimateEditorPage: React.FC = () => {
         cancelText: 'No, don\'t save',
         okButtonProps: { style: { background: colors.primary, borderColor: colors.primary } },
         onOk: () => {
-          localStorage.setItem('scopeit-save-custom-to-library', 'true');
+          localStorage.setItem('scopit-save-custom-to-library', 'true');
           setSaveToLibraryDefault(true);
           setHasAskedSavePreference(true);
           doAddItem(sectionId, true);
         },
         onCancel: () => {
-          localStorage.setItem('scopeit-save-custom-to-library', 'false');
+          localStorage.setItem('scopit-save-custom-to-library', 'false');
           setSaveToLibraryDefault(false);
           setHasAskedSavePreference(true);
           doAddItem(sectionId, false);
@@ -1871,7 +1871,7 @@ const EstimateEditorPage: React.FC = () => {
         }
       }
       if (customItemsToSave.length > 0) {
-        localStorage.setItem('scopeit-save-custom-to-library', 'true');
+        localStorage.setItem('scopit-save-custom-to-library', 'true');
         setSaveToLibraryDefault(true);
       }
 

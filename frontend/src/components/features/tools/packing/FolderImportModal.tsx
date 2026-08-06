@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Folder Import Modal
+ * Scopit - Folder Import Modal
  * Upload a local folder or Google Drive folder to auto-create rooms from subfolders.
  */
 

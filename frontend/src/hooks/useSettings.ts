@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Settings Hooks
+ * Scopit - Settings Hooks
  * Hooks for fetching and caching statuses and categories
  */
 import { useQuery } from '@tanstack/react-query';

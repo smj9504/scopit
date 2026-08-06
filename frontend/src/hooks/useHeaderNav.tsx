@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Header Navigation Context
+ * Scopit - Header Navigation Context
  * Allows child pages to set back navigation in the app header.
  */
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';

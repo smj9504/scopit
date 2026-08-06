@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Import from Excel Modal
+ * Scopit - Import from Excel Modal
  * Shared between Estimates and Invoices list pages.
  */
 import React, { useState } from 'react';
@@ -73,7 +73,7 @@ export function ImportExcelModal({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `scopeit_${documentType}_template.xlsx`;
+      a.download = `scopit_${documentType}_template.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {

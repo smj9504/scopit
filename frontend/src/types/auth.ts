@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Auth Types
+ * Scopit - Auth Types
  */
 
 export interface User {

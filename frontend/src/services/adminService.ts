@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Admin Service
+ * Scopit - Admin Service
  * API calls for admin dashboard (superuser only)
  */
 import api from './api';

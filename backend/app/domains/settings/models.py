@@ -1,5 +1,5 @@
 """
-ScopeIt - Settings Models
+Scopit - Settings Models
 """
 from sqlalchemy import Column, String, Boolean, ForeignKey, Integer
 from sqlalchemy.orm import relationship

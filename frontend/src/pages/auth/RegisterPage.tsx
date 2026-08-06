@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Register Page
+ * Scopit - Register Page
  */
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -63,7 +63,7 @@ const RegisterPage: React.FC = () => {
 
   const handleVerified = (response: VerifyEmailResponse) => {
     login(response.user, response.accessToken, response.refreshToken);
-    message.success('Welcome to ScopeIt!');
+    message.success('Welcome to Scopit!');
     navigate('/app/dashboard');
   };
 
@@ -93,7 +93,7 @@ const RegisterPage: React.FC = () => {
               color: colors.primary,
             }}
           >
-            ScopeIt
+            Scopit
           </span>
         </Link>
       </header>

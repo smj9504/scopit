@@ -1,5 +1,5 @@
 """
-ScopeIt - Packing Tool Export Service
+Scopit - Packing Tool Export Service
 
 Ported from moving_estimate/moving-estimator-backend/services/export.py.
 Generates professional PDF and Excel exports for packing/contents estimates.
@@ -34,11 +34,11 @@ from openpyxl.utils import get_column_letter
 
 
 # ============================================
-# SCOPEIT COMPANY INFO HELPER
+# SCOPIT COMPANY INFO HELPER
 # ============================================
 
 def build_company_info(company, override=None) -> dict:
-    """Build company info dict from ScopeIt Company model with optional overrides.
+    """Build company info dict from Scopit Company model with optional overrides.
 
     ``override`` may be a dict or a Pydantic model instance.
     """
@@ -80,7 +80,7 @@ DEFAULT_PRICES = {
 def generate_estimate_number():
     """Generate a unique estimate number.
 
-    Note: Used as a fallback only. In ScopeIt, estimate numbers are normally
+    Note: Used as a fallback only. In Scopit, estimate numbers are normally
     generated via ``company.estimate_prefix``.
     """
     chars = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))

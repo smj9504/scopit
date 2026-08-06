@@ -1,5 +1,5 @@
 """
-ScopeIt - Tool Registry
+Scopit - Tool Registry
 
 Single source of truth for available tools.
 Adding a new tool = adding one entry to TOOL_REGISTRY.

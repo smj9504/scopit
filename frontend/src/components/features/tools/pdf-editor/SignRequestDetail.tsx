@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Sign Request Detail
+ * Scopit - Sign Request Detail
  *
  * Full detail view for a single e-signature request, including:
  *  - Document & recipient information

@@ -1,5 +1,5 @@
 """
-ScopeIt - Line Item Schemas
+Scopit - Line Item Schemas
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List

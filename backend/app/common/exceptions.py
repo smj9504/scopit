@@ -1,5 +1,5 @@
 """
-ScopeIt - Custom Exceptions
+Scopit - Custom Exceptions
 """
 from fastapi import HTTPException, status
 

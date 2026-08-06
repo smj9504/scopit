@@ -1,5 +1,5 @@
 """
-ScopeIt - Login Tracking Service
+Scopit - Login Tracking Service
 Records login events with geolocation and device info
 """
 from sqlalchemy.orm import Session

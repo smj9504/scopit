@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Editor Import Modal
+ * Scopit - PDF Editor Import Modal
  *
  * Three-tab modal for importing PDFs into the editor from:
  *   - Estimates  (with template selector)

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Page Sidebar
+ * Scopit - Page Sidebar
  *
  * Scrollable panel showing page thumbnails for the open PDF document.
  * Features:

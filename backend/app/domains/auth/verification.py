@@ -1,5 +1,5 @@
 """
-ScopeIt - Email Verification Code Logic
+Scopit - Email Verification Code Logic
 """
 import hashlib
 import secrets

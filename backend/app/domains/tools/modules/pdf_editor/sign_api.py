@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-ScopeIt - E-Sign API
+Scopit - E-Sign API
 
 Two routers:
   router        - authenticated endpoints under /api/tools/pdf-editor/sign/

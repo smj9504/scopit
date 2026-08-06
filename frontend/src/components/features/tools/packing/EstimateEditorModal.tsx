@@ -2078,7 +2078,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
               size={isMobile ? 'small' : 'middle'}
               style={{ background: colors.primary, borderColor: colors.primary }}
             >
-              {isMobile ? 'Estimate' : 'Create ScopeIt Estimate'}
+              {isMobile ? 'Estimate' : 'Create Scopit Estimate'}
             </Button>
           )}
           <Button

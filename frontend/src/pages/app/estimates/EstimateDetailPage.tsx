@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Estimate Detail Page
+ * Scopit - Estimate Detail Page
  */
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';

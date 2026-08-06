@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Public Packing Estimator Demo
+ * Scopit - Public Packing Estimator Demo
  * Route: /demo/packing  (no authentication required)
  *
  * Renders the REAL production Photo AI screen (PhotoAITab + EstimateEditorModal

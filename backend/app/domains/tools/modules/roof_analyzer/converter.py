@@ -1,5 +1,5 @@
 """
-ScopeIt - Roof Analyzer Estimate Converter
+Scopit - Roof Analyzer Estimate Converter
 
 Converts roof analysis session data into estimate line items.
 """

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Send for Signature Modal
+ * Scopit - Send for Signature Modal
  *
  * Three-step wizard over a document's saved field-mapping template:
  *   Step 1: Preview the template's fields. "Edit Fields" and "Edit PDF" open

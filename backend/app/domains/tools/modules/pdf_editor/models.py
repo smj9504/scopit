@@ -1,5 +1,5 @@
 """
-ScopeIt - PDF Editor Models
+Scopit - PDF Editor Models
 """
 import enum
 

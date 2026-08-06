@@ -1,5 +1,5 @@
 """
-ScopeIt - Public Packing Estimator Demo API
+Scopit - Public Packing Estimator Demo API
 
 Fully unauthenticated endpoints backing the /demo/packing marketing page.
 No AI vision calls are made, no database rows are written, and nothing is
@@ -295,7 +295,7 @@ async def export_demo_report(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": 'attachment; filename="ScopeIt Demo Packing Report.pdf"'
+            "Content-Disposition": 'attachment; filename="Scopit Demo Packing Report.pdf"'
         },
     )
 
@@ -325,7 +325,7 @@ async def export_demo_estimate_pdf(request: DemoEstimatePdfRequest):
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": 'attachment; filename="ScopeIt Demo Estimate.pdf"'
+            "Content-Disposition": 'attachment; filename="Scopit Demo Estimate.pdf"'
         },
     )
 
@@ -356,6 +356,6 @@ async def export_demo_estimate_excel(request: DemoEstimatePdfRequest):
         io.BytesIO(xlsx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": 'attachment; filename="ScopeIt Demo Estimate.xlsx"'
+            "Content-Disposition": 'attachment; filename="Scopit Demo Estimate.xlsx"'
         },
     )

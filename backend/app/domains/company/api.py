@@ -1,5 +1,5 @@
 """
-ScopeIt - Company API Routes
+Scopit - Company API Routes
 """
 import re
 

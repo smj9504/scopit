@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Tool Card
+ * Scopit - Tool Card
  */
 import React from 'react';
 import { Card, Tag, Button, Tooltip } from 'antd';

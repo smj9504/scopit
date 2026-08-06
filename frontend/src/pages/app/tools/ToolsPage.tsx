@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Tools Launcher Page
+ * Scopit - Tools Launcher Page
  */
 import React from 'react';
 import { Row, Col, Spin, Empty, Typography } from 'antd';

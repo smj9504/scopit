@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Main App Component
+ * Scopit - Main App Component
  */
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, createBrowserRouter, createRoutesFromElements, RouterProvider } from 'react-router-dom';

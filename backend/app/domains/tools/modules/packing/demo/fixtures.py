@@ -1,5 +1,5 @@
 """
-ScopeIt - Packing Estimator Public Demo Fixtures
+Scopit - Packing Estimator Public Demo Fixtures
 
 Canned "AI analysis" results for the unauthenticated packing demo
 (see ../demo_api.py). No real vision AI call is ever made for these rooms —

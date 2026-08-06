@@ -1,5 +1,5 @@
 """
-ScopeIt - Estimate API Routes
+Scopit - Estimate API Routes
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import Response, StreamingResponse
@@ -602,7 +602,7 @@ async def download_estimate_excel_template():
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": "attachment; filename=scopeit_estimate_template.xlsx"
+            "Content-Disposition": "attachment; filename=scopit_estimate_template.xlsx"
         },
     )
 

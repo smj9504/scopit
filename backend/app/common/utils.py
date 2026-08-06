@@ -1,5 +1,5 @@
 """
-ScopeIt - Utility Functions
+Scopit - Utility Functions
 """
 import uuid
 import random

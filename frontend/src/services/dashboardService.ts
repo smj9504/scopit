@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Dashboard Service
+ * Scopit - Dashboard Service
  */
 import api from './api';
 

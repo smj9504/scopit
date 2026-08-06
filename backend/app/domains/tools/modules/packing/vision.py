@@ -1,5 +1,5 @@
 """
-ScopeIt - Packing Tool Vision Service
+Scopit - Packing Tool Vision Service
 
 Provides Claude Vision API integration for photo-based room content analysis.
 Ported from moving_estimate standalone application.

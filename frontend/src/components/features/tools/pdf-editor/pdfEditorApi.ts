@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Editor API Client
+ * Scopit - PDF Editor API Client
  *
  * Uses the centralized `api` axios instance (auth headers, token refresh).
  * For public signing endpoints (no auth required), uses raw axios.

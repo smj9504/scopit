@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Field Mapping Modal
+ * Scopit - Field Mapping Modal
  *
  * The reusable-template editor: place fields on a document, then configure
  * each field's type, data binding (auto-fill / signer fills in / sender

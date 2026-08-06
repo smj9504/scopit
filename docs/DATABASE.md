@@ -1,6 +1,6 @@
 # 02. 데이터베이스 설계
 
-> ScopeIt 데이터베이스 스키마, ERD, 마이그레이션 가이드
+> Scopit 데이터베이스 스키마, ERD, 마이그레이션 가이드
 
 ---
 
@@ -66,20 +66,20 @@
 
 | 환경 | Host | Database | Port | 용도 |
 |------|------|----------|------|------|
-| **Local** | localhost | scopeit_local | 5432 | 개발 |
-| **Stage** | stage-db.neon.tech | scopeit_stage | 5432 | 테스트 |
-| **Production** | prod-db.neon.tech | scopeit_prod | 5432 | 운영 |
+| **Local** | localhost | scopit_local | 5432 | 개발 |
+| **Stage** | stage-db.neon.tech | scopit_stage | 5432 | 테스트 |
+| **Production** | prod-db.neon.tech | scopit_prod | 5432 | 운영 |
 
 ### 연결 문자열
 ```bash
 # Local
-DATABASE_URL=postgresql://scopeit:scopeit123@localhost:5432/scopeit_local
+DATABASE_URL=postgresql://scopit:scopit123@localhost:5432/scopit_local
 
 # Stage
-DATABASE_URL=postgresql://scopeit:${PASSWORD}@ep-xxx.us-east-1.aws.neon.tech/scopeit_stage?sslmode=require
+DATABASE_URL=postgresql://scopit:${PASSWORD}@ep-xxx.us-east-1.aws.neon.tech/scopit_stage?sslmode=require
 
 # Production
-DATABASE_URL=postgresql://scopeit:${PASSWORD}@ep-xxx.us-east-1.aws.neon.tech/scopeit_prod?sslmode=require
+DATABASE_URL=postgresql://scopit:${PASSWORD}@ep-xxx.us-east-1.aws.neon.tech/scopit_prod?sslmode=require
 ```
 
 ---
@@ -292,7 +292,7 @@ WHERE company_id = :company_id
 ```
 
 **이전 구조 대비 변경점:**
-| 이전 (mj-estimate) | 이후 (scopeit) | 설명 |
+| 이전 (mj-estimate) | 이후 (scopit) | 설명 |
 |-------------------|----------------|------|
 | `type` ENUM | 제거 | XACTIMATE/CUSTOM 구분 불필요 |
 | `description` | `name` | 명확한 필드명 |

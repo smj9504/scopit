@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Dashboard Page
+ * Scopit - Dashboard Page
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';

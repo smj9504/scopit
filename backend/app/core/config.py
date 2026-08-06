@@ -1,5 +1,5 @@
 """
-ScopeIt - Application Configuration
+Scopit - Application Configuration
 """
 from pydantic_settings import BaseSettings
 from typing import List, Optional
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # ===================
     ENV: str = "local"  # local, stage, production
     DEBUG: bool = True
-    APP_NAME: str = "ScopeIt"
+    APP_NAME: str = "Scopit"
     APP_VERSION: str = "1.0.0"
     
     # ===================
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # ===================
     # Database
     # ===================
-    DATABASE_URL: str = "postgresql://scopeit:scopeit123@localhost:5432/scopeit_local"
+    DATABASE_URL: str = "postgresql://scopit:scopit123@localhost:5432/scopit_local"
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
     
@@ -82,8 +82,8 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    EMAIL_FROM: str = "noreply@scopeit.work"
-    EMAIL_FROM_NAME: str = "ScopeIt"
+    EMAIL_FROM: str = "noreply@scopit.work"
+    EMAIL_FROM_NAME: str = "Scopit"
     
     # ===================
     # Item Recommender (semantic search)
@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     R2_ENDPOINT_URL: Optional[str] = None      # https://<account_id>.r2.cloudflarestorage.com
     R2_ACCESS_KEY_ID: Optional[str] = None
     R2_SECRET_ACCESS_KEY: Optional[str] = None
-    R2_BUCKET_NAME: str = "scopeit-uploads"
+    R2_BUCKET_NAME: str = "scopit-uploads"
 
     # ===================
     # Geoapify (Address Autocomplete)

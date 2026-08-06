@@ -1,5 +1,5 @@
 """
-ScopeIt - Settings Service
+Scopit - Settings Service
 """
 from sqlalchemy.orm import Session
 from uuid import UUID

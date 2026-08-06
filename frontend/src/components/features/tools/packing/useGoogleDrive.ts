@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Google Drive Integration Hook
+ * Scopit - Google Drive Integration Hook
  *
  * Manages Google API script loading, OAuth for Drive scope,
  * and folder content enumeration. Keeps everything client-side.

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Invoice Service
+ * Scopit - Invoice Service
  */
 import api from './api';
 import type {

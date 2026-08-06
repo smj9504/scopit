@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Email Verification Step
+ * Scopit - Email Verification Step
  *
  * Shared between RegisterPage (post-signup) and LoginPage (redirect when an
  * unverified account tries to log in). Collects the 6-digit code emailed by

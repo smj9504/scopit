@@ -1,5 +1,5 @@
 """
-ScopeIt - Admin Models (LoginLog, UserActivity)
+Scopit - Admin Models (LoginLog, UserActivity)
 """
 from sqlalchemy import Column, String, ForeignKey, Text, Integer
 from sqlalchemy.orm import relationship

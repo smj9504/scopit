@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Line Items List Page
+ * Scopit - Line Items List Page
  */
 import React, { useState, useMemo } from 'react';
 import {

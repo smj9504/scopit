@@ -1,4 +1,4 @@
-# ScopeIt - Frontend 개발 가이드
+# Scopit - Frontend 개발 가이드
 
 > React 프론트엔드 구현 문서
 
@@ -100,7 +100,7 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: false 
       }),
     }),
-    { name: 'scopeit-auth' }
+    { name: 'scopit-auth' }
   )
 );
 ```

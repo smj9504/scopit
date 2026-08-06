@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Customer Detail Page
+ * Scopit - Customer Detail Page
  *
  * Shows customer info (editable inline) and all related documents
  * (estimates, invoices, sign requests) in a tabbed layout.

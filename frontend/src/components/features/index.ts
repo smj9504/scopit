@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Feature Components
+ * Scopit - Feature Components
  */
 export { CustomerSelector } from './CustomerSelector';
 export type { CustomerSelectorProps } from './CustomerSelector';

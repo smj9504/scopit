@@ -1,5 +1,5 @@
 """
-ScopeIt - Roof Analyzer Service
+Scopit - Roof Analyzer Service
 Placeholder for EagleView parsing, SVG generation, and slope calculations.
 """
 

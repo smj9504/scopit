@@ -1,5 +1,5 @@
 """
-ScopeIt - Standard API Response Schemas
+Scopit - Standard API Response Schemas
 
 Provides consistent response formats across all API endpoints.
 """

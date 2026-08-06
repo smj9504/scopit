@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-ScopeIt - PDF Editor Tool API
+Scopit - PDF Editor Tool API
 
 Document management, page operations, annotations, flattening, and import
 endpoints for the PDF Editor tool.
@@ -573,7 +573,7 @@ async def flatten_document(
 
 
 # ---------------------------------------------------------------------------
-# Import from ScopeIt entities
+# Import from Scopit entities
 # ---------------------------------------------------------------------------
 
 @router.post("/documents/import-estimate", status_code=201)

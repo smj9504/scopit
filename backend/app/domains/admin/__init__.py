@@ -1,3 +1,3 @@
 """
-ScopeIt - Admin Domain
+Scopit - Admin Domain
 """

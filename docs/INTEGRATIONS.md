@@ -1,4 +1,4 @@
-# ScopeIt - 외부 API 연동 가이드
+# Scopit - 외부 API 연동 가이드
 
 > Stripe, Email, Storage, CompanyCam 등 외부 서비스 연동
 
@@ -380,8 +380,8 @@ export const subscriptionService = {
 
 EMAIL_PROVIDER=sendgrid  # sendgrid, ses, smtp
 SENDGRID_API_KEY=SG.xxxxxxxxxxxxx
-EMAIL_FROM=noreply@scopeit.work
-EMAIL_FROM_NAME=ScopeIt
+EMAIL_FROM=noreply@scopit.work
+EMAIL_FROM_NAME=Scopit
 ```
 
 ### 이메일 서비스
@@ -562,7 +562,7 @@ def render_password_reset_email(reset_url: str) -> str:
     </div>
     
     <div class="footer">
-        <p>Sent via ScopeIt</p>
+        <p>Sent via Scopit</p>
     </div>
 </body>
 </html>
@@ -635,7 +635,7 @@ class EstimateService:
 # backend/.env.production
 
 STORAGE_PROVIDER=s3  # local, s3, gcs
-AWS_S3_BUCKET=scopeit-files
+AWS_S3_BUCKET=scopit-files
 AWS_S3_REGION=us-east-1
 AWS_ACCESS_KEY_ID=AKIA...
 AWS_SECRET_ACCESS_KEY=...
@@ -790,19 +790,19 @@ CompanyCam API를 통해 프로젝트 사진 연동
 │                                                              │
 │  1. OAuth 인증                                               │
 │     ┌─────────┐      ┌─────────────┐      ┌─────────────┐   │
-│     │ ScopeIt │ ───▶ │ CompanyCam  │ ───▶ │   사용자    │   │
+│     │ Scopit │ ───▶ │ CompanyCam  │ ───▶ │   사용자    │   │
 │     │         │      │   OAuth     │      │   인증      │   │
 │     └─────────┘      └─────────────┘      └─────────────┘   │
 │                                                              │
 │  2. 프로젝트 연결                                            │
 │     ┌─────────┐      ┌─────────────┐                        │
-│     │ ScopeIt │ ◀──▶ │ CompanyCam  │                        │
+│     │ Scopit │ ◀──▶ │ CompanyCam  │                        │
 │     │ Estimate│      │  Projects   │                        │
 │     └─────────┘      └─────────────┘                        │
 │                                                              │
 │  3. 사진 불러오기                                            │
 │     ┌─────────┐      ┌─────────────┐                        │
-│     │ ScopeIt │ ◀─── │ CompanyCam  │                        │
+│     │ Scopit │ ◀─── │ CompanyCam  │                        │
 │     │  PDF    │      │   Photos    │                        │
 │     └─────────┘      └─────────────┘                        │
 │                                                              │
@@ -816,7 +816,7 @@ CompanyCam API를 통해 프로젝트 사진 연동
 
 COMPANYCAM_CLIENT_ID=xxx
 COMPANYCAM_CLIENT_SECRET=xxx
-COMPANYCAM_REDIRECT_URI=https://api.scopeit.work/api/integrations/companycam/callback
+COMPANYCAM_REDIRECT_URI=https://api.scopit.work/api/integrations/companycam/callback
 ```
 
 ### CompanyCam 클라이언트

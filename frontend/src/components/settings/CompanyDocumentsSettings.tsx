@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Company Documents Settings Tab
+ * Scopit - Company Documents Settings Tab
  *
  * Allows users to upload, browse, edit, and delete company document templates
  * (contracts, W9s, insurance certificates, scope templates, warranties, etc.)

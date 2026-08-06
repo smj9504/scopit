@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 echo ===============================================
-echo    ScopeIt - Smart Server Manager
+echo    Scopit - Smart Server Manager
 echo ===============================================
 echo.
 
@@ -52,7 +52,7 @@ if %errorlevel% equ 0 (
 )
 
 echo   ^> Starting new backend server...
-start "ScopeIt Backend" cmd /k "cd /d %~dp0backend && call ..\venv\Scripts\activate && uvicorn main:app --reload --port 8001"
+start "Scopit Backend" cmd /k "cd /d %~dp0backend && call ..\venv\Scripts\activate && uvicorn main:app --reload --port 8001"
 echo   ^> Backend started in new window
 timeout /t 3 /nobreak >nul
 
@@ -109,7 +109,7 @@ if %errorlevel% equ 0 (
 )
 
 echo   ^> Starting new frontend server...
-start "ScopeIt Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
+start "Scopit Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
 echo   ^> Frontend started in new window
 timeout /t 3 /nobreak >nul
 

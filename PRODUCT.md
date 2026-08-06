@@ -12,11 +12,11 @@ Office and admin staff at small restoration contracting companies. They create e
 
 ## Product Purpose
 
-ScopeIt is estimating and invoicing software for restoration contractors. It lets users quickly create detailed estimates with line items, convert estimates to invoices, manage customer records, and run specialized tools like AI-powered contents packing inventories. Success means a restoration company can produce professional estimates and invoices faster and with less friction than legacy industry tools.
+Scopit is estimating and invoicing software for restoration contractors. It lets users quickly create detailed estimates with line items, convert estimates to invoices, manage customer records, and run specialized tools like AI-powered contents packing inventories. Success means a restoration company can produce professional estimates and invoices faster and with less friction than legacy industry tools.
 
 ## Positioning
 
-An affordable, simple alternative to enterprise restoration estimating platforms like Xactimate and CoreLogic. ScopeIt targets small contractors who need professional output without enterprise complexity or pricing. The value is speed and simplicity — get a clean estimate out the door without training or overhead.
+An affordable, simple alternative to enterprise restoration estimating platforms like Xactimate and CoreLogic. Scopit targets small contractors who need professional output without enterprise complexity or pricing. The value is speed and simplicity — get a clean estimate out the door without training or overhead.
 
 ## Operating Context
 
@@ -55,7 +55,7 @@ An affordable, simple alternative to enterprise restoration estimating platforms
 
 ## Brand Commitments
 
-- Name: ScopeIt
+- Name: Scopit
 - Current aesthetic: clean, minimal, monochromatic with dark primary (#111827)
 - Typography: Plus Jakarta Sans (headings), Inter (body)
 - UI library: Ant Design 5 with custom theme overrides

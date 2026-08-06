@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Settings Service
+ * Scopit - Settings Service
  * Manages estimate statuses, invoice statuses, and line item categories
  */
 import api from './api';

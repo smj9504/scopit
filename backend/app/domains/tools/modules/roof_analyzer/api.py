@@ -1,5 +1,5 @@
 """
-ScopeIt - Roof Analyzer Tool API
+Scopit - Roof Analyzer Tool API
 Placeholder endpoints - full EagleView parsing + SVG visualization TBD.
 """
 from fastapi import APIRouter, Depends, UploadFile, File

@@ -1,5 +1,5 @@
 """
-ScopeIt - Excel Import/Export Service
+Scopit - Excel Import/Export Service
 Shared service for generating Excel templates and parsing uploaded Excel files
 for both estimates and invoices.
 """
@@ -107,7 +107,7 @@ def _build_instructions_sheet(ws, document_type: str):
     ws.column_dimensions["A"].width = 80
 
     instructions = [
-        (f"ScopeIt - {document_type.title()} Import Template", header_font),
+        (f"Scopit - {document_type.title()} Import Template", header_font),
         ("", body_font),
         ("How to use this template:", subheader_font),
         ("1. Go to the 'Items' sheet (tab at the bottom)", body_font),
@@ -115,7 +115,7 @@ def _build_instructions_sheet(ws, document_type: str):
         ("3. Use the 'Section' column to group items into sections", body_font),
         ("   - Items with the same Section name are grouped together", body_font),
         ("   - If left blank, items go into a 'General' section", body_font),
-        ("4. Save the file and upload it in ScopeIt", body_font),
+        ("4. Save the file and upload it in Scopit", body_font),
         ("", body_font),
         ("Column Reference:", subheader_font),
         ("Section    - Group name for organizing items (e.g., 'Demolition', 'Framing')", body_font),

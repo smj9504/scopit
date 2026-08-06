@@ -1,5 +1,5 @@
 """
-ScopeIt - Packing Tool Line Item Seeder
+Scopit - Packing Tool Line Item Seeder
 
 Seeds default moving/packing prices as LineItem records for a company.
 Prices are Xactimate-aligned (VAAR8X_MAR26).
@@ -14,7 +14,7 @@ from app.domains.line_item.models import LineItem, LineItemVisibility
 
 
 # ── Category mapping ─────────────────────────────────────────────────
-# Maps original moving_estimate categories to ScopeIt line item categories
+# Maps original moving_estimate categories to Scopit line item categories
 CATEGORY_MAP = {
     "labor": "Moving - Labor",
     "room": "Moving - Room Rates",

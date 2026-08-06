@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Auth Store
+ * Scopit - Auth Store
  */
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
@@ -75,7 +75,7 @@ export const useAuthStore = create<AuthState>()(
         }),
     }),
     {
-      name: 'scopeit-auth',
+      name: 'scopit-auth',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         accessToken: state.accessToken,

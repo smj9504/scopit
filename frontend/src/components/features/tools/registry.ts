@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Frontend Tool Registry
+ * Scopit - Frontend Tool Registry
  *
  * Maps tool IDs to lazy-loaded React components.
  * Adding a new tool: add one entry here + create the component file.

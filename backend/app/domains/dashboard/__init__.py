@@ -1,3 +1,3 @@
 """
-ScopeIt - Dashboard Domain
+Scopit - Dashboard Domain
 """

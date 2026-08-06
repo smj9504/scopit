@@ -1,4 +1,4 @@
-# ScopeIt Frontend Dockerfile
+# Scopit Frontend Dockerfile
 # Build stage
 FROM node:20-alpine as build
 

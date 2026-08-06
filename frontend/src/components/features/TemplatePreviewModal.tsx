@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Template Sample Preview Modal
+ * Scopit - PDF Template Sample Preview Modal
  * Renders a sample estimate through a given template, for template pickers.
  */
 import React, { useEffect, useState } from 'react';

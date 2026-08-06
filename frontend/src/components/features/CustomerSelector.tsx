@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Customer Selector Component
+ * Scopit - Customer Selector Component
  * Allows users to select an existing customer or input customer details directly
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';

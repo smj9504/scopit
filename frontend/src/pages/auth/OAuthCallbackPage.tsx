@@ -1,5 +1,5 @@
 /**
- * ScopeIt - OAuth Callback Page
+ * Scopit - OAuth Callback Page
  */
 import React, { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -41,7 +41,7 @@ const OAuthCallbackPage: React.FC = () => {
           const user = await authService.getMe();
           login(user, accessToken, refreshToken);
 
-          message.success('Welcome to ScopeIt!');
+          message.success('Welcome to Scopit!');
           navigate('/app/dashboard');
         } catch (err) {
           // Clear tokens on error

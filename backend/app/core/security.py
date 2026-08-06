@@ -1,5 +1,5 @@
 """
-ScopeIt - Security utilities
+Scopit - Security utilities
 """
 from datetime import datetime, timedelta
 from typing import Optional, Any

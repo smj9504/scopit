@@ -1,5 +1,5 @@
 """
-ScopeIt - Admin Service
+Scopit - Admin Service
 """
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, extract, desc, case

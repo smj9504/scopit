@@ -1,5 +1,5 @@
 """
-ScopeIt - Tool Access Dependencies
+Scopit - Tool Access Dependencies
 """
 from fastapi import Depends
 from sqlalchemy.orm import Session

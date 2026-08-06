@@ -32,9 +32,9 @@ jobs:
       postgres:
         image: postgres:15-alpine
         env:
-          POSTGRES_USER: scopeit
-          POSTGRES_PASSWORD: scopeit123
-          POSTGRES_DB: scopeit_test
+          POSTGRES_USER: scopit
+          POSTGRES_PASSWORD: scopit123
+          POSTGRES_DB: scopit_test
         ports:
           - 5432:5432
         options: >-
@@ -52,7 +52,7 @@ jobs:
       - run: pytest tests/ -v --tb=short
         env:
           ENV: test
-          DATABASE_URL: postgresql://scopeit:scopeit123@localhost:5432/scopeit_test
+          DATABASE_URL: postgresql://scopit:scopit123@localhost:5432/scopit_test
           SECRET_KEY: test-secret-key-ci
           CORS_ORIGINS: http://localhost:3001
 
@@ -72,4 +72,4 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          VITE_API_URL: https://api.scopeit.work/api
+          VITE_API_URL: https://api.scopit.work/api

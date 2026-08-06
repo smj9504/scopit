@@ -1,3 +1,3 @@
 """
-ScopeIt - Settings Domain
+Scopit - Settings Domain
 """

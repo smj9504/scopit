@@ -1,4 +1,4 @@
-# ScopeIt
+# Scopit
 
 Simple estimating software for restoration contractors.
 
@@ -32,7 +32,7 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Local DB
-createdb scopeit_local
+createdb scopit_local
 alembic upgrade head
 
 # Run server
@@ -50,7 +50,7 @@ npm run dev  # http://localhost:3001
 ## Project Structure
 
 ```
-scopeit/
+scopit/
 ├── backend/
 │   ├── app/
 │   │   ├── core/           # Config, database, security, storage
@@ -101,35 +101,35 @@ Users → Vercel (Frontend) → Render (Backend API) → NeonDB (PostgreSQL)
 
 | Service | Provider | URL |
 |---------|----------|-----|
-| Frontend | Vercel | `scopeit.work` |
-| Backend | Render | `api.scopeit.work` |
+| Frontend | Vercel | `scopit.work` |
+| Backend | Render | `api.scopit.work` |
 | Database | NeonDB | `ep-xxx.neon.tech` |
-| Files | Cloudflare R2 | `scopeit-uploads` bucket |
+| Files | Cloudflare R2 | `scopit-uploads` bucket |
 
 ### 1. NeonDB Setup
 
 1. Create project at [neon.tech](https://neon.tech)
-2. Copy connection string: `postgresql://user:pass@ep-xxx.neon.tech/scopeit?sslmode=require`
+2. Copy connection string: `postgresql://user:pass@ep-xxx.neon.tech/scopit?sslmode=require`
 3. To use the same DB locally, update `backend/.env.local`:
    ```
-   DATABASE_URL=postgresql://user:pass@ep-xxx.neon.tech/scopeit?sslmode=require
+   DATABASE_URL=postgresql://user:pass@ep-xxx.neon.tech/scopit?sslmode=require
    ```
 
 #### Migrate Local Data to NeonDB
 
 ```bash
 # Dump local DB
-pg_dump -U postgres -d scopeit_local -Fc -f scopeit_backup.dump
+pg_dump -U postgres -d scopit_local -Fc -f scopit_backup.dump
 
 # Restore to NeonDB
-pg_restore -h ep-xxx.neon.tech -U scopeit -d scopeit \
-  --no-owner --no-privileges scopeit_backup.dump
+pg_restore -h ep-xxx.neon.tech -U scopit -d scopit \
+  --no-owner --no-privileges scopit_backup.dump
 ```
 
 ### 2. Cloudflare R2 Setup
 
 1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com) → R2
-2. Create bucket: `scopeit-uploads`
+2. Create bucket: `scopit-uploads`
 3. Create API token: R2 → Manage R2 API Tokens → Create API Token
 4. Note: `Account ID`, `Access Key ID`, `Secret Access Key`
 5. Endpoint URL: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
@@ -139,7 +139,7 @@ pg_restore -h ep-xxx.neon.tech -U scopeit -d scopeit \
 ```bash
 # Install rclone
 # Configure rclone with R2 credentials, then:
-rclone copy ./backend/uploads r2:scopeit-uploads --progress
+rclone copy ./backend/uploads r2:scopit-uploads --progress
 ```
 
 After migrating files, update `file_path` and `thumbnail_path` columns
@@ -178,12 +178,12 @@ migrations (`alembic upgrade head`) run automatically on every container start.
 3. Set environment variables in Render dashboard (blueprint marks these
    `sync: false`, so they must be filled in there):
    - `DATABASE_URL` (NeonDB connection string)
-   - `CORS_ORIGINS` (your Vercel URL, e.g. `https://scopeit.work`)
+   - `CORS_ORIGINS` (your Vercel URL, e.g. `https://scopit.work`)
    - `FRONTEND_URL`, `GOOGLE_REDIRECT_URI`
    - `R2_ENDPOINT_URL`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
    - `ANTHROPIC_API_KEY`
-4. Add custom domain: `api.scopeit.work`
+4. Add custom domain: `api.scopit.work`
 
 > **Free plan note:** The Item Recommender (semantic search) loads a
 > sentence-transformers/torch model (~500MB–1GB RAM) that exceeds the free
@@ -199,22 +199,22 @@ migrations (`alembic upgrade head`) run automatically on every container start.
 2. Set **Root Directory**: `frontend`
 3. Set environment variable:
    ```
-   VITE_API_URL=https://api.scopeit.work/api
+   VITE_API_URL=https://api.scopit.work/api
    ```
-4. Add custom domain: `scopeit.work`
+4. Add custom domain: `scopit.work`
 
 ### 5. DNS Configuration
 
 ```
-scopeit.work        → CNAME → cname.vercel-dns.com
-www.scopeit.work    → CNAME → cname.vercel-dns.com
-api.scopeit.work    → CNAME → scopeit-api.onrender.com
+scopit.work        → CNAME → cname.vercel-dns.com
+www.scopit.work    → CNAME → cname.vercel-dns.com
+api.scopit.work    → CNAME → scopit-api.onrender.com
 ```
 
 ### 6. Post-Deployment Checklist
 
-- [ ] Update Google OAuth redirect URI to `https://api.scopeit.work/api/auth/google/callback`
-- [ ] Verify CORS allows `https://scopeit.work`
+- [ ] Update Google OAuth redirect URI to `https://api.scopit.work/api/auth/google/callback`
+- [ ] Verify CORS allows `https://scopit.work`
 - [ ] Test file upload/download with R2
 - [ ] Test PDF editor operations (merge, rotate, sign)
 - [ ] Test Google OAuth login flow
@@ -226,7 +226,7 @@ api.scopeit.work    → CNAME → scopeit-api.onrender.com
 ```env
 ENV=local
 DEBUG=True
-DATABASE_URL=postgresql://scopeit:scopeit123@localhost:5432/scopeit_local
+DATABASE_URL=postgresql://scopit:scopit123@localhost:5432/scopit_local
 SECRET_KEY=dev-secret-key
 CORS_ORIGINS=http://localhost:3001
 BETA_MODE=True
@@ -244,7 +244,7 @@ ITEM_RECOMMENDER_ENABLED=True
 # R2_ENDPOINT_URL=https://ACCOUNT_ID.r2.cloudflarestorage.com
 # R2_ACCESS_KEY_ID=xxx
 # R2_SECRET_ACCESS_KEY=xxx
-# R2_BUCKET_NAME=scopeit-uploads
+# R2_BUCKET_NAME=scopit-uploads
 ```
 
 ### Frontend (.env.local)

@@ -1,5 +1,5 @@
 """
-ScopeIt - Admin API Routes
+Scopit - Admin API Routes
 
 SECURITY: All endpoints require superuser access (is_superuser=True)
 Regular users will receive 403 Forbidden

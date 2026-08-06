@@ -1,5 +1,5 @@
 """
-ScopeIt - Auth API Routes
+Scopit - Auth API Routes
 """
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request

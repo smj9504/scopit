@@ -1,5 +1,5 @@
 /**
- * ScopeIt - App Layout
+ * Scopit - App Layout
  * Mobile-responsive layout with drawer navigation
  */
 import React, { useState, useEffect } from 'react';
@@ -165,7 +165,7 @@ const AppLayout: React.FC = () => {
               letterSpacing: '-0.02em',
             }}
           >
-            {collapsed && !useDrawer ? 'S' : 'ScopeIt'}
+            {collapsed && !useDrawer ? 'S' : 'Scopit'}
           </span>
         </Link>
       </div>

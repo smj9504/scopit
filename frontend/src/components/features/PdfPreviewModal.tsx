@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Preview Modal
+ * Scopit - PDF Preview Modal
  * Displays a preview of Invoice/Estimate PDFs with template selection
  */
 import React, { useState, useEffect, useRef } from 'react';

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Packing & Moving Estimator
+ * Scopit - Packing & Moving Estimator
  * Landing = session list. "New Estimate" opens mode picker then wizard.
  * Click existing session → edit mode.
  */
@@ -485,7 +485,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     }
   }, [editorMode, photoRooms, rooms, settings]);
 
-  // ── Create ScopeIt Estimate ────────────────────────────────────────────
+  // ── Create Scopit Estimate ────────────────────────────────────────────
   const handleCreateEstimate = useCallback(async () => {
     if (!activeSessionId) {
       message.warning('Calculate estimate first');

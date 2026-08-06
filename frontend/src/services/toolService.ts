@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Tool Service
+ * Scopit - Tool Service
  */
 import api from './api';
 import type {

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Admin Dashboard Page
+ * Scopit - Admin Dashboard Page
  * Superuser only - displays KPIs and analytics
  */
 import React from 'react';

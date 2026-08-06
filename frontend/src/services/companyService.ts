@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Company Service
+ * Scopit - Company Service
  */
 import api from './api';
 

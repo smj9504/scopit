@@ -1,4 +1,4 @@
-# ScopeIt - API 명세서
+# Scopit - API 명세서
 
 > REST API 엔드포인트 상세 문서
 
@@ -9,8 +9,8 @@
 | 항목 | 값 |
 |------|-----|
 | **Base URL (Local)** | `http://localhost:8000/api` |
-| **Base URL (Stage)** | `https://api.stage.scopeit.work/api` |
-| **Base URL (Prod)** | `https://api.scopeit.work/api` |
+| **Base URL (Stage)** | `https://api.stage.scopit.work/api` |
+| **Base URL (Prod)** | `https://api.scopit.work/api` |
 | **인증 방식** | Bearer Token (JWT) |
 | **Content-Type** | `application/json` |
 
@@ -1091,7 +1091,7 @@ Stripe에서 호출하는 웹훅 엔드포인트
   "city": "New York",
   "state": "NY",
   "zipcode": "10002",
-  "logoUrl": "https://storage.scopeit.work/logos/abc.png",
+  "logoUrl": "https://storage.scopit.work/logos/abc.png",
   "defaultTaxRate": 8.25,
   "defaultTaxLabel": "Sales Tax",
   "estimatePrefix": "EST",
@@ -1136,7 +1136,7 @@ file: [image file]
 **Response (200):**
 ```json
 {
-  "logoUrl": "https://storage.scopeit.work/logos/abc-new.png"
+  "logoUrl": "https://storage.scopit.work/logos/abc-new.png"
 }
 ```
 

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Forgot Password Page
+ * Scopit - Forgot Password Page
  */
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -45,7 +45,7 @@ const ForgotPasswordPage: React.FC = () => {
       >
         <Link to="/" style={{ textDecoration: 'none' }}>
           <span style={{ fontFamily: fonts.heading, fontSize: 20, fontWeight: 700, color: colors.primary }}>
-            ScopeIt
+            Scopit
           </span>
         </Link>
       </header>

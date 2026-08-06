@@ -1,5 +1,5 @@
 /**
- * ScopeIt – PDF Editor: AnnotationLayer
+ * Scopit – PDF Editor: AnnotationLayer
  *
  * A transparent fabric.js canvas overlay that sits on top of the PDF page
  * canvas and handles all interactive annotations (text, image, drawing,

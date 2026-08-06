@@ -1,5 +1,5 @@
 """
-ScopeIt - E-Sign Available Field Registry
+Scopit - E-Sign Available Field Registry
 
 Registry of source entities/fields that a document template's "prefilled"
 fields can auto-map from. Adding a new entity means one new registry key

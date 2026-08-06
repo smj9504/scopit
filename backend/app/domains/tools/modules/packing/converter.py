@@ -1,8 +1,8 @@
 """
-ScopeIt - Packing Estimate Converter
+Scopit - Packing Estimate Converter
 
 Converts packing/moving estimation results (EstimateResponse) stored in a
-ToolSession into a ScopeIt EstimateCreate-compatible payload.
+ToolSession into a Scopit EstimateCreate-compatible payload.
 
 Session data shape (ToolSession.data JSONB):
 {
@@ -60,7 +60,7 @@ _SECTION_ORDER = [
 
 
 class PackingEstimateConverter(ToolEstimateConverter):
-    """Converts packing/moving estimation results into ScopeIt estimate sections and items."""
+    """Converts packing/moving estimation results into Scopit estimate sections and items."""
 
     def to_estimate_payload(self, session_data: dict, **kwargs) -> dict:
         """

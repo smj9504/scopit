@@ -1,5 +1,5 @@
 """
-ScopeIt - Line Item Models
+Scopit - Line Item Models
 """
 from sqlalchemy import Column, String, Text, Boolean, ForeignKey, Integer, DECIMAL, Enum as SQLEnum
 from sqlalchemy.orm import relationship

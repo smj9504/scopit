@@ -1,5 +1,5 @@
 """
-ScopeIt - Dashboard API Routes
+Scopit - Dashboard API Routes
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session

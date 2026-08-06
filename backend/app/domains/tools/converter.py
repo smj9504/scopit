@@ -1,5 +1,5 @@
 """
-ScopeIt - Tool-to-Estimate Converter Interface
+Scopit - Tool-to-Estimate Converter Interface
 
 Each tool module implements this interface to convert its session data
 into an estimate creation payload, reusing the existing estimate domain.

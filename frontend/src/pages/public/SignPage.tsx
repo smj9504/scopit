@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Public E-Signature Page
+ * Scopit - Public E-Signature Page
  * Route: /sign/:token  (no authentication required)
  *
  * Flow:
@@ -729,12 +729,12 @@ const SignPage: React.FC = () => {
   const [fieldValues, setFieldValues] = useState<Record<string, FieldValue>>({});
 
   useEffect(() => {
-    const existing = document.querySelector('link[data-scopeit-sig-fonts]');
+    const existing = document.querySelector('link[data-scopit-sig-fonts]');
     if (existing) return;
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = GOOGLE_FONTS_URL;
-    link.setAttribute('data-scopeit-sig-fonts', '1');
+    link.setAttribute('data-scopit-sig-fonts', '1');
     document.head.appendChild(link);
   }, []);
 
@@ -1100,7 +1100,7 @@ const SignPage: React.FC = () => {
             )}
           </div>
 
-          <Text type="secondary" style={{ fontSize: 11 }}>Powered by ScopeIt</Text>
+          <Text type="secondary" style={{ fontSize: 11 }}>Powered by Scopit</Text>
         </div>
       </footer>
 

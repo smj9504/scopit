@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Editor Tool Types
+ * Scopit - PDF Editor Tool Types
  */
 
 export interface PdfDocument {

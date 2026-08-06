@@ -1,5 +1,5 @@
 """
-ScopeIt - Packing Tool Room Presets
+Scopit - Packing Tool Room Presets
 
 Room presets as Python constants (reference data, not user-editable).
 Ported from moving_estimate standalone application.

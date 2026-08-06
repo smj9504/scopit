@@ -39,7 +39,7 @@ interface SignatureModalProps {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'scopeit-signatures';
+const STORAGE_KEY = 'scopit-signatures';
 const CANVAS_W = 500;
 const CANVAS_H = 160;
 

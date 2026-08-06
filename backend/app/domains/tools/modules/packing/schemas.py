@@ -1,5 +1,5 @@
 """
-ScopeIt - Packing & Moving Estimator Schemas
+Scopit - Packing & Moving Estimator Schemas
 
 Pydantic models for the packing/moving estimation tool.
 Ported from moving_estimate standalone application.

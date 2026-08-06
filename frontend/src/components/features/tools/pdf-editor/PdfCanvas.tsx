@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Canvas
+ * Scopit - PDF Canvas
  *
  * Renders the current PDF page to a <canvas> using pdfjs-dist.
  * Handles: loading, zoom, page navigation, click events for annotation placement.

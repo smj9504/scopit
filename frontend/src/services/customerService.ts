@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Customer Service
+ * Scopit - Customer Service
  */
 import api from './api';
 import type { Customer, CustomerCreate, PaginatedResponse } from '@/types/entities';

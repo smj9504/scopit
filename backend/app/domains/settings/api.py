@@ -1,5 +1,5 @@
 """
-ScopeIt - Settings API Routes
+Scopit - Settings API Routes
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session

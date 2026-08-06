@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Admin User Detail Page
+ * Scopit - Admin User Detail Page
  * Superuser only - detailed user view with login history
  */
 import React from 'react';

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Editor Tool
+ * Scopit - PDF Editor Tool
  *
  * Two modes:
  *   1. List mode  – document library + sign request tabs (existing)

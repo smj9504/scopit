@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Field Placement Canvas
+ * Scopit - Field Placement Canvas
  *
  * Renders PDF pages (client-side via pdfjs) with draggable field overlays
  * positioned in fractional [0,1] coordinates. Shared by:

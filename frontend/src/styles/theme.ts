@@ -1,5 +1,5 @@
 /**
- * ScopeIt Design Theme
+ * Scopit Design Theme
  * Clean, confident design system for restoration professionals
  */
 

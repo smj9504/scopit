@@ -1,4 +1,4 @@
-# ScopeIt - 인프라 가이드
+# Scopit - 인프라 가이드
 
 > 환경 설정, Docker, CI/CD, 배포 가이드
 
@@ -9,8 +9,8 @@
 | 환경 | Frontend | Backend | Database |
 |------|----------|---------|----------|
 | **Local** | localhost:3000 | localhost:8000 | Docker PostgreSQL |
-| **Stage** | stage.scopeit.work | api.stage.scopeit.work | Neon (stage) |
-| **Production** | scopeit.work | api.scopeit.work | Neon (prod) |
+| **Stage** | stage.scopit.work | api.stage.scopit.work | Neon (stage) |
+| **Production** | scopit.work | api.scopit.work | Neon (prod) |
 
 ### 비용 예상
 
@@ -51,13 +51,13 @@ services:
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: scopeit
-      POSTGRES_PASSWORD: scopeit123
-      POSTGRES_DB: scopeit_local
+      POSTGRES_USER: scopit
+      POSTGRES_PASSWORD: scopit123
+      POSTGRES_DB: scopit_local
     ports:
       - "5432:5432"
     volumes:
-      - scopeit_db:/var/lib/postgresql/data
+      - scopit_db:/var/lib/postgresql/data
 
   backend:
     build: ./backend
@@ -81,7 +81,7 @@ services:
       - backend
 
 volumes:
-  scopeit_db:
+  scopit_db:
 ```
 
 ---
@@ -179,7 +179,7 @@ vercel --prod
 # render.yaml
 services:
   - type: web
-    name: scopeit-api
+    name: scopit-api
     env: python
     plan: starter
     buildCommand: pip install -r requirements.txt
@@ -187,13 +187,13 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: scopeit-db
+          name: scopit-db
 ```
 
 ### Neon (PostgreSQL)
 
 1. https://console.neon.tech 접속
-2. Create Project: scopeit
+2. Create Project: scopit
 3. Branches: main (prod), stage
 4. Connection String 복사 → 환경변수 설정
 

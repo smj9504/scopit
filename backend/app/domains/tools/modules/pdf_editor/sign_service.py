@@ -1,5 +1,5 @@
 """
-ScopeIt - E-Sign Service
+Scopit - E-Sign Service
 """
 import base64
 import hashlib
@@ -308,7 +308,7 @@ class SignService:
                         html_content=html,
                         reply_to=sign_req.sender_email,
                         from_display_name=(
-                            f"{sign_req.sender_name} via ScopeIt"
+                            f"{sign_req.sender_name} via Scopit"
                             if sign_req.sender_name else None
                         ),
                         cc_emails=sign_req.cc_emails or [],
@@ -380,7 +380,7 @@ class SignService:
                     html_content=html,
                     reply_to=sign_req.sender_email,
                     from_display_name=(
-                        f"{sign_req.sender_name} via ScopeIt"
+                        f"{sign_req.sender_name} via Scopit"
                         if sign_req.sender_name else None
                     ),
                 )
@@ -748,7 +748,7 @@ class SignService:
 
         mime = (doc.mime_type or "").lower()
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_sign_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_sign_") as tmpdir:
             src_path = os.path.join(tmpdir, "source.pdf")
             # Any content edits made via the PDF editor (inline, from Send for
             # Signature or standalone) live as annotations until burned in --
@@ -1015,7 +1015,7 @@ class SignService:
   </p>
   <hr style="border:none; border-top:1px solid #e5e7eb; margin:30px 0 20px;">
   <p style="color:#9ca3af; font-size:12px; text-align:center; margin:0;">
-    Sent via ScopeIt &bull; Do not reply to this email
+    Sent via Scopit &bull; Do not reply to this email
   </p>
 </td></tr></table>
 </body>
@@ -1056,7 +1056,7 @@ class SignService:
   </p>
   <hr style="border:none; border-top:1px solid #e5e7eb; margin:30px 0 20px;">
   <p style="color:#9ca3af; font-size:12px; text-align:center; margin:0;">
-    Sent via ScopeIt &bull; Do not reply to this email
+    Sent via Scopit &bull; Do not reply to this email
   </p>
 </td></tr></table>
 </body>
@@ -1068,7 +1068,7 @@ class SignService:
         independently try/excepted so one bad address never blocks another
         (extends the original single-recipient FR-6.5 guarantee to N)."""
         doc_name = sign_req.document.name if sign_req.document else "Document"
-        company_name = sign_req.company.name if sign_req.company else "ScopeIt"
+        company_name = sign_req.company.name if sign_req.company else "Scopit"
         completed_at_str = (
             sign_req.signed_at.strftime("%B %d, %Y at %I:%M %p")
             if sign_req.signed_at else "just now"
@@ -1165,7 +1165,7 @@ class SignService:
   {footer_block}
   <hr style="border:none; border-top:1px solid #e5e7eb; margin:30px 0 20px;">
   <p style="color:#9ca3af; font-size:12px; text-align:center; margin:0;">
-    Sent via ScopeIt
+    Sent via Scopit
   </p>
 </td></tr></table>
 </body>

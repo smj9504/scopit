@@ -1,5 +1,5 @@
 """
-ScopeIt - Base Repository
+Scopit - Base Repository
 """
 from typing import TypeVar, Generic, Type, Optional, List, Any
 from sqlalchemy.orm import Session

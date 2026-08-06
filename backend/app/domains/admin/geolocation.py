@@ -1,5 +1,5 @@
 """
-ScopeIt - Geolocation Service (Free IP-API)
+Scopit - Geolocation Service (Free IP-API)
 Uses ip-api.com - Free for non-commercial use, 45 requests/minute
 """
 import httpx

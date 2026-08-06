@@ -1,5 +1,5 @@
 """
-ScopeIt - Customer Models
+Scopit - Customer Models
 """
 from sqlalchemy import Column, String, Text, Boolean, ForeignKey
 from sqlalchemy.orm import relationship

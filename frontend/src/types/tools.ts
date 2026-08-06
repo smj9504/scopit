@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Tools Types
+ * Scopit - Tools Types
  */
 
 export interface Tool {

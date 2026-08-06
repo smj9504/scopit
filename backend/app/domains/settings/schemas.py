@@ -1,5 +1,5 @@
 """
-ScopeIt - Settings Schemas
+Scopit - Settings Schemas
 """
 from pydantic import BaseModel
 from typing import Optional, List

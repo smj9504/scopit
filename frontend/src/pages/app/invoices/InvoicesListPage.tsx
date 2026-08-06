@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Invoices List Page
+ * Scopit - Invoices List Page
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';

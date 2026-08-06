@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Packing Tool: Packout Tab
+ * Scopit - Packing Tool: Packout Tab
  * Step-based wizard: Details → Rooms → Job Settings → Calculate
  * Content pack-out estimation with box counts + non-boxable items.
  */

@@ -1,5 +1,5 @@
 """
-ScopeIt - Line Item API Routes
+Scopit - Line Item API Routes
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session

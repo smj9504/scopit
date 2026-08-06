@@ -1,5 +1,5 @@
 """
-ScopeIt - Estimate Models
+Scopit - Estimate Models
 """
 from sqlalchemy import Column, String, Text, Boolean, ForeignKey, Integer, DECIMAL, Date, Enum as SQLEnum
 from sqlalchemy.orm import relationship

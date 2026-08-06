@@ -1,5 +1,5 @@
 """
-ScopeIt - PDF Editor Tool Schemas
+Scopit - PDF Editor Tool Schemas
 
 Pydantic models for the PDF editor tool, covering document management,
 page operations, annotations, signing workflow, and company document library.

@@ -1,5 +1,5 @@
 """
-ScopeIt - Customer API Routes
+Scopit - Customer API Routes
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session

@@ -1,5 +1,5 @@
 """
-ScopeIt - Packing & Moving Estimator Tool API
+Scopit - Packing & Moving Estimator Tool API
 """
 import base64
 import logging

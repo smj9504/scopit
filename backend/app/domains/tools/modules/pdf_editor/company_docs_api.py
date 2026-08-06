@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-ScopeIt - Company Documents API
+Scopit - Company Documents API
 
 CRUD endpoints for the company-wide reusable document library.
 These endpoints are NOT tool-gated: any authenticated user may access them.

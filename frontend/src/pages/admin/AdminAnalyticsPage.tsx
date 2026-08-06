@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Admin Analytics Page
+ * Scopit - Admin Analytics Page
  * Superuser only - detailed geography and occupation analytics
  */
 import React from 'react';

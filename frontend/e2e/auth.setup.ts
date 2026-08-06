@@ -13,7 +13,7 @@ export interface TestUser {
 
 // Default test user — must exist in the local DB
 export const TEST_USER: TestUser = {
-  email: 'test@scopeit.com',
+  email: 'test@scopit.com',
   password: 'test1234',
 };
 
@@ -43,6 +43,6 @@ export async function loginViaAPI(page: Page, user: TestUser = TEST_USER) {
   };
 
   await page.addInitScript((stateJson: string) => {
-    window.localStorage.setItem('scopeit-auth', stateJson);
+    window.localStorage.setItem('scopit-auth', stateJson);
   }, JSON.stringify(authState));
 }

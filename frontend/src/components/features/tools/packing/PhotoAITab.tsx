@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Packing Tool: Photo AI Tab
+ * Scopit - Packing Tool: Photo AI Tab
  * Step-based wizard: Details → Rooms & Photos → Review
  * Photo-based packing estimation using AI room analysis.
  */

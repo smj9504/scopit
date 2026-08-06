@@ -1,5 +1,5 @@
 /**
- * ScopeIt - API Client
+ * Scopit - API Client
  *
  * Implements token refresh with queue to prevent race conditions
  * when multiple 401 responses occur simultaneously.

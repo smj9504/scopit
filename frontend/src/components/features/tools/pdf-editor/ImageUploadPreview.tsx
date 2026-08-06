@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Image Upload Preview Modal
+ * Scopit - Image Upload Preview Modal
  *
  * Shows a preview of an image file before converting to PDF.
  * Allows the user to rotate the image (90° CW/CCW) so the

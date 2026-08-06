@@ -1,13 +1,13 @@
-# ScopeIt — Production Deployment Guide
+# Scopit — Production Deployment Guide
 
-> Target: scopeit.work (frontend) + api.scopeit.work (backend)
+> Target: scopit.work (frontend) + api.scopit.work (backend)
 > Stack: Vercel + Render + Neon PostgreSQL
 
 ---
 
 ## Step 1: Register Domain
 
-Register `scopeit.work` at [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/) (~$9/year, no markup).
+Register `scopit.work` at [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/) (~$9/year, no markup).
 
 **Alt options**: Namecheap, Google Domains, Porkbun.
 
@@ -17,11 +17,11 @@ Register `scopeit.work` at [Cloudflare Registrar](https://www.cloudflare.com/pro
 
 ```bash
 # In the project root:
-cd /path/to/scopeit-project/scopeit
+cd /path/to/scopit-project/scopit
 
 # Create GitHub repo at github.com (private)
 # Then:
-git remote add origin https://github.com/YOUR_ORG/scopeit.git
+git remote add origin https://github.com/YOUR_ORG/scopit.git
 git push -u origin main
 ```
 
@@ -30,9 +30,9 @@ git push -u origin main
 ## Step 3: Set Up Database (Neon)
 
 1. Go to [console.neon.tech](https://console.neon.tech)
-2. Create project: **scopeit**
-3. Database: **scopeit** / User: **scopeit**
-4. Copy the connection string (format: `postgresql://scopeit:PASSWORD@ep-xxx.region.aws.neon.tech/scopeit?sslmode=require`)
+2. Create project: **scopit**
+3. Database: **scopit** / User: **scopit**
+4. Copy the connection string (format: `postgresql://scopit:PASSWORD@ep-xxx.region.aws.neon.tech/scopit?sslmode=require`)
 
 ---
 
@@ -55,7 +55,7 @@ git push -u origin main
 4. Start: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 5. Set all env vars from `backend/.env.production.example`
 
-**Custom domain**: Settings > Custom Domains → add `api.scopeit.work`
+**Custom domain**: Settings > Custom Domains → add `api.scopit.work`
 
 ---
 
@@ -67,7 +67,7 @@ npm install -g vercel
 vercel login
 vercel link  # link to your Vercel project
 vercel env add VITE_API_URL production
-# Enter: https://api.scopeit.work/api
+# Enter: https://api.scopit.work/api
 vercel --prod
 ```
 
@@ -75,20 +75,20 @@ vercel --prod
 1. New Project → Import from GitHub
 2. Framework: Vite
 3. Root directory: `frontend`
-4. Environment variable: `VITE_API_URL` = `https://api.scopeit.work/api`
+4. Environment variable: `VITE_API_URL` = `https://api.scopit.work/api`
 5. Deploy
 
-**Custom domain**: Settings > Domains → add `scopeit.work` and `www.scopeit.work`
+**Custom domain**: Settings > Domains → add `scopit.work` and `www.scopit.work`
 
 ---
 
 ## Step 6: Configure DNS
 
-After getting your Render URL (e.g., `scopeit-api.onrender.com`) and Vercel URL:
+After getting your Render URL (e.g., `scopit-api.onrender.com`) and Vercel URL:
 
 | Type  | Name | Value |
 |-------|------|-------|
-| CNAME | api  | `scopeit-api.onrender.com` |
+| CNAME | api  | `scopit-api.onrender.com` |
 | CNAME | www  | `cname.vercel-dns.com` |
 | A     | @    | `76.76.19.61` (Vercel IP) |
 
@@ -97,8 +97,8 @@ After getting your Render URL (e.g., `scopeit-api.onrender.com`) and Vercel URL:
 ## Step 7: Update Google OAuth
 
 In [Google Cloud Console](https://console.cloud.google.com/apis/credentials):
-- Add to **Authorized redirect URIs**: `https://api.scopeit.work/api/auth/google/callback`
-- Add to **Authorized JavaScript origins**: `https://scopeit.work`
+- Add to **Authorized redirect URIs**: `https://api.scopit.work/api/auth/google/callback`
+- Add to **Authorized JavaScript origins**: `https://scopit.work`
 
 ---
 
@@ -117,10 +117,10 @@ alembic upgrade head
 
 ```bash
 # Health check
-curl https://api.scopeit.work/health
+curl https://api.scopit.work/health
 
 # Frontend
-open https://scopeit.work
+open https://scopit.work
 ```
 
 ---

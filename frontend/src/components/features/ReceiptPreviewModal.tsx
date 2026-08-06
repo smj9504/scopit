@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Receipt Preview Modal
+ * Scopit - Receipt Preview Modal
  * Displays a preview of payment receipts with download functionality
  */
 import React, { useState, useEffect, useRef } from 'react';

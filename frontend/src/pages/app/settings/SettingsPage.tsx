@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Settings Page
+ * Scopit - Settings Page
  */
 import React, { useState } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';

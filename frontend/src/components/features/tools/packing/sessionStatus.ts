@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Packing Tool: Session Status
+ * Scopit - Packing Tool: Session Status
  * Single source of truth for the draft/completed distinction shown in
  * HistoryTab and computed by PackingTool when saving a session.
  */

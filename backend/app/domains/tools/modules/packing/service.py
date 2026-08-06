@@ -1,5 +1,5 @@
 """
-ScopeIt - Packing Tool Calculator Service
+Scopit - Packing Tool Calculator Service
 
 Core calculation logic for pack-out estimates.
 Ported from moving_estimate standalone application.

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Editor Property Panel
+ * Scopit - PDF Editor Property Panel
  *
  * Right-side panel that displays and edits properties of the
  * currently selected annotation. Renders context-sensitive fields

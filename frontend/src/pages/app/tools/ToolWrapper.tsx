@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Tool Wrapper
+ * Scopit - Tool Wrapper
  * Resolves toolId from URL, checks access, renders the appropriate tool component.
  */
 import React, { Suspense } from 'react';

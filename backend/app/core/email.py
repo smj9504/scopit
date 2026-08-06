@@ -1,5 +1,5 @@
 """
-ScopeIt - Email Service
+Scopit - Email Service
 """
 import smtplib
 import ssl
@@ -86,7 +86,7 @@ class EmailService:
             html_content: HTML body content
             text_content: Plain text body (optional, fallback)
             reply_to: Reply-To address (e.g. the user who triggered the email)
-            from_display_name: Override display name (e.g. "Minjee Song via ScopeIt")
+            from_display_name: Override display name (e.g. "Minjee Song via Scopit")
             cc_emails: Addresses to Cc, visible to all recipients
             bcc_emails: Addresses to Bcc, invisible to all other recipients
 

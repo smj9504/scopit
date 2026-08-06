@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Roof Analyzer Tool
+ * Scopit - Roof Analyzer Tool
  * EagleView JSON parser with SVG visualization, face/line/area selection,
  * and session-based history for uploaded files.
  */

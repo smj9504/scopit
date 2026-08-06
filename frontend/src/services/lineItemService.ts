@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Line Item Service
+ * Scopit - Line Item Service
  */
 import api from './api';
 import type { LineItem, LineItemNote, LineItemCreate, PaginatedResponse } from '@/types/entities';

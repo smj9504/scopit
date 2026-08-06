@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Admin Layout
+ * Scopit - Admin Layout
  * Mobile-responsive layout wrapper for admin pages with drawer navigation
  */
 import React, { useState, useEffect } from 'react';

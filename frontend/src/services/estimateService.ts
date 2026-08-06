@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Estimate Service
+ * Scopit - Estimate Service
  */
 import api from './api';
 import type {

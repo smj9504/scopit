@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Packing Tool: Prices Tab
+ * Scopit - Packing Tool: Prices Tab
  * Editable table of moving line-item prices, grouped by category.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';

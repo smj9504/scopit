@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Editor Toolbar
+ * Scopit - PDF Editor Toolbar
  *
  * Two-row toolbar: header row (nav + save/export) and tools row
  * (tool buttons, undo/redo, zoom, page navigation).

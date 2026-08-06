@@ -1,5 +1,5 @@
 """
-ScopeIt - Auth Domain Models
+Scopit - Auth Domain Models
 """
 from sqlalchemy import Column, String, Integer, ForeignKey, Index
 from sqlalchemy.sql import func

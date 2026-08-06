@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF.js Worker Setup
+ * Scopit - PDF.js Worker Setup
  *
  * Side-effect-only module: points pdfjs-dist at its worker script exactly
  * once. GlobalWorkerOptions.workerSrc must be set before the first

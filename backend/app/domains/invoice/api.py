@@ -1,5 +1,5 @@
 """
-ScopeIt - Invoice API Routes
+Scopit - Invoice API Routes
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import Response, StreamingResponse
@@ -515,7 +515,7 @@ async def download_invoice_excel_template():
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": "attachment; filename=scopeit_invoice_template.xlsx"
+            "Content-Disposition": "attachment; filename=scopit_invoice_template.xlsx"
         },
     )
 

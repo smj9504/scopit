@@ -1,5 +1,5 @@
 """
-ScopeIt - FastAPI Application Entry Point
+Scopit - FastAPI Application Entry Point
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

@@ -98,10 +98,10 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userId, open, onClo
           letterSpacing: '-0.01em',
         }}
       >
-        Welcome to ScopeIt! 🎉
+        Welcome to Scopit! 🎉
       </h2>
       <p style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 1.5, marginBottom: 24 }}>
-        ScopeIt helps restoration contractors create estimates, track invoices, and manage customers — all in one place.
+        Scopit helps restoration contractors create estimates, track invoices, and manage customers — all in one place.
       </p>
       <div
         style={{

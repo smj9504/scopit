@@ -320,10 +320,10 @@ export interface PackingSessionData {
   status?: SessionStatus;
   /** User explicitly marked this estimate as done, independent of any real conversion. */
   manually_completed?: boolean;
-  /** Set server-side once this session was actually converted into a ScopeIt Estimate. */
+  /** Set server-side once this session was actually converted into a Scopit Estimate. */
   linked_estimate_id?: string;
   linked_estimate_number?: string;
-  /** Set server-side once this session was actually converted into a ScopeIt Invoice. */
+  /** Set server-side once this session was actually converted into a Scopit Invoice. */
   linked_invoice_id?: string;
   linked_invoice_number?: string;
   // Photo AI specific

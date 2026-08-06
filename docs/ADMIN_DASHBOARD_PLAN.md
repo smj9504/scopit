@@ -1,4 +1,4 @@
-# ScopeIt Admin Dashboard 구현 계획
+# Scopit Admin Dashboard 구현 계획
 
 ## 📋 개요
 

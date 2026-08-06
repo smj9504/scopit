@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Packing Demo API Shims
+ * Scopit - Packing Demo API Shims
  *
  * The real PhotoAITab / EstimateEditorModal / ReportExportModal / SharedDetailsStep
  * components import `packingApi`, `toolService`, and `customerService` directly at

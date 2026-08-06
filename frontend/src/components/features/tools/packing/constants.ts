@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Packing Tool Constants
+ * Scopit - Packing Tool Constants
  * UI labels and configuration
  */
 

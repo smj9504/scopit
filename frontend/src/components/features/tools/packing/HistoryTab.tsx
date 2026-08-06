@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Packing Tool: History Tab
+ * Scopit - Packing Tool: History Tab
  * Displays saved packing estimate sessions as a sortable, deletable list.
  */
 import React, { useState, useEffect, useCallback } from 'react';

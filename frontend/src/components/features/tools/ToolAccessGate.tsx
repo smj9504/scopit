@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Tool Access Gate
+ * Scopit - Tool Access Gate
  */
 import React from 'react';
 import { Result, Button, Spin } from 'antd';

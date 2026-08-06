@@ -1,4 +1,4 @@
-# ScopeIt - Backend 개발 가이드
+# Scopit - Backend 개발 가이드
 
 > FastAPI 백엔드 구현 상세 문서
 
@@ -247,7 +247,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 
-app = FastAPI(title="ScopeIt API")
+app = FastAPI(title="Scopit API")
 
 app.add_middleware(
     CORSMiddleware,

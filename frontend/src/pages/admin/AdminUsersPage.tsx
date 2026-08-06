@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Admin Users Page
+ * Scopit - Admin Users Page
  * Superuser only - user management and listing
  */
 import React, { useState } from 'react';

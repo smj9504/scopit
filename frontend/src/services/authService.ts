@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Auth Service
+ * Scopit - Auth Service
  */
 import api from './api';
 import type {

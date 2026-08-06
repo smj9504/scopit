@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'ScopeIt - Estimating Software',
-        short_name: 'ScopeIt',
+        name: 'Scopit - Estimating Software',
+        short_name: 'Scopit',
         description: 'Simple estimating software for restoration contractors',
         theme_color: '#111827',
         background_color: '#f9fafb',

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - PDF Editor Merge Modal
+ * Scopit - PDF Editor Merge Modal
  *
  * Allows the user to select existing PDF documents, arrange them in order
  * via drag-and-drop, name the result, and trigger a merge.

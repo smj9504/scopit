@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-ScopeIt - PDF Editor Service
+Scopit - PDF Editor Service
 
 Handles PDF document CRUD, page operations (merge, reorder, delete, rotate),
 annotation persistence, flattening, multi-image-to-PDF conversion, and the
@@ -101,7 +101,7 @@ def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> byte
     if not doc.annotations:
         return pdf_data
 
-    with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
         local_path = os.path.join(tmpdir, "document.pdf")
         with open(local_path, "wb") as fh:
             fh.write(pdf_data)
@@ -433,7 +433,7 @@ class PdfEditorService:
         doc_id = uuid.uuid4()
         is_pdf = file.content_type == "application/pdf"
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             if is_pdf:
                 pdf_path = os.path.join(tmpdir, "document.pdf")
                 with open(pdf_path, "wb") as fh:
@@ -606,7 +606,7 @@ class PdfEditorService:
 
         new_id = uuid.uuid4()
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             writer = PdfWriter()
             doc_names: list[str] = []
 
@@ -662,7 +662,7 @@ class PdfEditorService:
 
         doc = self.get_document_or_404(company_id, document_id)
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             local_path = os.path.join(tmpdir, "document.pdf")
             with open(local_path, "wb") as fh:
                 fh.write(self.storage.read(doc.file_path))
@@ -711,7 +711,7 @@ class PdfEditorService:
 
         doc = self.get_document_or_404(company_id, document_id)
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             local_path = os.path.join(tmpdir, "document.pdf")
             with open(local_path, "wb") as fh:
                 fh.write(self.storage.read(doc.file_path))
@@ -762,7 +762,7 @@ class PdfEditorService:
 
         doc = self.get_document_or_404(company_id, document_id)
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             local_path = os.path.join(tmpdir, "document.pdf")
             with open(local_path, "wb") as fh:
                 fh.write(self.storage.read(doc.file_path))
@@ -886,7 +886,7 @@ class PdfEditorService:
 
         doc_id = uuid.uuid4()
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             pdf_path = os.path.join(tmpdir, "document.pdf")
             page_w, page_h = letter
             c = rl_canvas.Canvas(pdf_path, pagesize=letter)
@@ -992,7 +992,7 @@ class PdfEditorService:
 
         doc_id = uuid.uuid4()
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             pdf_path = os.path.join(tmpdir, "document.pdf")
             with open(pdf_path, "wb") as fh:
                 fh.write(pdf_bytes)
@@ -1065,7 +1065,7 @@ class PdfEditorService:
 
         doc_id = uuid.uuid4()
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             pdf_path = os.path.join(tmpdir, "document.pdf")
             with open(pdf_path, "wb") as fh:
                 fh.write(pdf_bytes)
@@ -1278,7 +1278,7 @@ class CompanyDocumentService:
 
         doc_id = uuid.uuid4()
 
-        with tempfile.TemporaryDirectory(prefix="scopeit_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             pdf_path = os.path.join(tmpdir, "document.pdf")
             with open(pdf_path, "wb") as fh:
                 fh.write(content)

@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Admin Types
+ * Scopit - Admin Types
  */
 
 export interface OccupationStat {

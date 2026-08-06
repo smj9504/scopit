@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Request Signature Modal
+ * Scopit - Request Signature Modal
  *
  * Entry point for starting an e-signature request from anywhere in the app
  * (currently: Customer Detail page). Owns the "pick a company document

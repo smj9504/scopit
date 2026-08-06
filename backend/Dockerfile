@@ -1,4 +1,4 @@
-# ScopeIt Backend Dockerfile
+# Scopit Backend Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app

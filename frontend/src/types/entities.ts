@@ -1,5 +1,5 @@
 /**
- * ScopeIt - Entity Types
+ * Scopit - Entity Types
  */
 
 // Common

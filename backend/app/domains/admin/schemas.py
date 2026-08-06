@@ -1,5 +1,5 @@
 """
-ScopeIt - Admin Schemas
+Scopit - Admin Schemas
 """
 from pydantic import BaseModel
 from typing import Optional, List

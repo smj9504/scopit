@@ -1,5 +1,5 @@
 """
-ScopeIt - Tools API
+Scopit - Tools API
 
 Registry, session management, and tool-to-estimate bridge endpoints.
 """
