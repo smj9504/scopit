@@ -638,11 +638,10 @@ const StepRooms: React.FC<{
                               const presetCategory = findPreset(room.preset)?.category;
                               const allowed = presetCategory ? PRESET_CATEGORY_HINTS[presetCategory] : undefined;
                               if (!allowed) return HINT_CATEGORIES;
-                              return Object.fromEntries(
-                                Object.entries(HINT_CATEGORIES)
-                                  .map(([cat, catItems]) => [cat, catItems.filter((h) => allowed.includes(h.key))])
-                                  .filter(([, catItems]) => (catItems as typeof catItems).length > 0)
-                              );
+                              const entries: (readonly [string, (typeof HINT_CATEGORIES)[string]])[] = Object.entries(HINT_CATEGORIES)
+                                .map(([cat, catItems]) => [cat, catItems.filter((h) => allowed.includes(h.key))] as const)
+                                .filter(([, catItems]) => catItems.length > 0);
+                              return Object.fromEntries(entries);
                             })()).map(([cat, items]) => (
                               <div key={cat} style={{ marginBottom: 12 }}>
                                 <div

@@ -2,7 +2,7 @@
  * Scopit - Invoice Editor Page
  * Section-based line item management with multi-select, copy/paste, drag & drop
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,

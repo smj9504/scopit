@@ -59,6 +59,18 @@ services:
       # External services (set in dashboard)
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: GEOAPIFY_API_KEY
+        sync: false
+      # Email (SMTP) - without these, verification/reset emails silently
+      # never send (EmailService.is_configured() returns False)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
       - key: EMAIL_FROM
         value: noreply@scopit.work
       - key: ACCESS_TOKEN_EXPIRE_MINUTES

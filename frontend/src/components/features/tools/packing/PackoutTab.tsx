@@ -374,7 +374,7 @@ const PackoutTab: React.FC<PackoutTabProps> = ({
     <Card
       key={room.id}
       size="small"
-      style={{ marginBottom: 12, borderRadius: borderRadius.card }}
+      style={{ marginBottom: 12, borderRadius: borderRadius.lg }}
       title={
         <Space>
           <Input
@@ -554,7 +554,7 @@ const PackoutTab: React.FC<PackoutTabProps> = ({
             placeholder="Add room..."
             style={{ width: 180 }}
             size="small"
-            onSelect={(v: string) => addRoom(v)}
+            onSelect={(v: string | undefined) => addRoom(v)}
             value={undefined}
           >
             {ROOM_PRESETS.map(p => <Option key={p} value={p}>{p}</Option>)}

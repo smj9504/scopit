@@ -159,6 +159,7 @@ export interface EstimateResponse {
   supplements_total: number;
   grand_total: number;
   notes?: string[];
+  include_packback?: boolean;
 }
 
 // ── Room Preset ──────────────────────────────────────────────────────────────

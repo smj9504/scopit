@@ -101,6 +101,8 @@ function defaultPhotoRoom(roomName: string): PhotoRoom {
     photos: [],
     photo_keys: [],
     items: [],
+    low_confidence_items: [],
+    dismissed_items: [],
     analyzed: false,
     analyzing: false,
     field_notes: [],
