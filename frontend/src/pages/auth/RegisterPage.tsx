@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { authService } from '@/services/authService';
 import { getErrorMessage } from '@/services/api';
 import { colors, fonts } from '@/styles/theme';
+import { warmupBackend } from '@/utils';
 import VerifyEmailStep from '@/components/auth/VerifyEmailStep';
 import type { VerifyEmailResponse } from '@/types/auth';
 
@@ -31,6 +32,7 @@ const RegisterPage: React.FC = () => {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleWaking, setGoogleWaking] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuthStore();
@@ -41,9 +43,17 @@ const RegisterPage: React.FC = () => {
   );
   const [pendingEmail, setPendingEmail] = useState(locationState?.email || '');
 
-  const handleGoogleLogin = () => {
+  const handleGoogleLogin = async () => {
     setGoogleLoading(true);
-    window.location.href = `${API_URL}/auth/google`;
+    setGoogleWaking(false);
+    try {
+      await warmupBackend(() => setGoogleWaking(true));
+      window.location.href = `${API_URL}/auth/google`;
+    } catch {
+      message.error('The server is taking longer than usual to start. Please try again in a moment.');
+      setGoogleLoading(false);
+      setGoogleWaking(false);
+    }
   };
 
   const onFinish = async (values: RegisterForm) => {
@@ -145,15 +155,27 @@ const RegisterPage: React.FC = () => {
                   size="large"
                   style={{
                     fontWeight: 600,
-                    marginBottom: 24,
+                    marginBottom: googleWaking ? 8 : 24,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
                   }}
                 >
-                  {googleLoading ? 'Connecting...' : 'Continue with Google'}
+                  {googleWaking ? 'Waking up the server...' : googleLoading ? 'Connecting...' : 'Continue with Google'}
                 </Button>
+                {googleWaking && (
+                  <p
+                    style={{
+                      textAlign: 'center',
+                      color: colors.textSecondary,
+                      fontSize: 13,
+                      margin: '0 0 24px',
+                    }}
+                  >
+                    Our free-tier server is starting up — this can take up to a minute.
+                  </p>
+                )}
 
                 <div
                   style={{

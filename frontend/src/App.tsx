@@ -7,6 +7,7 @@ import { ConfigProvider, Spin, App as AntdApp } from 'antd';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { antdTheme, colors } from '@/styles/theme';
+import BackendWarmupGate from '@/components/common/BackendWarmupGate';
 import '@/styles/global.css';
 
 // Lazy load pages
@@ -217,9 +218,11 @@ const App: React.FC = () => {
     <QueryClientProvider client={queryClient}>
       <ConfigProvider theme={antdTheme}>
         <AntdApp>
-          <Suspense fallback={<LoadingFallback />}>
-            <RouterProvider router={router} />
-          </Suspense>
+          <BackendWarmupGate>
+            <Suspense fallback={<LoadingFallback />}>
+              <RouterProvider router={router} />
+            </Suspense>
+          </BackendWarmupGate>
         </AntdApp>
       </ConfigProvider>
     </QueryClientProvider>
