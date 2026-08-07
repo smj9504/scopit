@@ -44,7 +44,7 @@ services:
       - key: BETA_MODE
         value: "True"
       - key: BETA_END_DATE
-        value: "2026-06-30"
+        value: "2026-09-30"
       # Cloudflare R2 (set in dashboard)
       - key: STORAGE_PROVIDER
         value: r2
@@ -72,7 +72,7 @@ services:
       - key: SMTP_PASSWORD
         sync: false
       - key: EMAIL_FROM
-        value: info@scopit.work
+        value: mjestimate1@gmail.com
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "1440"
       - key: REFRESH_TOKEN_EXPIRE_DAYS

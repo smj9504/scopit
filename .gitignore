@@ -67,6 +67,7 @@ frontend/dev-dist/
 !.env*.example
 *.local.env
 .envrc
+.env.production.example
 
 # ===================
 # IDE & Editors
