@@ -41,9 +41,15 @@
     <meta name="twitter:image" content="https://www.scopit.work/og-image.png" />
     <meta name="twitter:image:alt" content="Scopit - Estimating & invoicing for restoration contractors" />
 
-    <!-- Preconnect for font performance (Core Web Vitals) -->
+    <!-- Fonts: preconnect + direct stylesheet link so the browser fetches
+         this in parallel with the HTML instead of discovering it only
+         after global.css loads (previously a render-blocking @import) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap"
+    />
 
     <!-- Structured Data -->
     <script type="application/ld+json">
@@ -80,14 +86,17 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Scopit" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <!-- iOS home screen only rasterizes PNG, not SVG -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <!-- MS Meta Tags (for Windows) -->
     <meta name="msapplication-TileColor" content="#111827" />
     <meta name="msapplication-tap-highlight" content="no" />
 
-    <!-- Favicon -->
+    <!-- Favicon: SVG for modern browsers, PNG fallback for search engines/older UAs -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
 
     <!-- Prevent phone number detection -->
     <meta name="format-detection" content="telephone=no" />

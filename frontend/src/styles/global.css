@@ -1,5 +1,7 @@
 /* Scopit Global Styles - Mobile-First Responsive Design */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+/* Font loading moved to a <link rel="stylesheet"> in index.html so the
+   browser discovers it in parallel with the HTML instead of waiting for
+   this file to load first (was a render-blocking waterfall, hurting LCP). */
 
 /* ===== CSS Variables ===== */
 :root {
