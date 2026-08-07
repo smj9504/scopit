@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { usePageSEO } from '@/hooks/usePageSEO';
 import { PhotoAITab } from '@/components/features/tools/packing/PhotoAITab';
 import { SharedDetailsStep } from '@/components/features/tools/packing/SharedDetailsStep';
 import { EstimateEditorModal } from '@/components/features/tools/packing/EstimateEditorModal';
@@ -99,6 +100,13 @@ const PackingDemoPage: React.FC = () => {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const isMobile = useIsMobile();
+
+  usePageSEO({
+    title: 'Free Packing Estimate Demo | Scopit',
+    description:
+      'Try Scopit\'s AI-powered packing estimator free, no signup required. Snap room photos and get a professional packing estimate in minutes.',
+    path: '/demo/packing',
+  });
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -193,6 +201,21 @@ const PackingDemoPage: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
+      <h1
+        style={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          whiteSpace: 'nowrap',
+          border: 0,
+        }}
+      >
+        Free Packing Estimate Demo — AI Photo-Based Restoration Estimator
+      </h1>
       <Alert
         type="info"
         showIcon

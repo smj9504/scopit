@@ -1,0 +1,18 @@
+User-agent: *
+Allow: /
+Allow: /demo/packing
+
+# Authenticated app - not useful to searchers, keep out of the index
+Disallow: /app/
+Disallow: /admin/
+
+# Auth flows - thin/duplicate pages, no ranking value
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /auth/callback
+
+# Per-customer e-signature links - private, unique tokens, never indexable
+Disallow: /sign/
+
+Sitemap: https://scopit.work/sitemap.xml

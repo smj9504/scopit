@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { usePageSEO } from '@/hooks/usePageSEO';
 
 // Scopit Landing Page
 // Save as: frontend/src/pages/public/LandingPage.tsx
@@ -49,6 +50,14 @@ const formatCurrency = (n: number) =>
 
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
+
+  usePageSEO({
+    title: 'Scopit - Estimating Software for Restoration Contractors',
+    description:
+      'Create professional restoration estimates in minutes, not hours. Simple estimating and invoicing software built for restoration contractors. Join the free beta.',
+    path: '/',
+  });
+
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [email, setEmail] = useState('');
   const [scrolled, setScrolled] = useState(false);
