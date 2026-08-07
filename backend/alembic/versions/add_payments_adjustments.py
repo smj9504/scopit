@@ -20,11 +20,12 @@ depends_on = None
 def upgrade():
     bind = op.get_bind()
 
-    # Create adjustment type enum (if not exists). create_type=False so the
-    # create_table() calls below that use this enum don't try to CREATE TYPE
-    # again themselves (it's already created explicitly on the next line).
-    adjustment_type_enum = sa.Enum('premium', 'discount', name='adjustmenttype', create_type=False)
-    adjustment_type_enum.create(bind, checkfirst=True)
+    # Adjustment type enum: don't pre-create it here. The first create_table()
+    # below that uses this enum ('estimate_adjustments') creates the Postgres
+    # type as a side effect of the CREATE TABLE, and alembic's DDL runner
+    # memoizes the type name so the second create_table() ('invoice_adjustments')
+    # reusing it won't try to CREATE TYPE a second time.
+    adjustment_type_enum = sa.Enum('premium', 'discount', name='adjustmenttype')
 
     # Payment method enum already exists from payments table, no need to create
 
