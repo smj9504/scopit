@@ -9,7 +9,6 @@ import os
 import shutil
 import tempfile
 from contextlib import contextmanager
-from functools import lru_cache
 from typing import Generator, Optional
 
 from app.core.config import settings

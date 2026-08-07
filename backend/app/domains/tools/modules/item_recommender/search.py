@@ -8,7 +8,6 @@ import re
 
 from .indexer import ItemIndex
 
-
 # ── Group Classification Rules ──────────────────────────────────────────
 # Each group has keyword patterns matched against category, description, includes, note
 

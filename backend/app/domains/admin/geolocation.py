@@ -2,11 +2,12 @@
 Scopit - Geolocation Service (Free IP-API)
 Uses ip-api.com - Free for non-commercial use, 45 requests/minute
 """
-import httpx
-from typing import Optional
+import re
 from dataclasses import dataclass
 from functools import lru_cache
-import re
+from typing import Optional
+
+import httpx
 
 
 @dataclass

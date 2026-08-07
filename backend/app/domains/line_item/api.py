@@ -1,26 +1,25 @@
 """
 Scopit - Line Item API Routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, or_
-from typing import Optional, List
-from uuid import UUID
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.domains.user.models import User
 from app.domains.line_item.models import LineItem, LineItemNote, LineItemVisibility
 from app.domains.line_item.schemas import (
     LineItemCreate,
-    LineItemUpdate,
-    LineItemResponse,
     LineItemListResponse,
     LineItemNoteCreate,
-    LineItemNoteUpdate,
     LineItemNoteResponse,
+    LineItemNoteUpdate,
+    LineItemResponse,
+    LineItemUpdate,
 )
-
+from app.domains.user.models import User
 
 router = APIRouter()
 

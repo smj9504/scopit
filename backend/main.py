@@ -1,36 +1,37 @@
 """
 Scopit - FastAPI Application Entry Point
 """
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from contextlib import asynccontextmanager
 
-from app.core.config import settings
+import app.domains.tools.modules.packing.converter  # noqa: F401
 
 # Import tool converters (registers them in the converter registry)
 import app.domains.tools.modules.roof_analyzer.converter  # noqa: F401
-import app.domains.tools.modules.packing.converter  # noqa: F401
+from app.core.config import settings
+from app.domains.admin.api import router as admin_router
 
 # Import routers
 from app.domains.auth.api import router as auth_router
 from app.domains.company.api import router as company_router
 from app.domains.customer.api import router as customer_router
-from app.domains.line_item.api import router as line_item_router
+from app.domains.dashboard.api import router as dashboard_router
 from app.domains.estimate.api import router as estimate_router
 from app.domains.invoice.api import router as invoice_router
-from app.domains.dashboard.api import router as dashboard_router
+from app.domains.line_item.api import router as line_item_router
 from app.domains.settings.api import router as settings_router
-from app.domains.admin.api import router as admin_router
 from app.domains.tools.api import router as tools_router
-from app.domains.tools.modules.roof_analyzer.api import router as roof_analyzer_router
+from app.domains.tools.modules.item_recommender.api import router as item_recommender_router
 from app.domains.tools.modules.packing.api import router as packing_router
 from app.domains.tools.modules.packing.demo_api import router as packing_demo_router
-from app.domains.tools.modules.item_recommender.api import router as item_recommender_router
 from app.domains.tools.modules.pdf_editor.api import router as pdf_editor_router
-from app.domains.tools.modules.pdf_editor.sign_api import router as sign_router
-from app.domains.tools.modules.pdf_editor.sign_api import public_router as sign_public_router
 from app.domains.tools.modules.pdf_editor.company_docs_api import router as company_docs_router
+from app.domains.tools.modules.pdf_editor.sign_api import public_router as sign_public_router
+from app.domains.tools.modules.pdf_editor.sign_api import router as sign_router
+from app.domains.tools.modules.roof_analyzer.api import router as roof_analyzer_router
 
 
 @asynccontextmanager

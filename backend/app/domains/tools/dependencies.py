@@ -4,12 +4,12 @@ Scopit - Tool Access Dependencies
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.common.exceptions import ForbiddenException, NotFoundException
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.domains.user.models import User
-from app.domains.tools.service import ToolAccessService
 from app.domains.tools.registry import get_tool
-from app.common.exceptions import NotFoundException, ForbiddenException
+from app.domains.tools.service import ToolAccessService
+from app.domains.user.models import User
 
 
 def require_tool_access(tool_id: str):

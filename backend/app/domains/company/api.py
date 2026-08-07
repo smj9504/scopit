@@ -2,21 +2,20 @@
 Scopit - Company API Routes
 """
 import re
-
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional
 from datetime import datetime
 from decimal import Decimal
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.orm import Session
 
 HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.domains.user.models import User
 from app.domains.company.models import Company
-
+from app.domains.user.models import User
 
 router = APIRouter()
 
@@ -184,26 +183,6 @@ async def update_company(
 
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
-
-    # Map camelCase to snake_case for database fields
-    field_mapping = {
-        'legal_name': 'legalName',
-        'address_line1': 'addressLine1',
-        'address_line2': 'addressLine2',
-        'logo_url': 'logoUrl',
-        'primary_color': 'primaryColor',
-        'secondary_color': 'secondaryColor',
-        'default_tax_rate': 'defaultTaxRate',
-        'default_tax_label': 'defaultTaxLabel',
-        'estimate_prefix': 'estimatePrefix',
-        'invoice_prefix': 'invoicePrefix',
-        'next_estimate_number': 'nextEstimateNumber',
-        'next_invoice_number': 'nextInvoiceNumber',
-        'default_estimate_validity_days': 'defaultEstimateValidityDays',
-        'default_invoice_due_days': 'defaultInvoiceDueDays',
-        'default_notes': 'defaultNotes',
-        'default_terms': 'defaultTerms',
-    }
 
     update_data = data.model_dump(exclude_unset=True, by_alias=False)
 

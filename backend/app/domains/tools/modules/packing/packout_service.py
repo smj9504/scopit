@@ -9,30 +9,30 @@ EstimateEditorModal, converter, and export pipeline work unchanged.
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
 
 from .schemas import (
+    EstimateDetail,
+    EstimateResponse,
     PackoutEstimateRequest,
     PackoutEstimateResponse,
-    EstimateResponse,
     RoomItemSummary,
     StagingType,
     StorageMode,
-    EstimateDetail,
 )
 from .service import (
-    EstimateCalculator,
+    CONTAMINATION_MULTIPLIERS,
     DENSITY_MULTIPLIERS,
     FLOOR_MULTIPLIERS,
     REGION_MULTIPLIERS,
-    CONTAMINATION_MULTIPLIERS,
     SPECIAL_ITEM_COSTS,
-    snap_to_storage_unit,
-    get_storage_setup_fee,
-    build_storage_section_detail,
+    EstimateCalculator,
     _crew_detail,
+    build_storage_section_detail,
+    get_storage_setup_fee,
+    snap_to_storage_unit,
 )
 
 

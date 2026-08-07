@@ -1,14 +1,14 @@
 """
 Scopit - Settings API Routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
-from typing import List, Optional
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.domains.user.models import User
 from app.domains.estimate.models import Estimate
 from app.domains.invoice.models import Invoice
 from app.domains.settings.models import (
@@ -18,29 +18,29 @@ from app.domains.settings.models import (
     LineItemUnit,
 )
 from app.domains.settings.schemas import (
-    EstimateStatusConfigCreate,
-    EstimateStatusConfigUpdate,
-    EstimateStatusConfigResponse,
-    EstimateStatusConfigListResponse,
-    InvoiceStatusConfigCreate,
-    InvoiceStatusConfigUpdate,
-    InvoiceStatusConfigResponse,
-    InvoiceStatusConfigListResponse,
-    LineItemCategoryCreate,
-    LineItemCategoryUpdate,
-    LineItemCategoryResponse,
-    LineItemCategoryListResponse,
-    LineItemUnitCreate,
-    LineItemUnitUpdate,
-    LineItemUnitResponse,
-    LineItemUnitListResponse,
-    ReorderRequest,
-    StatusUsageResponse,
     AffectedItemInfo,
     BulkStatusMigrationRequest,
     BulkStatusMigrationResponse,
+    EstimateStatusConfigCreate,
+    EstimateStatusConfigListResponse,
+    EstimateStatusConfigResponse,
+    EstimateStatusConfigUpdate,
+    InvoiceStatusConfigCreate,
+    InvoiceStatusConfigListResponse,
+    InvoiceStatusConfigResponse,
+    InvoiceStatusConfigUpdate,
+    LineItemCategoryCreate,
+    LineItemCategoryListResponse,
+    LineItemCategoryResponse,
+    LineItemCategoryUpdate,
+    LineItemUnitCreate,
+    LineItemUnitListResponse,
+    LineItemUnitResponse,
+    LineItemUnitUpdate,
+    ReorderRequest,
+    StatusUsageResponse,
 )
-
+from app.domains.user.models import User
 
 router = APIRouter()
 

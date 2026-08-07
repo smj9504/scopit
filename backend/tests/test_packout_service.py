@@ -19,17 +19,16 @@ Verifies:
 
 import pytest
 
+from app.domains.tools.modules.packing.packout_service import (
+    NON_BOXABLE_LABOR,
+    PackoutCalculator,
+)
 from app.domains.tools.modules.packing.schemas import (
+    CustomSpecialItem,
+    NonBoxableItem,
     PackoutEstimateRequest,
     PackoutRoomInput,
-    NonBoxableItem,
-    CustomSpecialItem,
 )
-from app.domains.tools.modules.packing.packout_service import (
-    PackoutCalculator,
-    NON_BOXABLE_LABOR,
-)
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 

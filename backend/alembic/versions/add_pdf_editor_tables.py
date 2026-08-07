@@ -5,10 +5,10 @@ Revises: add_performance_indexes
 Create Date: 2026-03-28
 
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMP, UUID
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'b2c3d4e5f6a7'

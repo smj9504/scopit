@@ -1,14 +1,16 @@
 """
 Scopit - Estimate Models
 """
-from sqlalchemy import Column, String, Text, Boolean, ForeignKey, Integer, DECIMAL, Date, Enum as SQLEnum
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB
 import enum
 
-from app.core.database import Base
+from sqlalchemy import DECIMAL, Boolean, Column, Date, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
 from app.common.utils import generate_uuid
+from app.core.database import Base
 
 
 class EstimateStatus(str, enum.Enum):

@@ -26,9 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.storage import get_storage
 from app.domains.tools.dependencies import require_tool_access
-from app.domains.user.models import User
 from app.domains.tools.modules.pdf_editor.field_registry import get_available_fields
-from app.domains.tools.modules.pdf_editor.service import PdfEditorService
 from app.domains.tools.modules.pdf_editor.schemas import (
     AnnotationSaveRequest,
     FieldDefinitionsUpdateRequest,
@@ -41,6 +39,8 @@ from app.domains.tools.modules.pdf_editor.schemas import (
     PageRotateRequest,
     PdfDocumentUpdate,
 )
+from app.domains.tools.modules.pdf_editor.service import PdfEditorService
+from app.domains.user.models import User
 
 router = APIRouter()
 _gate = require_tool_access("pdf_editor")

@@ -1,13 +1,13 @@
 """
 Scopit - Tool Models
 """
-from sqlalchemy import Column, String, Text, Boolean, ForeignKey, Integer
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB
 
-from app.core.database import Base
 from app.common.utils import generate_uuid
+from app.core.database import Base
 
 
 class ToolSession(Base):

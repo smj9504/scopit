@@ -2,16 +2,17 @@
 Scopit - Login Tracking Service
 Records login events with geolocation and device info
 """
-from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional
 
-from app.domains.user.models import User
-from app.domains.admin.models import LoginLog
+from sqlalchemy.orm import Session
+
 from app.domains.admin.geolocation import (
     GeolocationService,
     UserAgentParser,
 )
+from app.domains.admin.models import LoginLog
+from app.domains.user.models import User
 
 
 def track_login(

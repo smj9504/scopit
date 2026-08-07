@@ -1,37 +1,42 @@
 """
 Scopit - Estimate API Routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
-from fastapi.responses import Response, StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
-from pydantic import BaseModel, Field
-from typing import Optional, List
 from datetime import date, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import and_
+from sqlalchemy.orm import Session
 
 # Currency precision constant
 CURRENCY_PRECISION = Decimal('0.01')
-from uuid import UUID
 
+from app.common.responses import BulkOperationResponse, MessageResponse
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.pdf_generator import (
+    DEFAULT_TEMPLATE,
     generate_estimate_html,
     generate_estimate_pdf,
-    get_template_info,
     get_available_templates,
-    DEFAULT_TEMPLATE,
+    get_template_info,
 )
 from app.domains.company.models import Company
-from app.domains.user.models import User
 from app.domains.estimate.models import (
-    Estimate, EstimateSection, EstimateItem, EstimateStatus,
-    EstimatePayment, EstimateAdjustment, PaymentMethod, AdjustmentType
+    AdjustmentType,
+    Estimate,
+    EstimateAdjustment,
+    EstimateItem,
+    EstimatePayment,
+    EstimateSection,
+    EstimateStatus,
+    PaymentMethod,
 )
 from app.domains.settings.models import EstimateStatusConfig
-from app.common.responses import MessageResponse, BulkOperationResponse
-
+from app.domains.user.models import User
 
 router = APIRouter()
 
@@ -1173,9 +1178,10 @@ async def convert_to_invoice(
     db: Session = Depends(get_db),
 ):
     """Convert estimate to invoice"""
-    from app.domains.company.models import Company
-    from app.domains.invoice.models import Invoice, InvoiceSection, InvoiceItem, InvoiceStatus
     from datetime import timedelta
+
+    from app.domains.company.models import Company
+    from app.domains.invoice.models import Invoice, InvoiceItem, InvoiceSection, InvoiceStatus
 
     estimate = db.query(Estimate).filter(
         and_(

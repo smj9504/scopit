@@ -1,21 +1,21 @@
 """
 Scopit - Dashboard API Routes
 """
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, extract
-from pydantic import BaseModel
-from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from sqlalchemy import and_, extract, func
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.domains.user.models import User
 from app.domains.customer.models import Customer
 from app.domains.estimate.models import Estimate
 from app.domains.invoice.models import Invoice, InvoiceStatus
-
+from app.domains.user.models import User
 
 router = APIRouter()
 

@@ -1,20 +1,15 @@
+import os
+import sys
 from logging.config import fileConfig
+
 from sqlalchemy import engine_from_config, pool
+
 from alembic import context
-import os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import settings
 from app.core.database import Base
-from app.domains.user.models import User
-from app.domains.company.models import Company
-from app.domains.customer.models import Customer
-from app.domains.line_item.models import LineItem, LineItemNote
-from app.domains.estimate.models import Estimate, EstimateSection, EstimateItem
-from app.domains.invoice.models import Invoice, InvoiceSection, InvoiceItem, Payment
-from app.domains.settings.models import EstimateStatusConfig, InvoiceStatusConfig, LineItemCategory
-from app.domains.auth.models import EmailVerificationCode
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

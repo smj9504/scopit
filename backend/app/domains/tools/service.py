@@ -1,16 +1,17 @@
 """
 Scopit - Tools Service
 """
-from sqlalchemy.orm import Session
-from uuid import UUID
-from typing import List, Optional
 from dataclasses import asdict
+from typing import List, Optional
+from uuid import UUID
 
+from sqlalchemy.orm import Session
+
+from app.common.exceptions import NotFoundException
 from app.core.config import settings
+from app.domains.tools.models import ToolSession
+from app.domains.tools.registry import get_all_tools, get_tool
 from app.domains.user.models import User
-from app.domains.tools.models import ToolSession, ToolFile
-from app.domains.tools.registry import get_tool, get_all_tools, ToolDefinition
-from app.common.exceptions import NotFoundException, ForbiddenException
 
 
 class ToolAccessService:

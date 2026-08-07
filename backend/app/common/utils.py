@@ -1,10 +1,9 @@
 """
 Scopit - Utility Functions
 """
-import uuid
 import random
-from datetime import datetime, date
-from typing import Optional
+import uuid
+from datetime import date
 
 
 def generate_uuid() -> uuid.UUID:

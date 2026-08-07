@@ -1,8 +1,9 @@
 """
 Scopit - Settings Service
 """
-from sqlalchemy.orm import Session
 from uuid import UUID
+
+from sqlalchemy.orm import Session
 
 from app.domains.settings.models import (
     EstimateStatusConfig,

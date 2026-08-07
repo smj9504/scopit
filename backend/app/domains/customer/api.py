@@ -1,21 +1,21 @@
 """
 Scopit - Customer API Routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
-from pydantic import BaseModel
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.domains.user.models import User
 from app.domains.customer.models import Customer
 from app.domains.estimate.models import Estimate
 from app.domains.invoice.models import Invoice
 from app.domains.tools.modules.pdf_editor.models import SignRequest
-
+from app.domains.user.models import User
 
 router = APIRouter()
 

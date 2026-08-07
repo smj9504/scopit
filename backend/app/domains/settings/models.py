@@ -1,13 +1,13 @@
 """
 Scopit - Settings Models
 """
-from sqlalchemy import Column, String, Boolean, ForeignKey, Integer
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 
-from app.core.database import Base
 from app.common.utils import generate_uuid
+from app.core.database import Base
 
 
 class EstimateStatusConfig(Base):

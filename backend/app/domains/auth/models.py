@@ -1,12 +1,12 @@
 """
 Scopit - Auth Domain Models
 """
-from sqlalchemy import Column, String, Integer, ForeignKey, Index
+from sqlalchemy import Column, ForeignKey, Index, Integer, String
+from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 
-from app.core.database import Base
 from app.common.utils import generate_uuid
+from app.core.database import Base
 
 
 class EmailVerificationCode(Base):

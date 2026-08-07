@@ -5,10 +5,10 @@ Revises: c3d4e5f6g7h8
 Create Date: 2026-03-22
 
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'd4e5f6g7h8i9'

@@ -13,8 +13,8 @@ Database: SQLAlchemy 2.0 SYNC (Session, not AsyncSession).
 
 import base64
 import os
-import uuid
 import tempfile
+import uuid
 from datetime import datetime
 from io import BytesIO
 from typing import Optional
@@ -24,7 +24,7 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.storage import get_storage, StorageBackend
+from app.core.storage import StorageBackend, get_storage
 from app.domains.tools.modules.pdf_editor.models import (
     CompanyDocument,
     PdfDocument,
@@ -93,7 +93,6 @@ def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> byte
     for e-signature.
     """
     from pypdf import PdfReader, PdfWriter
-    from reportlab.lib.utils import ImageReader
     from reportlab.pdfgen import canvas as rl_canvas
 
     pdf_data = storage.read(doc.file_path)
@@ -186,6 +185,8 @@ def _burn_one_annotation(c, ann: dict, ph: float) -> bool:
         return True
 
     if ann_type == "image":
+        from reportlab.lib.utils import ImageReader
+
         content = ann.get("content") or ""
         if not content.startswith("data:") or "," not in content or not w or not h:
             return False
@@ -960,9 +961,9 @@ class PdfEditorService:
         template: str = "classic",
     ) -> PdfDocument:
         from app.core.pdf_generator import generate_estimate_pdf
-        from app.domains.estimate.models import Estimate
-        from app.domains.estimate.api import _prepare_estimate_pdf_data
         from app.domains.company.models import Company
+        from app.domains.estimate.api import _prepare_estimate_pdf_data
+        from app.domains.estimate.models import Estimate
 
         estimate = (
             self.db.query(Estimate)
@@ -1033,9 +1034,9 @@ class PdfEditorService:
         template: str = "classic",
     ) -> PdfDocument:
         from app.core.pdf_generator import generate_invoice_pdf
-        from app.domains.invoice.models import Invoice
-        from app.domains.invoice.api import _prepare_invoice_pdf_data
         from app.domains.company.models import Company
+        from app.domains.invoice.api import _prepare_invoice_pdf_data
+        from app.domains.invoice.models import Invoice
 
         invoice = (
             self.db.query(Invoice)

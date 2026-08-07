@@ -5,16 +5,23 @@ Core calculation logic for pack-out estimates.
 Ported from moving_estimate standalone application.
 """
 
-from typing import Dict, List, Tuple, Any
-from app.domains.tools.modules.packing.schemas import (
-    RoomInput, QuickEstimateRequest, EstimateResponse,
-    RoomsEstimateRequest, DetectedContentItem, RoomItemSummary, StagingType,
-    SupplementItem,
-)
+import math
+from typing import Any, Dict, List, Tuple
+
 from sqlalchemy.orm import Session
+
 from app.domains.line_item.models import LineItem
 from app.domains.tools.modules.packing.presets import ROOM_PRESETS
-import math
+from app.domains.tools.modules.packing.schemas import (
+    DetectedContentItem,
+    EstimateResponse,
+    QuickEstimateRequest,
+    RoomInput,
+    RoomItemSummary,
+    RoomsEstimateRequest,
+    StagingType,
+    SupplementItem,
+)
 
 
 def _fmt_money(amount: float) -> str:
@@ -1310,7 +1317,7 @@ class EstimateCalculator:
             )
         section_details["Pack-Out Labor"] = {"lines": po_detail_lines}
         # Recalculate Pack-Out Labor section total to match sub-lines
-        sections["Pack-Out Labor"] = sum(l["amount"] for l in po_detail_lines)
+        sections["Pack-Out Labor"] = sum(ln["amount"] for ln in po_detail_lines)
 
         if not is_on_site:
             _loading_amt = round(quick_loading_hours * crew_labor_rate, 2)
@@ -1338,10 +1345,10 @@ class EstimateCalculator:
             ]
             section_details["Transport Out"] = {"lines": _t_out_lines}
             # Recalculate Transport section totals to match sub-lines
-            sections["Transport Out"] = sum(l["amount"] for l in _t_out_lines)
+            sections["Transport Out"] = sum(ln["amount"] for ln in _t_out_lines)
             if request.include_packback:
                 section_details["Transport Back"] = {"lines": _t_back_lines}
-                sections["Transport Back"] = sum(l["amount"] for l in _t_back_lines)
+                sections["Transport Back"] = sum(ln["amount"] for ln in _t_back_lines)
             if storage_cost > 0:
                 _sf_rate = self.get_price("2840") or 2.18
                 _setup_fee = get_storage_setup_fee(storage_sf)
@@ -1372,7 +1379,7 @@ class EstimateCalculator:
             ]
             section_details["Pack-Back Labor"] = {"lines": pb_lines}
             # Recalculate Pack-Back Labor section total to match sub-lines
-            sections["Pack-Back Labor"] = sum(l["amount"] for l in pb_lines)
+            sections["Pack-Back Labor"] = sum(ln["amount"] for ln in pb_lines)
 
         if special_item_lines:
             section_details["Special Items"] = {"lines": [
@@ -1404,7 +1411,7 @@ class EstimateCalculator:
         for sec_name, sec_detail in section_details.items():
             lines = sec_detail.get("lines", [])
             if lines and sec_name in sections:
-                sections[sec_name] = round(sum(l.get("amount", 0) for l in lines), 2)
+                sections[sec_name] = round(sum(ln.get("amount", 0) for ln in lines), 2)
 
         # Recalculate totals after section_details adjusted section amounts
         subtotal = round(sum(sections.values()), 2)
@@ -2612,7 +2619,6 @@ class EstimateCalculator:
             "box_dish": "box_dish", "box_wardrobe": "box_wardrobe",
             "box_mirror": "box_mirror", "box_tv": "box_tv", "box_lamp": "box_lamp",
             "box_book": "box_book", "bubble_12": "bubble_12", "bubble_24": "bubble_24",
-            "furniture_pad": "furniture_pad",
         }
         return ALIASES.get(key)
 
@@ -3323,7 +3329,7 @@ class EstimateCalculator:
         for sec_name, sec_detail in section_details.items():
             lines = sec_detail.get("lines", [])
             if lines and sec_name in sections:
-                sections[sec_name] = round(sum(l.get("amount", 0) for l in lines), 2)
+                sections[sec_name] = round(sum(ln.get("amount", 0) for ln in lines), 2)
         subtotal = round(sum(sections.values()), 2)
         op_amount = round(subtotal * (request.op_rate / 100), 2) if request.include_op else 0
         contingency_amount = round(subtotal * (request.contingency_rate / 100), 2) if request.include_contingency else 0

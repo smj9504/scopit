@@ -8,7 +8,7 @@ packout estimation workflow.
 from __future__ import annotations
 
 import math
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 from .schemas import (
     DetectedContentItem,
@@ -17,7 +17,6 @@ from .schemas import (
     VolumeSize,
     WeightClass,
 )
-
 
 # ── Size/weight string → enum mapping ────────────────────────────────────────
 

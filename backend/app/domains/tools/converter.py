@@ -5,8 +5,7 @@ Each tool module implements this interface to convert its session data
 into an estimate creation payload, reusing the existing estimate domain.
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Any
-
+from typing import Dict
 
 # Registry of converters: tool_id -> converter instance
 _CONVERTERS: Dict[str, "ToolEstimateConverter"] = {}

@@ -10,10 +10,10 @@ Adds:
 - LoginLog table for login history
 - UserActivity table for activity tracking
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'add_admin_features'

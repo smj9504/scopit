@@ -42,7 +42,6 @@ Session data shape (ToolSession.data JSONB):
 """
 from app.domains.tools.converter import ToolEstimateConverter, register_converter
 
-
 # Canonical display order matching the packing service output
 _SECTION_ORDER = [
     "Pack-Out Labor",

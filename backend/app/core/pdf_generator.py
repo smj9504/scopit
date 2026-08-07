@@ -18,13 +18,14 @@ if platform.system() == "Windows":
                 _gtk_bin + os.pathsep + os.environ.get("PATH", "")
             )
 
-from io import BytesIO
 from datetime import date
 from decimal import Decimal
-from typing import Optional, Dict, Any
+from io import BytesIO
 from pathlib import Path
+from typing import Any, Dict
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+
 # WeasyPrint is imported lazily in generate_pdf() to avoid GTK initialization issues on Windows
 
 # Template directory

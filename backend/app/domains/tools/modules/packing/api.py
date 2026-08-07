@@ -2,43 +2,52 @@
 Scopit - Packing & Moving Estimator Tool API
 """
 import base64
+import io
 import logging
 import re
 import uuid
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-import io
 
 logger = logging.getLogger(__name__)
 
+from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
-from app.domains.user.models import User
 from app.domains.tools.dependencies import require_tool_access
-from app.domains.tools.modules.packing.service import EstimateCalculator
+from app.domains.tools.modules.packing.presets import get_presets_by_category
 from app.domains.tools.modules.packing.schemas import (
-    QuickEstimateRequest, EstimateResponse,
-    RoomPhotoAnalysisRequest, RoomAnalysisResponse,
-    RoomsEstimateRequest,
-    SubmitCorrectionsRequest, SubmitCorrectionsResponse,
-    MasterContentRequest, MasterContentResponse,
-    ExportRequest,
-    ReportExportRequest,
+    BatchCompleteEvent,
     BatchRoomAnalysisRequest,
-    BatchRoomEvent, BatchCompleteEvent,
-    RoomAnalysisStatus,
-    PackoutEstimateRequest, PackoutEstimateResponse,
+    BatchRoomEvent,
     DetectedContentItem,
+    EstimateResponse,
+    ExportRequest,
+    MasterContentRequest,
+    MasterContentResponse,
+    PackoutEstimateRequest,
+    PackoutEstimateResponse,
+    QuickEstimateRequest,
+    ReportExportRequest,
+    RoomAnalysisResponse,
+    RoomAnalysisStatus,
+    RoomPhotoAnalysisRequest,
+    RoomsEstimateRequest,
+    SubmitCorrectionsRequest,
+    SubmitCorrectionsResponse,
 )
-from app.domains.tools.modules.packing.presets import get_all_presets, get_presets_by_category
+from app.domains.tools.modules.packing.service import EstimateCalculator
+from app.domains.user.models import User
 
 try:
     from app.domains.tools.modules.packing.export import (
-        generate_estimate_pdf, generate_estimate_excel,
-        generate_report_pdf, build_company_info,
+        build_company_info,
+        generate_estimate_excel,
+        generate_estimate_pdf,
+        generate_report_pdf,
     )
 except ImportError:
     generate_estimate_pdf = None
@@ -176,8 +185,9 @@ async def analyze_batch(
     'batch_complete' event is always emitted.
     """
     import asyncio
-    from app.domains.tools.modules.packing import vision
+
     from app.core.config import settings as app_settings
+    from app.domains.tools.modules.packing import vision
 
     delay = app_settings.VISION_BATCH_INTER_ROOM_DELAY
     total = len(request.rooms)
@@ -291,8 +301,9 @@ async def submit_corrections(
     Returns the count of corrections saved.
     """
     if request.session_id:
-        from app.domains.tools.service import ToolSessionService
         from uuid import UUID
+
+        from app.domains.tools.service import ToolSessionService
 
         session_service = ToolSessionService(db)
         try:
@@ -331,10 +342,11 @@ async def export_pdf(
             detail="PDF export is unavailable. The 'reportlab' package is not installed.",
         )
 
-    from app.domains.tools.service import ToolSessionService
-    from app.domains.company.models import Company
-    from uuid import UUID
     import asyncio
+    from uuid import UUID
+
+    from app.domains.company.models import Company
+    from app.domains.tools.service import ToolSessionService
 
     session_service = ToolSessionService(db)
     tool_session = session_service.get_session(
@@ -408,9 +420,10 @@ async def export_excel(
             detail="Excel export is unavailable. The required export package is not installed.",
         )
 
-    from app.domains.tools.service import ToolSessionService
-    from app.domains.company.models import Company
     from uuid import UUID
+
+    from app.domains.company.models import Company
+    from app.domains.tools.service import ToolSessionService
 
     session_service = ToolSessionService(db)
     tool_session = session_service.get_session(
@@ -484,9 +497,10 @@ async def export_report(
                    "Required packages not installed.",
         )
 
-    from app.domains.tools.service import ToolSessionService
-    from app.domains.company.models import Company
     from uuid import UUID
+
+    from app.domains.company.models import Company
+    from app.domains.tools.service import ToolSessionService
 
     session_service = ToolSessionService(db)
     tool_session = session_service.get_session(
@@ -510,8 +524,9 @@ async def export_report(
     # Helper: load photos from storage keys for report embedding
     def _load_photos_from_keys(photo_keys: list, room_name: str) -> list:
         """Read photo_keys from storage and return base64 report photo dicts."""
-        from app.core.storage import get_storage
         import base64 as b64mod
+
+        from app.core.storage import get_storage
         if not photo_keys:
             return []
         storage = get_storage()
@@ -810,8 +825,8 @@ async def save_company_profile(
     current_user: User = Depends(_gate),
 ):
     """Save or update a company profile. If a profile with the same label exists, update it."""
-    from app.domains.tools.models import ToolSession
     from app.common.utils import generate_uuid
+    from app.domains.tools.models import ToolSession
 
     session = _get_profiles_session(db, current_user.company_id)
 
@@ -969,9 +984,11 @@ async def serve_photo(
     current_user: User = Depends(_gate),
 ):
     """Serve a stored photo by its storage key."""
-    from app.core.storage import get_storage, LocalStorage
-    from fastapi.responses import FileResponse
     import os
+
+    from fastapi.responses import FileResponse
+
+    from app.core.storage import LocalStorage, get_storage
 
     company_prefix = str(current_user.company_id)
     if not file_id.startswith(company_prefix):

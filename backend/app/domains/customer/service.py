@@ -1,8 +1,9 @@
 """
 Scopit - Customer Service
 """
-from sqlalchemy.orm import Session
 from uuid import UUID
+
+from sqlalchemy.orm import Session
 
 from app.domains.customer.models import Customer
 

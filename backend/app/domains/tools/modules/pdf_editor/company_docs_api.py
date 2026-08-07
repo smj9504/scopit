@@ -29,7 +29,6 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.storage import get_storage
 from app.domains.tools.dependencies import require_tool_access
-from app.domains.user.models import User
 from app.domains.tools.modules.pdf_editor.api import _to_response as _to_pdf_document_response
 from app.domains.tools.modules.pdf_editor.schemas import (
     CompanyDocumentListResponse,
@@ -40,6 +39,7 @@ from app.domains.tools.modules.pdf_editor.service import (
     CompanyDocumentService,
     PdfEditorService,
 )
+from app.domains.user.models import User
 
 router = APIRouter()
 _gate = require_tool_access("pdf_editor")

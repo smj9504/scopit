@@ -2,50 +2,45 @@
 Scopit - Auth API Routes
 """
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import RedirectResponse
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
-from typing import Optional
 from datetime import datetime, timezone
+from typing import Optional
+
 from authlib.integrations.starlette_client import OAuth
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, EmailStr
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-from app.core.database import get_db
+from app.common.responses import MessageResponse
+from app.common.utils import generate_random_username
 from app.core.config import settings
+from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.core.email import email_service
 from app.core.security import (
-    verify_password,
-    get_password_hash,
     create_access_token,
     create_refresh_token,
     decode_token,
+    get_password_hash,
+    verify_password,
 )
-from app.core.dependencies import get_current_user
-from app.core.email import email_service
-from app.common.utils import generate_random_username
-from app.domains.user.models import User
-from app.domains.company.models import Company
-from app.domains.settings.service import seed_default_settings
-from app.domains.customer.service import seed_sample_customers
 from app.domains.admin.login_tracker import track_login, track_signup_location
-# Import all models to ensure SQLAlchemy relationships are resolved
-from app.domains.customer.models import Customer
-from app.domains.line_item.models import LineItem
-from app.domains.estimate.models import Estimate
-from app.domains.invoice.models import Invoice
-from app.domains.settings.models import EstimateStatusConfig, InvoiceStatusConfig, LineItemCategory
-from app.domains.auth.models import EmailVerificationCode
 from app.domains.auth.verification import (
-    issue_verification_code,
-    get_latest_code,
-    hash_code,
+    CODE_EXPIRY_MINUTES,
     MAX_ATTEMPTS,
     RESEND_COOLDOWN_SECONDS,
-    CODE_EXPIRY_MINUTES,
+    get_latest_code,
+    hash_code,
+    issue_verification_code,
 )
-from app.common.responses import MessageResponse
+from app.domains.company.models import Company
 
+# Import all models to ensure SQLAlchemy relationships are resolved
+from app.domains.customer.service import seed_sample_customers
+from app.domains.settings.service import seed_default_settings
+from app.domains.user.models import User
 
 router = APIRouter()
 

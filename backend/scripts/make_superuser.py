@@ -5,7 +5,6 @@ Usage:
   python scripts/make_superuser.py mjbuildworks@gmail.com
 """
 import sys
-import os
 from pathlib import Path
 
 # Add backend directory to path
@@ -13,10 +12,9 @@ backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from sqlalchemy.orm import Session  # noqa: E402
+
 from app.core.database import SessionLocal  # noqa: E402
 from app.domains.user.models import User  # noqa: E402
-from app.domains.company.models import Company  # noqa: E402
-from app.domains.admin.models import LoginLog, UserActivity  # noqa: E402
 
 
 def make_superuser(email: str):

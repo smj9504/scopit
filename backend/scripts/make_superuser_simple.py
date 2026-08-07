@@ -5,7 +5,6 @@ Usage:
   python scripts/make_superuser_simple.py mjbuildworks@gmail.com
 """
 import sys
-import os
 from pathlib import Path
 
 # Add backend directory to path
@@ -13,6 +12,7 @@ backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from sqlalchemy import text  # noqa: E402
+
 from app.core.database import engine  # noqa: E402
 
 
@@ -44,7 +44,7 @@ def make_superuser(email: str):
             print(f"   - Name: {user.full_name}")
             print(f"   - Role: {user.role}")
             print(f"   - Was Superuser: {user.is_superuser}")
-            print(f"   - Now Superuser: True")
+            print("   - Now Superuser: True")
 
     except Exception as e:
         print(f"❌ Error: {e}")

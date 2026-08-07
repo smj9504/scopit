@@ -6,12 +6,11 @@ Prices are Xactimate-aligned (VAAR8X_MAR26).
 """
 
 from decimal import Decimal
-from typing import Optional
 from uuid import UUID
+
 from sqlalchemy.orm import Session
 
 from app.domains.line_item.models import LineItem, LineItemVisibility
-
 
 # ── Category mapping ─────────────────────────────────────────────────
 # Maps original moving_estimate categories to Scopit line item categories

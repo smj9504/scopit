@@ -5,10 +5,10 @@ Revises: a1b2c3d4e5f6
 Create Date: 2026-02-02
 
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
+from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'f1a2b3c4d5e6'
@@ -20,8 +20,10 @@ depends_on = None
 def upgrade():
     bind = op.get_bind()
 
-    # Create adjustment type enum (if not exists)
-    adjustment_type_enum = sa.Enum('premium', 'discount', name='adjustmenttype')
+    # Create adjustment type enum (if not exists). create_type=False so the
+    # create_table() calls below that use this enum don't try to CREATE TYPE
+    # again themselves (it's already created explicitly on the next line).
+    adjustment_type_enum = sa.Enum('premium', 'discount', name='adjustmenttype', create_type=False)
     adjustment_type_enum.create(bind, checkfirst=True)
 
     # Payment method enum already exists from payments table, no need to create

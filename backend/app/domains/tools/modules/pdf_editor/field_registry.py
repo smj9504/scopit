@@ -10,7 +10,6 @@ from typing import Optional
 from app.domains.company.models import Company
 from app.domains.customer.models import Customer
 
-
 AVAILABLE_FIELD_REGISTRY: dict[str, list[dict]] = {
     "customer": [
         {"source_field": "name", "label": "Customer Name", "type": "text"},

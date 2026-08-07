@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.email import email_service
-from app.core.storage import get_storage, StorageBackend
+from app.core.storage import StorageBackend, get_storage
 from app.domains.company.models import Company
 from app.domains.customer.models import Customer
 from app.domains.tools.modules.pdf_editor.field_registry import resolve_entity_value

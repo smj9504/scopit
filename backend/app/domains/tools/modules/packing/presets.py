@@ -5,8 +5,7 @@ Room presets as Python constants (reference data, not user-editable).
 Ported from moving_estimate standalone application.
 """
 
-from typing import Dict, Any
-
+from typing import Any, Dict
 
 ROOM_PRESETS: Dict[str, Dict[str, Any]] = {
     # ── Bedrooms ──────────────────────────────────────────────────────

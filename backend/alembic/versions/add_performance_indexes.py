@@ -14,7 +14,6 @@ Adds database indexes for frequently filtered columns:
 """
 from alembic import op
 
-
 # revision identifiers, used by Alembic.
 revision = 'add_performance_indexes'
 down_revision = 'f1a2b3c4d5e6'

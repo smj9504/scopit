@@ -1,29 +1,30 @@
 """
 Scopit - Admin Service
 """
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, extract, desc, case
 from datetime import datetime, timedelta
-from typing import Optional, List, Tuple
+from typing import List, Optional
 
-from app.domains.user.models import User
-from app.domains.company.models import Company
-from app.domains.estimate.models import Estimate
-from app.domains.invoice.models import Invoice
-from app.domains.customer.models import Customer
-from app.domains.admin.models import LoginLog, UserActivity
+from sqlalchemy import desc, func
+from sqlalchemy.orm import Session
+
+from app.domains.admin.models import LoginLog
 from app.domains.admin.schemas import (
     AdminDashboardResponse,
-    OccupationStat,
-    DailyCount,
-    UserSummary,
-    AdminUserResponse,
     AdminUserDetailResponse,
     AdminUserListResponse,
-    LoginLogResponse,
-    GeographyStat,
+    AdminUserResponse,
+    DailyCount,
     GeographyAnalyticsResponse,
+    GeographyStat,
+    LoginLogResponse,
+    OccupationStat,
+    UserSummary,
 )
+from app.domains.company.models import Company
+from app.domains.customer.models import Customer
+from app.domains.estimate.models import Estimate
+from app.domains.invoice.models import Invoice
+from app.domains.user.models import User
 
 
 class AdminService:

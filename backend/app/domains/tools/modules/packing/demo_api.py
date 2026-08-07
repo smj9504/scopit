@@ -22,7 +22,6 @@ from app.domains.tools.modules.packing.demo.fixtures import (
     PHOTOS_DIR,
     DemoRoomFixture,
 )
-from app.domains.tools.modules.packing.service import EstimateCalculator
 from app.domains.tools.modules.packing.schemas import (
     CompanyInfoOverride,
     EstimateResponse,
@@ -32,6 +31,7 @@ from app.domains.tools.modules.packing.schemas import (
     RoomAnalysisResponse,
     RoomsEstimateRequest,
 )
+from app.domains.tools.modules.packing.service import EstimateCalculator
 
 try:
     from app.domains.tools.modules.packing.export import (

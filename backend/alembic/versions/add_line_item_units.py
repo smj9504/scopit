@@ -5,10 +5,10 @@ Revises: a1b2c3d4e5f6
 Create Date: 2026-01-28
 
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
+from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'add_line_item_units'

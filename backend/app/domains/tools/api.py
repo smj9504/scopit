@@ -3,20 +3,21 @@ Scopit - Tools API
 
 Registry, session management, and tool-to-estimate bridge endpoints.
 """
-from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, field_validator
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
 
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, field_validator
+from sqlalchemy.orm import Session
+
+from app.common.exceptions import BadRequestException
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.domains.user.models import User
-from app.domains.tools.service import ToolAccessService, ToolSessionService
 from app.domains.tools.converter import get_converter
 from app.domains.tools.registry import get_tool
-from app.common.exceptions import NotFoundException, BadRequestException
+from app.domains.tools.service import ToolAccessService, ToolSessionService
+from app.domains.user.models import User
 
 router = APIRouter()
 
@@ -219,13 +220,13 @@ async def create_estimate_from_tool(
     Uses the tool's registered converter to transform session data
     into EstimateCreate payload, then reuses the existing estimate creation logic.
     """
-    from app.domains.estimate.api import EstimateCreate, EstimateSectionCreate, EstimateItemCreate
-    from app.domains.estimate.models import Estimate, EstimateSection, EstimateItem, EstimateStatus
+    from datetime import date
+    from decimal import Decimal
+
     from app.domains.company.models import Company
     from app.domains.customer.models import Customer
+    from app.domains.estimate.models import Estimate, EstimateItem, EstimateSection, EstimateStatus
     from app.domains.settings.models import EstimateStatusConfig
-    from decimal import Decimal
-    from datetime import date
 
     # 1. Get tool session
     session_service = ToolSessionService(db)
@@ -355,15 +356,20 @@ async def create_invoice_from_tool(
     Uses the tool's registered converter to transform session data
     into sections/items, then creates an invoice directly.
     """
-    from app.domains.invoice.models import (
-        Invoice, InvoiceSection, InvoiceItem, InvoiceStatus,
-        InvoiceAdjustment, AdjustmentType,
-    )
-    from app.domains.invoice.api import recalculate_invoice, get_default_invoice_status
+    from datetime import date, timedelta
+    from decimal import ROUND_HALF_UP, Decimal
+
     from app.domains.company.models import Company
     from app.domains.customer.models import Customer
-    from decimal import Decimal, ROUND_HALF_UP
-    from datetime import date, timedelta
+    from app.domains.invoice.api import get_default_invoice_status, recalculate_invoice
+    from app.domains.invoice.models import (
+        AdjustmentType,
+        Invoice,
+        InvoiceAdjustment,
+        InvoiceItem,
+        InvoiceSection,
+        InvoiceStatus,
+    )
 
     # 1. Get tool session
     session_service = ToolSessionService(db)

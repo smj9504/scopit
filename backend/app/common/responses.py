@@ -3,8 +3,9 @@ Scopit - Standard API Response Schemas
 
 Provides consistent response formats across all API endpoints.
 """
+from typing import Generic, List, Optional, TypeVar
+
 from pydantic import BaseModel
-from typing import Generic, TypeVar, Optional, List
 
 T = TypeVar('T')
 

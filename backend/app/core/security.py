@@ -2,13 +2,13 @@
 Scopit - Security utilities
 """
 from datetime import datetime, timedelta
-from typing import Optional, Any
+from typing import Optional
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
 from app.core.config import settings
-
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

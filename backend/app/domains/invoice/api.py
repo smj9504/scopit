@@ -1,14 +1,15 @@
 """
 Scopit - Invoice API Routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
-from fastapi.responses import Response, StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
-from pydantic import BaseModel, Field
-from typing import Optional, List
 from datetime import date, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import and_
+from sqlalchemy.orm import Session
 
 # Currency precision constant
 CURRENCY_PRECISION = Decimal('0.01')
@@ -16,24 +17,26 @@ CURRENCY_PRECISION = Decimal('0.01')
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.pdf_generator import (
+    DEFAULT_TEMPLATE,
     generate_invoice_html,
     generate_invoice_pdf,
     generate_receipt_html,
     generate_receipt_pdf,
     get_template_info,
-    get_available_templates,
-    DEFAULT_TEMPLATE,
-    PAYMENT_METHOD_LABELS,
 )
 from app.domains.company.models import Company
-from app.domains.user.models import User
 from app.domains.invoice.models import (
-    Invoice, InvoiceSection, InvoiceItem, InvoiceStatus,
-    Payment, PaymentMethod, InvoiceAdjustment, AdjustmentType
+    AdjustmentType,
+    Invoice,
+    InvoiceAdjustment,
+    InvoiceItem,
+    InvoiceSection,
+    InvoiceStatus,
+    Payment,
+    PaymentMethod,
 )
-from app.domains.estimate.models import Estimate, EstimateStatus
 from app.domains.settings.models import InvoiceStatusConfig
-
+from app.domains.user.models import User
 
 router = APIRouter()
 

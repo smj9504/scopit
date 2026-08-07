@@ -3,15 +3,15 @@ Scopit - Excel Import/Export Service
 Shared service for generating Excel templates and parsing uploaded Excel files
 for both estimates and invoices.
 """
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.datavalidation import DataValidation
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Literal
-from decimal import Decimal, InvalidOperation
-from fastapi import HTTPException
 
+from fastapi import HTTPException
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 # Column definitions: (header_label, key, column_width)
 COLUMNS = [

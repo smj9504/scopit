@@ -5,11 +5,11 @@ Pydantic models for the PDF editor tool, covering document management,
 page operations, annotations, signing workflow, and company document library.
 """
 
+from datetime import datetime
+from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
-from typing import Optional
-from datetime import datetime
-
 
 # ============================================
 # PDF DOCUMENT SCHEMAS

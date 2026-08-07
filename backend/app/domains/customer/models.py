@@ -1,13 +1,13 @@
 """
 Scopit - Customer Models
 """
-from sqlalchemy import Column, String, Text, Boolean, ForeignKey
+from sqlalchemy import Boolean, Column, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, ARRAY
 
-from app.core.database import Base
 from app.common.utils import generate_uuid
+from app.core.database import Base
 
 
 class Customer(Base):

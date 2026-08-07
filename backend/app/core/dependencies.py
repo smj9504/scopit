@@ -1,15 +1,15 @@
 """
 Scopit - Common Dependencies
 """
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
 from typing import List
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.domains.user.models import User
-
 
 security = HTTPBearer()
 

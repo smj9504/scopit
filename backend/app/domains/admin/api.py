@@ -4,22 +4,22 @@ Scopit - Admin API Routes
 SECURITY: All endpoints require superuser access (is_superuser=True)
 Regular users will receive 403 Forbidden
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
 from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_superuser
-from app.domains.user.models import User
-from app.domains.admin.service import AdminService
 from app.domains.admin.schemas import (
     AdminDashboardResponse,
-    AdminUserListResponse,
     AdminUserDetailResponse,
+    AdminUserListResponse,
     GeographyAnalyticsResponse,
     OccupationAnalyticsResponse,
 )
-
+from app.domains.admin.service import AdminService
+from app.domains.user.models import User
 
 router = APIRouter()
 

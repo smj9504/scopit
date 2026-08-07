@@ -1,14 +1,14 @@
 """
 Scopit - Database Configuration
 """
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from typing import Generator
 
-from app.core.config import settings
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.config import settings
 
 # Create PostgreSQL engine
 engine_kwargs = dict(

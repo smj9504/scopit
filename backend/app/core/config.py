@@ -1,10 +1,11 @@
 """
 Scopit - Application Configuration
 """
-from pydantic_settings import BaseSettings
-from typing import List, Optional
-from functools import lru_cache
 import os
+from functools import lru_cache
+from typing import List, Optional
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -113,6 +114,7 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY_ID: Optional[str] = None
     R2_SECRET_ACCESS_KEY: Optional[str] = None
     R2_BUCKET_NAME: str = "scopit-uploads"
+    R2_TOKEN_VALUE: Optional[str] = None
 
     # ===================
     # Geoapify (Address Autocomplete)

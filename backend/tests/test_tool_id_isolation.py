@@ -8,15 +8,15 @@ Verifies:
 4. Seed function correctly sets tool_id='packing'
 5. EstimateCalculator._load_prices filters by tool_id
 """
-import pytest
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import create_engine, Column, String, Boolean, Text, Numeric, Enum as SQLEnum
-from sqlalchemy.orm import sessionmaker, Session, declarative_base
+import pytest
+from sqlalchemy import Boolean, Column, Numeric, String, Text, create_engine
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from app.domains.line_item.models import LineItemVisibility
-
 
 # ---------------------------------------------------------------------------
 # SQLite-compatible LineItem model
@@ -159,8 +159,8 @@ class TestPackingPricesQuery:
 
     def test_packing_query_returns_only_packing_items(self, db, company_id, user_id):
         _make_line_item(db, company_id, user_id, code="GEN1", name="Normal", cat="Water Damage")
-        packing1 = _make_line_item(db, company_id, user_id, code="2825", cat="Moving - Labor", tool_id="packing")
-        packing2 = _make_line_item(db, company_id, user_id, code="3026", cat="Moving - Boxes", tool_id="packing")
+        _make_line_item(db, company_id, user_id, code="2825", cat="Moving - Labor", tool_id="packing")
+        _make_line_item(db, company_id, user_id, code="3026", cat="Moving - Boxes", tool_id="packing")
 
         # Simulate packing prices query (same filter as packing/api.py get_prices)
         results = db.query(LineItem).filter(
@@ -174,7 +174,7 @@ class TestPackingPricesQuery:
         assert result_codes == {"2825", "3026"}
 
     def test_packing_query_excludes_inactive_items(self, db, company_id, user_id):
-        active = _make_line_item(db, company_id, user_id, code="2825", cat="Moving - Labor", tool_id="packing")
+        _make_line_item(db, company_id, user_id, code="2825", cat="Moving - Labor", tool_id="packing")
         inactive = _make_line_item(db, company_id, user_id, code="3026", cat="Moving - Boxes", tool_id="packing")
         inactive.is_active = False
         db.commit()
@@ -236,7 +236,7 @@ class TestSeedFunction:
 
     def test_seed_sets_tool_id(self, db, company_id, user_id):
         """Verify that the seed data structure includes tool_id."""
-        from app.domains.tools.modules.packing.seed import DEFAULT_MOVING_PRICES, CATEGORY_MAP
+        from app.domains.tools.modules.packing.seed import CATEGORY_MAP, DEFAULT_MOVING_PRICES
 
         # Create items as the seed function would
         for price_data in DEFAULT_MOVING_PRICES[:3]:  # Just test first 3
@@ -315,7 +315,7 @@ class TestBackwardCompatibility:
     (edge case: if migration hasn't run yet or item was manually created)."""
 
     def test_moving_cat_without_tool_id_shows_in_general(self, db, company_id, user_id):
-        item = _make_line_item(db, company_id, user_id, code="CUSTOM", cat="Moving - Custom", tool_id=None)
+        _make_line_item(db, company_id, user_id, code="CUSTOM", cat="Moving - Custom", tool_id=None)
 
         general = db.query(LineItem).filter(
             LineItem.company_id == str(company_id),

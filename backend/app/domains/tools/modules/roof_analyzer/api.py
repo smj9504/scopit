@@ -2,7 +2,7 @@
 Scopit - Roof Analyzer Tool API
 Placeholder endpoints - full EagleView parsing + SVG visualization TBD.
 """
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db

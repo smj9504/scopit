@@ -9,29 +9,35 @@ Original source: moving_estimate moving-estimator-backend export service
 """
 
 import io
-import re
-from datetime import datetime
-from typing import Dict, Any, Optional, List
 import random
+import re
 import string
-
-# PDF Generation
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.units import inch
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
-from reportlab.lib import colors
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, HRFlowable, KeepTogether, BaseDocTemplate, Frame, PageTemplate
-)
-from reportlab.pdfgen import canvas
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 # Excel Generation
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 
+# PDF Generation
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    BaseDocTemplate,
+    Frame,
+    HRFlowable,
+    KeepTogether,
+    PageBreak,
+    PageTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 # ============================================
 # SCOPIT COMPANY INFO HELPER
@@ -215,7 +221,6 @@ def get_line_items_from_estimate(
     P = {**DEFAULT_PRICES, **(prices or {})}
 
     total_rooms = estimate_data.get('total_rooms', estimate_data.get('rooms', 0))
-    total_items = estimate_data.get('total_items', estimate_data.get('items', 0))
     total_hours = estimate_data.get('total_hours', estimate_data.get('hours', 0))
     crew_size = estimate_data.get('crew_size', estimate_data.get('crew', 4))
     materials = estimate_data.get('materials', {})
@@ -795,19 +800,15 @@ def generate_estimate_pdf(
         property_address=property_address or '',
     )
 
-    styles = getSampleStyleSheet()
-
     # Pre-create all styles once (avoid re-instantiation per cell/row)
     style_normal = ParagraphStyle('Normal9', fontSize=9, leading=12)
     style_small = ParagraphStyle('Small', fontSize=9, leading=12, textColor=colors.Color(0.35, 0.35, 0.35))
-    style_detail = ParagraphStyle('Detail', fontSize=9, leading=12, textColor=colors.Color(0.45, 0.45, 0.45))
     style_bold = ParagraphStyle('Bold9', fontSize=9, fontName='Helvetica-Bold', leading=12)
     style_section = ParagraphStyle('Section', fontSize=10, fontName='Helvetica-Bold',
                                    textColor=colors.Color(0.2, 0.2, 0.2), spaceBefore=12, spaceAfter=6)
     style_right = ParagraphStyle('Right9', fontSize=9, alignment=TA_RIGHT, leading=12)
     style_right_bold = ParagraphStyle('RB9', fontSize=9, alignment=TA_RIGHT, leading=12, fontName='Helvetica-Bold')
     style_center = ParagraphStyle('C9', fontSize=9, alignment=TA_CENTER, leading=12)
-    style_title = ParagraphStyle('Title', fontSize=18, fontName='Helvetica-Bold')
     style_terms = ParagraphStyle('Terms', fontSize=9, leading=12, textColor=colors.Color(0.3, 0.3, 0.3))
     style_total_line = ParagraphStyle('TotalLine', fontSize=14, fontName='Helvetica-Bold')
 
@@ -2000,8 +2001,6 @@ def generate_report_pdf(
         grand_total = estimate_data.get("grand_total", 0)
         subtotal = estimate_data.get("subtotal", 0)
         total_rooms = estimate_data.get("total_rooms", 0)
-        total_hours = estimate_data.get("total_hours", 0)
-        crew_size = estimate_data.get("crew_size", 4)
 
         # Cross-reference: link to the estimate that generated this report
         estimate_id = estimate_data.get("id") or session_data.get("id") or ""
@@ -2383,8 +2382,8 @@ def _add_photo_grid(
     Each photo dict has 'image' (base64) and optional 'caption'.
     Photos are compressed before embedding.
     """
-    from reportlab.platypus import Image as RLImage
     from reportlab.lib.utils import ImageReader
+    from reportlab.platypus import Image as RLImage
 
     cell_width = (7.0 * inch) / cols
     img_display_w = cell_width - 0.2 * inch

@@ -1,13 +1,13 @@
 """
 Scopit - Admin Models (LoginLog, UserActivity)
 """
-from sqlalchemy import Column, String, ForeignKey, Text, Integer
+from sqlalchemy import Column, ForeignKey, String
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB
 
-from app.core.database import Base
 from app.common.utils import generate_uuid
+from app.core.database import Base
 
 
 class LoginLog(Base):

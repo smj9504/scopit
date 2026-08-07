@@ -3,13 +3,13 @@ Scopit - PDF Editor Models
 """
 import enum
 
-from sqlalchemy import Column, String, Text, Boolean, ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB, ARRAY
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.core.database import Base
 from app.common.utils import generate_uuid
+from app.core.database import Base
 
 
 class PdfDocument(Base):

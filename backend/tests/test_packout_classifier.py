@@ -11,15 +11,13 @@ Verifies:
 7. Disassembly/crating flags propagate
 """
 
-import pytest
-from app.domains.tools.modules.packing.schemas import DetectedContentItem
 from app.domains.tools.modules.packing.packout_classifier import (
-    classify_items_for_packout,
+    PROTECTION_MAP,
     _is_non_boxable,
     _to_non_boxable_item,
-    PROTECTION_MAP,
+    classify_items_for_packout,
 )
-
+from app.domains.tools.modules.packing.schemas import DetectedContentItem
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

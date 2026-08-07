@@ -5,16 +5,15 @@ Item Recommender - FastAPI Endpoints
 /reindex - Force re-indexing
 /status  - Index status info
 """
-import os
 import logging
+import os
 import threading
-
-from fastapi import APIRouter, Depends, Query, HTTPException
-from pydantic import BaseModel
 from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+
 from app.core.config import settings
-from app.core.database import get_db
 from app.domains.tools.dependencies import require_tool_access
 
 from .indexer import ItemIndex

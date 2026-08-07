@@ -1,17 +1,15 @@
 """add_line_item_notes
 
 Revision ID: 892f08211f6b
-Revises: 
+Revises: 0a1b2c3d4e5f
 Create Date: 2026-01-27 16:21:25.446311
 
 """
-from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
 revision = '892f08211f6b'
-down_revision = None
+down_revision = '0a1b2c3d4e5f'
 branch_labels = None
 depends_on = None
 

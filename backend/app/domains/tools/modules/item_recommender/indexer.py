@@ -6,9 +6,9 @@ and stores a FAISS index + metadata for fast similarity search.
 Tracks file metadata (mtime, size) to detect when re-indexing is needed.
 """
 import json
+import logging
 import os
 import pickle
-import logging
 import time
 from typing import Optional
 

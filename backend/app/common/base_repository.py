@@ -1,12 +1,12 @@
 """
 Scopit - Base Repository
 """
-from typing import TypeVar, Generic, Type, Optional, List, Any
-from sqlalchemy.orm import Session
+from typing import Generic, List, Optional, Type, TypeVar
 from uuid import UUID
 
-from app.core.database import Base
+from sqlalchemy.orm import Session
 
+from app.core.database import Base
 
 ModelType = TypeVar("ModelType", bound=Base)
 

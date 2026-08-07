@@ -1,13 +1,13 @@
 """
 Scopit - Company Models
 """
-from sqlalchemy import Column, String, Text, Boolean, Integer, DECIMAL
+from sqlalchemy import DECIMAL, Boolean, Column, Integer, String, Text
+from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 
-from app.core.database import Base
 from app.common.utils import generate_uuid
+from app.core.database import Base
 
 
 class Company(Base):
