@@ -15,4 +15,4 @@ Disallow: /auth/callback
 # Per-customer e-signature links - private, unique tokens, never indexable
 Disallow: /sign/
 
-Sitemap: https://scopit.work/sitemap.xml
+Sitemap: https://www.scopit.work/sitemap.xml

@@ -6,7 +6,7 @@ interface PageSEOOptions {
   path: string;
 }
 
-const SITE_URL = 'https://scopit.work';
+const SITE_URL = 'https://www.scopit.work';
 
 function setMetaByName(name: string, content: string) {
   let tag = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
