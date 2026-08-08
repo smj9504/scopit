@@ -68,10 +68,17 @@ api.interceptors.response.use(
 
     const refreshToken = useAuthStore.getState().refreshToken;
 
-    // No refresh token available - logout immediately
+    // No refresh token available. Only force a logout+redirect if this request
+    // actually carried a token to begin with (a real session that expired) -
+    // an anonymous, tokenless request 401ing (e.g. a public page's background
+    // query hitting an auth-required endpoint) has no session to lose, and a
+    // hard redirect here would destroy any in-progress anonymous form state.
     if (!refreshToken) {
-      useAuthStore.getState().logout();
-      window.location.href = '/login';
+      const hadToken = !!originalRequest.headers?.Authorization;
+      if (hadToken) {
+        useAuthStore.getState().logout();
+        window.location.href = '/login';
+      }
       return Promise.reject(error);
     }
 
