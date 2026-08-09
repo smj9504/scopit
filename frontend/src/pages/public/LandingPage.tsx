@@ -99,6 +99,10 @@ const LandingPage: React.FC = () => {
     navigate('/demo/packing');
   };
 
+  const handleGetRealPackingEstimate = () => {
+    navigate('/packing-estimate');
+  };
+
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -969,6 +973,23 @@ const LandingPage: React.FC = () => {
             <p style={{ marginTop: 16, fontSize: 13, color: '#9ca3af' }}>
               No signup required · Real sample rooms
             </p>
+            <button
+              className="btn-link"
+              style={{
+                marginTop: 20,
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#111827',
+                background: 'none',
+                border: 'none',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                padding: 0,
+              }}
+              onClick={handleGetRealPackingEstimate}
+            >
+              Have your own space? Get a real photo-based estimate — free during beta →
+            </button>
           </div>
         </div>
       </section>

@@ -1,7 +1,7 @@
 """
 Scopit - Common Dependencies
 """
-from typing import List
+from typing import List, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -12,6 +12,7 @@ from app.core.security import decode_token
 from app.domains.user.models import User
 
 security = HTTPBearer()
+_optional_security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -99,3 +100,25 @@ async def get_superuser(
             detail="Superuser access required"
         )
     return current_user
+
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_optional_security),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Sibling to get_current_user that returns None instead of raising when
+    there's no/invalid Authorization header. Used by public endpoints that
+    behave differently for authenticated vs anonymous callers (e.g. the
+    packing-lead status endpoint) without requiring auth outright."""
+    if not credentials:
+        return None
+
+    payload = decode_token(credentials.credentials)
+    if not payload or payload.type != "access":
+        return None
+
+    user = db.query(User).filter(User.id == payload.sub).first()
+    if not user or not user.is_active:
+        return None
+
+    return user

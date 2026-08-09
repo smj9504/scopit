@@ -11,6 +11,7 @@ import { authService } from '@/services/authService';
 import { getErrorMessage, getErrorCode } from '@/services/api';
 import { colors, fonts } from '@/styles/theme';
 import { warmupBackend } from '@/utils';
+import { useResumePendingAction } from '@/hooks/useResumePendingAction';
 
 interface LoginForm {
   email: string;
@@ -26,6 +27,7 @@ const LoginPage: React.FC = () => {
   const [googleWaking, setGoogleWaking] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuthStore();
+  const resumePendingAction = useResumePendingAction();
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
@@ -61,7 +63,10 @@ const LoginPage: React.FC = () => {
       });
 
       message.success('Welcome back!');
-      navigate('/app/dashboard');
+      const resumed = await resumePendingAction();
+      if (!resumed) {
+        navigate('/app/dashboard');
+      }
     } catch (error) {
       console.error('❌ Login Error:', error);
       if (getErrorCode(error) === 'EMAIL_NOT_VERIFIED') {

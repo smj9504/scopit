@@ -127,7 +127,15 @@ class Settings(BaseSettings):
     PDF_MAX_UPLOAD_SIZE_MB: int = 50
     PDF_THUMBNAIL_SIZE: int = 300
     PDF_SIGN_TOKEN_EXPIRY_DAYS: int = 14
-    
+
+    # ===================
+    # Packing Leads (anonymous estimate capture -> signup gate)
+    # ===================
+    # Placeholder default -- NOT tuned from real per-analysis cost data yet.
+    # Revisit before production launch (per the approved plan).
+    PACKING_LEAD_DAILY_CAP: int = 25
+    PACKING_LEAD_RATE_LIMIT: str = "5/hour"
+
     class Config:
         env_file = ".env.local"
         case_sensitive = True

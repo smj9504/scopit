@@ -35,6 +35,9 @@ const ToolWrapper = lazy(() => import('@/pages/app/tools/ToolWrapper'));
 // Public pages (no auth)
 const SignPage = lazy(() => import('@/pages/public/SignPage'));
 const PackingDemoPage = lazy(() => import('@/pages/public/PackingDemoPage'));
+const PackingLeadFormPage = lazy(() => import('@/pages/public/PackingLeadFormPage'));
+const PackingLeadVerifyPage = lazy(() => import('@/pages/public/PackingLeadVerifyPage'));
+const PackingLeadResultPage = lazy(() => import('@/pages/public/PackingLeadResultPage'));
 
 // Admin pages (Superuser only)
 const AdminLayout = lazy(() => import('@/components/layout/AdminLayout'));
@@ -151,6 +154,11 @@ const router = createBrowserRouter(
 
       {/* Public Packing Estimator Demo (no auth required) */}
       <Route path="/demo/packing" element={<PackingDemoPage />} />
+
+      {/* Public Packing Estimate Lead Capture (no auth required) */}
+      <Route path="/packing-estimate" element={<PackingLeadFormPage />} />
+      <Route path="/packing-estimate/verify/:token" element={<PackingLeadVerifyPage />} />
+      <Route path="/packing-estimate/result/:token" element={<PackingLeadResultPage />} />
 
       {/* Protected App Routes */}
       <Route

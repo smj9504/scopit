@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from starlette.middleware.sessions import SessionMiddleware
 
 import app.domains.tools.modules.packing.converter  # noqa: F401
@@ -12,6 +14,7 @@ import app.domains.tools.modules.packing.converter  # noqa: F401
 # Import tool converters (registers them in the converter registry)
 import app.domains.tools.modules.roof_analyzer.converter  # noqa: F401
 from app.core.config import settings
+from app.core.database import get_db_context
 from app.domains.admin.api import router as admin_router
 
 # Import routers
@@ -27,6 +30,10 @@ from app.domains.tools.api import router as tools_router
 from app.domains.tools.modules.item_recommender.api import router as item_recommender_router
 from app.domains.tools.modules.packing.api import router as packing_router
 from app.domains.tools.modules.packing.demo_api import router as packing_demo_router
+from app.domains.tools.modules.packing.lead_api import limiter as packing_lead_limiter
+from app.domains.tools.modules.packing.lead_api import public_router as packing_leads_public_router
+from app.domains.tools.modules.packing.lead_api import router as packing_leads_router
+from app.domains.tools.modules.packing.lead_cleanup import cleanup_expired_leads
 from app.domains.tools.modules.pdf_editor.api import router as pdf_editor_router
 from app.domains.tools.modules.pdf_editor.company_docs_api import router as company_docs_router
 from app.domains.tools.modules.pdf_editor.sign_api import public_router as sign_public_router
@@ -42,6 +49,12 @@ async def lifespan(app: FastAPI):
     print(f"Environment: {settings.ENV}")
     print(f"Beta Mode: {settings.BETA_MODE}")
 
+    try:
+        with get_db_context() as db:
+            cleanup_expired_leads(db)
+    except Exception as exc:
+        print(f"Startup packing-lead cleanup skipped: {exc}")
+
     yield
     # Shutdown
     print("Shutting down...")
@@ -56,6 +69,10 @@ app = FastAPI(
     docs_url="/api/docs" if settings.DEBUG else None,
     redoc_url="/api/redoc" if settings.DEBUG else None,
 )
+
+# Rate limiting (packing-lead public endpoints)
+app.state.limiter = packing_lead_limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Session middleware (required for OAuth)
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
@@ -113,6 +130,8 @@ app.include_router(pdf_editor_router, prefix="/api/tools/pdf-editor", tags=["PDF
 app.include_router(sign_router, prefix="/api/tools/pdf-editor/sign", tags=["E-Sign"])
 app.include_router(sign_public_router, prefix="/api/sign", tags=["E-Sign Public"])
 app.include_router(company_docs_router, prefix="/api/company-documents", tags=["Company Documents"])
+app.include_router(packing_leads_router, prefix="/api/packing-leads", tags=["Packing Leads"])
+app.include_router(packing_leads_public_router, prefix="/api/packing-leads", tags=["Packing Leads Public"])
 
 
 if __name__ == "__main__":

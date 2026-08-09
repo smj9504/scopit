@@ -12,6 +12,7 @@ import { getErrorMessage } from '@/services/api';
 import { colors, fonts } from '@/styles/theme';
 import { warmupBackend } from '@/utils';
 import VerifyEmailStep from '@/components/auth/VerifyEmailStep';
+import { useResumePendingAction } from '@/hooks/useResumePendingAction';
 import type { VerifyEmailResponse } from '@/types/auth';
 
 interface RegisterForm {
@@ -36,6 +37,7 @@ const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuthStore();
+  const resumePendingAction = useResumePendingAction();
 
   const locationState = location.state as RegisterLocationState | null;
   const [step, setStep] = useState<'form' | 'verify'>(
@@ -71,10 +73,13 @@ const RegisterPage: React.FC = () => {
     }
   };
 
-  const handleVerified = (response: VerifyEmailResponse) => {
+  const handleVerified = async (response: VerifyEmailResponse) => {
     login(response.user, response.accessToken, response.refreshToken);
     message.success('Welcome to Scopit!');
-    navigate('/app/dashboard');
+    const resumed = await resumePendingAction();
+    if (!resumed) {
+      navigate('/app/dashboard');
+    }
   };
 
   return (

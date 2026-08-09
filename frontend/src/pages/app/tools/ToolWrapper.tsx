@@ -3,7 +3,7 @@
  * Resolves toolId from URL, checks access, renders the appropriate tool component.
  */
 import React, { Suspense } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Spin, Button } from 'antd';
 import { ToolAccessGate } from '@/components/features/tools/ToolAccessGate';
 import { getToolComponent } from '@/components/features/tools/registry';
@@ -15,6 +15,10 @@ const ToolWrapper: React.FC = () => {
   const { toolId } = useParams<{ toolId: string }>();
   const navigate = useNavigate();
   const { data: tools } = useTools();
+  // Optional ?sessionId= query param — lets external flows (e.g. a claimed
+  // anonymous packing lead) deep-link straight into an existing tool session.
+  const [searchParams] = useSearchParams();
+  const sessionId = searchParams.get('sessionId') ?? undefined;
 
   const tool = tools?.find(t => t.id === toolId);
   const ToolComponent = toolId ? getToolComponent(toolId) : null;
@@ -44,7 +48,7 @@ const ToolWrapper: React.FC = () => {
             <Spin size="large" />
           </div>
         }>
-          <ToolComponent />
+          <ToolComponent sessionId={sessionId} />
         </Suspense>
       </div>
     </ToolAccessGate>
