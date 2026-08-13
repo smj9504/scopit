@@ -322,18 +322,12 @@ a {
   height: 26px !important;
 }
 
-/* AntD's InputNumber step-arrows are absolutely positioned over the right
-   edge of the field. AntD only pushes the suffix (e.g. "%") out of their way
-   on :hover — never on focus — so clicking into a field and typing pops the
-   arrows up over the suffix and, in narrow fields (rate/qty/% inputs), the
-   digits themselves. Mirror that reservation for the focused state app-wide;
-   22px is the default handler width plus a small buffer. */
-.ant-input-number-focused .ant-input-number-input {
-  padding-inline-end: 26px !important;
-}
-
-.ant-input-number-affix-wrapper-focused .ant-input-number-suffix {
-  margin-inline-end: 26px !important;
+/* AntD's InputNumber step-arrows overlap the right edge of the field on
+   hover/focus, covering digits and suffixes (e.g. "%") in narrow inputs
+   (rate/qty). App-wide, these spin buttons aren't used, so hide them
+   entirely instead of reserving space around them. */
+.ant-input-number-handler-wrap {
+  display: none !important;
 }
 
 /* Modal Overrides */
