@@ -12,15 +12,13 @@ Two routers, both mounted at the same prefix "/api/packing-leads" in main.py:
     router        - authenticated (claim)
     public_router - public, token-based (submit/verify-email/status/retry)
 """
-from __future__ import annotations
-
 import base64
 import json
 import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import (
     APIRouter,
@@ -360,7 +358,7 @@ async def _run_analysis(lead_id) -> None:
 async def submit_lead(
     request: Request,
     payload: str = Form(...),
-    photos: List[UploadFile] = File(default=[]),
+    photos: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
     """Anonymous entry point: contact info + per-room photos. No auth."""
