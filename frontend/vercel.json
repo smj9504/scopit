@@ -9,6 +9,10 @@
       "destination": "/demo/packing/index.html"
     },
     {
+      "source": "/packing-estimate",
+      "destination": "/packing-estimate/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

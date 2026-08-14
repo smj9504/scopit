@@ -117,8 +117,8 @@ const PackingLeadFormPage: React.FC = () => {
   return (
     <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
       <Seo
-        title="Free Packing Estimate - Scopit"
-        description="Get a free packing estimate for your restoration or moving job. Upload photos and receive a fast, itemized estimate — no account required."
+        title="Free Packing Estimate | Scopit"
+        description="Get a free, itemized packing estimate for your move. Upload room photos and receive a fast professional estimate, no account required."
         path="/packing-estimate"
       />
       <header

@@ -10,19 +10,14 @@ app bootstrap. Don't do it silently.
 ## The SPA caveat (say this up front)
 
 `react-helmet-async` updates `<head>` **in the browser, after JS runs**. Google's
-main crawler renders JS and will usually see the updated tags, but:
+main crawler renders JS and will usually see the updated tags, but many
+**social/link-preview scrapers** (iMessage, KakaoTalk, Slack, some Facebook/
+LinkedIn fetches) do **not** run JS — they read the raw `index.html`.
 
-- Many **social/link-preview scrapers** (iMessage, KakaoTalk, Slack, some
-  Facebook/LinkedIn fetches) do **not** run JS — they read the raw
-  `index.html`. So OG previews for a route will still show the site-wide image/
-  title unless the HTML is prerendered.
-- For reliable per-route sharing and best-case indexing, the durable fixes are
-  **prerendering / static generation** (e.g. `vite-plugin-ssr`/`vike`,
-  `react-snap`, or generating a static HTML file per public route) or SSR.
-
-So: helmet is a real improvement for in-app titles and JS-rendering crawlers, but
-if the goal is correct link previews, flag that prerendering is the complete
-solution and let the user choose how far to go.
+**This project already solves that with a build-time prerender step** — so helmet
+and prerendering work together: helmet handles in-app/JS-crawler titles, and the
+prerender bakes correct static tags for non-JS scrapers. See the next section.
+When adding a new public indexable route, you must update BOTH so they agree.
 
 ## Setup steps
 
@@ -109,5 +104,39 @@ solution and let the user choose how far to go.
 ## After setup
 
 - Re-run the SEO **Audit checklist** against the pages you added `<Seo>` to.
-- If link previews for non-root routes matter to the user, revisit the
-  prerendering options above.
+
+## Prerendering (already implemented — keep it in sync)
+
+The build script runs a prerender step **after** `vite build`:
+
+```
+"build": "tsc && vite build && node scripts/prerender-seo.mjs"
+```
+
+`frontend/scripts/prerender-seo.mjs` takes the built `dist/index.html` shell and,
+for each route in its `routes` array, bakes the route's real title/description/
+canonical/OG/Twitter into a static `dist/<path>/index.html`. `frontend/vercel.json`
+then `rewrites` that path to the prerendered file so non-JS scrapers get correct
+tags before any JS runs. This is the complete fix for link previews — no SSR
+framework or headless browser needed (it's pure string replacement, so it runs
+fine on Vercel).
+
+**To add a new public indexable route, update all of these so they agree:**
+1. `frontend/src/App.tsx` — the route itself.
+2. The page's `<Seo>` component — title/description for JS crawlers & users.
+3. `frontend/scripts/prerender-seo.mjs` — add a `{ path, title, description }`
+   entry. **Use the exact same title/description as the `<Seo>` component** so
+   JS and non-JS crawlers see identical metadata.
+4. `frontend/vercel.json` — add a `rewrites` entry
+   (`"/your-path"` → `"/your-path/index.html"`) **above** the catch-all
+   `"/(.*)"` rule.
+5. `frontend/public/sitemap.xml` and `robots.txt` — per the sitemap/robots section
+   of SKILL.md.
+
+**Verify** by running `npm run build` and checking the generated file:
+`grep -o '<title>[^<]*' dist/<path>/index.html` should show the route's title, and
+the homepage copy should be gone from that shell.
+
+Note: token'd/private routes (`/sign/:token`, `/packing-estimate/verify|result/`)
+are per-customer and must NOT be prerendered — give them a `noindex` `<Seo>` and a
+`robots.txt` Disallow instead.

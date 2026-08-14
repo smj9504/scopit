@@ -111,9 +111,12 @@ constants above — don't invent a different domain, image size, or brand voice.
 15. **Route ↔ sitemap ↔ robots agreement**: cross-check `App.tsx` public routes
     against `sitemap.xml` and `robots.txt`. A public, indexable route missing
     from the sitemap (or a private route accidentally crawlable) is a ❌.
-    *(Known gap to check: `/packing-estimate` is a public lead form but is
-    currently absent from both — decide index vs. noindex and make all three
-    files agree.)*
+16. **Prerender coverage** for public non-root pages: any route that should have
+    correct link previews needs an entry in `frontend/scripts/prerender-seo.mjs`
+    AND a matching `frontend/vercel.json` rewrite, with title/description equal to
+    the page's `<Seo>` component. A public page with a `<Seo>` but no prerender
+    entry gets right previews only from JS-rendering crawlers, not social
+    scrapers. (See the per-route section below.)
 
 Finish an audit with a short prioritized summary: ❌ first (breaks indexing or
 sharing), then ⚠️ (improvements), then ✅ (what's already good). Offer to apply
@@ -158,22 +161,29 @@ Open Graph → Twitter → Structured Data) so diffs stay readable.
 5. After editing, re-run checklist item 15 to confirm routes, sitemap, and robots
    are mutually consistent.
 
-## Per-route metadata (react-helmet)
+## Per-route metadata (react-helmet + prerender)
 
-Because this is a client-rendered SPA with a single `index.html`, every route
-currently ships the *same* title and meta. That's fine for the landing page but
-weak for distinct public pages (e.g. `/demo/packing`, `/packing-estimate`), which
-ideally get their own title/description/OG for search and link previews.
+This is a client-rendered SPA with a single `index.html`, so per-route metadata
+uses **two cooperating mechanisms** — both already set up in the project:
 
-The project does **not** yet include a head-management library (verified: no
-`react-helmet*` in `frontend/package.json`). If the user wants per-route
-metadata, follow `references/react-helmet.md` for the full setup (install
-`react-helmet-async`, wrap the app in a provider, add a small reusable `<Seo>`
-component, and apply it per public page). Important caveat to tell the user:
-helmet updates tags **client-side**, so crawlers that don't execute JS (and most
-social-share scrapers) still read the static `index.html`. For those, the durable
-options are prerendering/SSG or per-route static HTML — call this out so the user
-can decide how far to go. Don't silently install a dependency; propose it first.
+1. **`react-helmet-async`** (installed) — the reusable `<Seo>` component at
+   `frontend/src/components/Seo.tsx` overrides title/description/OG/Twitter per
+   route once JS runs. Good for users and JS-rendering crawlers (Googlebot).
+2. **Build-time prerender** — `frontend/scripts/prerender-seo.mjs` (runs after
+   `vite build`) bakes each listed route's real meta into a static
+   `dist/<path>/index.html`, and `frontend/vercel.json` rewrites the path to it.
+   This is what fixes **link previews for non-JS scrapers** (KakaoTalk, iMessage,
+   Slack, etc.), which never see helmet's client-side updates.
+
+**These must stay in sync.** When adding or changing a public indexable route,
+update the `<Seo>` component AND the prerender route entry with the *same*
+title/description, plus the `vercel.json` rewrite, sitemap, and robots. Full
+step-by-step (and the verify command) is in `references/react-helmet.md`.
+
+The landing page (`/`) intentionally keeps its metadata in the static
+`index.html`, since that's the default shell non-JS scrapers read first. Token'd/
+private routes must NOT be prerendered — give them a `noindex` `<Seo>` and a
+`robots.txt` Disallow.
 
 ## Reference files
 

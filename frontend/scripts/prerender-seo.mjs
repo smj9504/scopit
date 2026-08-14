@@ -24,6 +24,12 @@ const routes = [
     description:
       "Try Scopit's AI-powered packing estimator free, no signup required. Snap room photos and get a professional packing estimate in minutes.",
   },
+  {
+    path: '/packing-estimate',
+    title: 'Free Packing Estimate | Scopit',
+    description:
+      'Get a free, itemized packing estimate for your move. Upload room photos and receive a fast professional estimate, no account required.',
+  },
 ];
 
 function setMetaContent(html, attrMatch, value) {

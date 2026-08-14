@@ -203,8 +203,8 @@ const PackingDemoPage: React.FC = () => {
   return (
     <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
       <Seo
-        title="Packing Estimator Demo - Scopit"
-        description="Try Scopit's packing estimator live. Upload room photos and watch it build an itemized packing estimate in minutes — no signup required."
+        title="Free Packing Estimate Demo | Scopit"
+        description="Try Scopit's AI-powered packing estimator free, no signup required. Snap room photos and get a professional packing estimate in minutes."
         path="/demo/packing"
       />
       <h1
