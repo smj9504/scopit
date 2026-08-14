@@ -14,6 +14,9 @@ Disallow: /admin/
 # Auth flows - thin/duplicate pages, no ranking value
 Disallow: /login
 Disallow: /register
+# But keep the PWA service-worker script crawlable — "/register" is a prefix
+# match that would otherwise also block "/registerSW.js" (a render resource).
+Allow: /registerSW.js
 Disallow: /forgot-password
 Disallow: /auth/callback
 
