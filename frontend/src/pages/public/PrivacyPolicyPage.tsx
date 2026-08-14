@@ -121,9 +121,17 @@ const PrivacyPolicyPage: React.FC = () => {
 
         <h2>6. Data Retention</h2>
         <p>
-          We retain your information for as long as your account is active or as needed to provide the Service, and
-          thereafter as necessary to comply with our legal obligations, resolve disputes, and enforce our agreements.
-          You may request deletion of your account and associated personal information as described below.
+          We retain your account information and content for as long as your account is active. If you request deletion
+          of your account (see &ldquo;Your Privacy Rights&rdquo; below), we will delete your personal information within
+          30 days, except for limited records we are required to keep to comply with legal, tax, or accounting
+          obligations, resolve disputes, or enforce our agreements. Residual copies may remain in encrypted backups for a
+          short period until those backups are cycled out.
+        </p>
+        <p>
+          Information submitted through our public packing-estimate form is kept only briefly: unverified requests are
+          automatically deleted about 24 hours after submission, and verified estimates (including any photos you
+          uploaded) are automatically deleted about 14 days after submission. Email verification codes expire within 15
+          minutes.
         </p>
 
         <h2>7. Security</h2>

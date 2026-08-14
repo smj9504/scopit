@@ -77,10 +77,16 @@ const TermsPage: React.FC = () => {
           services.
         </p>
 
-        <h2>8. Fees</h2>
+        <h2>8. Fees and Refunds</h2>
         <p>
-          The Service is free during the beta period. We may introduce paid plans in the future. If we do, we will
-          provide notice and you will have the opportunity to review the applicable pricing before being charged.
+          The Service is free during the beta period, so no fees are currently charged. We may introduce paid plans in
+          the future. If we do, we will provide notice and you will have the opportunity to review the applicable pricing
+          before being charged.
+        </p>
+        <p>
+          Any fees, once we begin charging them, are billed in advance (prepaid) and are{' '}
+          <strong>non-refundable</strong>, except where a refund is required by applicable law. Canceling a paid plan
+          stops future charges but does not entitle you to a refund of amounts already paid.
         </p>
 
         <h2>9. Intellectual Property</h2>
@@ -120,12 +126,14 @@ const TermsPage: React.FC = () => {
           of Your Content, your use of the Service, or your violation of these Terms or applicable law.
         </p>
 
-        <h2>14. Termination</h2>
+        <h2>14. Termination and Cancellation</h2>
         <p>
-          You may stop using the Service at any time. We may suspend or terminate your access if you violate these Terms
-          or if we discontinue the Service. Upon termination, your right to use the Service ends, though certain
-          provisions (such as those on intellectual property, disclaimers, limitation of liability, and indemnification)
-          will survive.
+          You may stop using the Service at any time. To close your account and request deletion of your data, email us
+          at <a href="mailto:hello@scopit.work">hello@scopit.work</a>; we will delete your personal information as
+          described in our <a href="/privacy">Privacy Policy</a> (generally within 30 days). We may suspend or terminate
+          your access if you violate these Terms or if we discontinue the Service. Upon termination, your right to use
+          the Service ends, though certain provisions (such as those on intellectual property, disclaimers, limitation of
+          liability, and indemnification) will survive.
         </p>
 
         <h2>15. Changes to These Terms</h2>
