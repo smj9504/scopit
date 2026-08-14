@@ -35,6 +35,7 @@ const ToolWrapper = lazy(() => import('@/pages/app/tools/ToolWrapper'));
 // Public pages (no auth)
 const SignPage = lazy(() => import('@/pages/public/SignPage'));
 const PackingDemoPage = lazy(() => import('@/pages/public/PackingDemoPage'));
+const PackingCalculatorPage = lazy(() => import('@/pages/public/PackingCalculatorPage'));
 const PackingLeadFormPage = lazy(() => import('@/pages/public/PackingLeadFormPage'));
 const PackingLeadVerifyPage = lazy(() => import('@/pages/public/PackingLeadVerifyPage'));
 const PackingLeadResultPage = lazy(() => import('@/pages/public/PackingLeadResultPage'));
@@ -157,6 +158,9 @@ const router = createBrowserRouter(
 
       {/* Public Packing Estimator Demo (no auth required) */}
       <Route path="/demo/packing" element={<PackingDemoPage />} />
+
+      {/* Public Packing Calculator SEO content page (no auth required) */}
+      <Route path="/packing-calculator" element={<PackingCalculatorPage />} />
 
       {/* Public Packing Estimate Lead Capture (no auth required) */}
       <Route path="/packing-estimate" element={<PackingLeadFormPage />} />

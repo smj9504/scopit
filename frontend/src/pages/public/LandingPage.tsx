@@ -1319,6 +1319,8 @@ const LandingPage: React.FC = () => {
                   <button type="button" onClick={() => scrollToSection('features')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>Features</button>
                   <button type="button" onClick={() => scrollToSection('how-it-works')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>How it works</button>
                   <button type="button" onClick={() => scrollToSection('faq')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>FAQ</button>
+                  <a href="/packing-calculator" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>Packing calculator</a>
+                  <a href="/demo/packing" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>Packing estimate demo</a>
                 </div>
               </div>
               

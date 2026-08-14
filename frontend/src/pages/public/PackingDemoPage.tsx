@@ -105,7 +105,7 @@ const PackingDemoPage: React.FC = () => {
   usePageSEO({
     title: 'Free Packing Estimate Demo | Scopit',
     description:
-      'Try Scopit\'s AI-powered packing estimator free, no signup required. Snap room photos and get a professional packing estimate in minutes.',
+      "Try Scopit's AI packing calculator free — snap room photos for an instant pack-out estimate with an insurance-ready breakdown and packing report. No signup.",
     path: '/demo/packing',
   });
 
@@ -204,7 +204,7 @@ const PackingDemoPage: React.FC = () => {
     <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
       <Seo
         title="Free Packing Estimate Demo | Scopit"
-        description="Try Scopit's AI-powered packing estimator free, no signup required. Snap room photos and get a professional packing estimate in minutes."
+        description="Try Scopit's AI packing calculator free — snap room photos for an instant pack-out estimate with an insurance-ready breakdown and packing report. No signup."
         path="/demo/packing"
       />
       <h1
@@ -220,7 +220,7 @@ const PackingDemoPage: React.FC = () => {
           border: 0,
         }}
       >
-        Free Packing Estimate Demo — AI Photo-Based Restoration Estimator
+        Free Packing Estimate Demo — AI Packing Calculator for Pack-Out &amp; Pack-Back Estimates
       </h1>
       <Alert
         type="info"
