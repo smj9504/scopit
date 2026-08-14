@@ -218,6 +218,114 @@ def _send_lead_verification_email(to_email: str, code: str) -> bool:
     )
 
 
+def _esc(value: Optional[str]) -> str:
+    """Minimal HTML escaping for user-supplied text dropped into the admin
+    notification email (contact/company/property fields are free-form)."""
+    if not value:
+        return "—"
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _build_lead_notification_email_html(lead: PackingLead, room_count: int, photo_count: int) -> str:
+    """Internal-facing notification sent to the team when a new anonymous lead
+    is submitted on the public packing-estimate form."""
+    def row(label: str, value: str) -> str:
+        return f"""
+          <tr>
+            <td style="padding:6px 16px 6px 0; color:{COLOR_MUTED}; font-size:13px; white-space:nowrap; vertical-align:top;">{label}</td>
+            <td style="padding:6px 0; color:{COLOR_TEXT}; font-size:14px; font-weight:600;">{value}</td>
+          </tr>"""
+
+    rows = "".join([
+        row("Email", _esc(lead.contact_email)),
+        row("Phone", _esc(lead.contact_phone)),
+        row("Company", _esc(lead.company_name)),
+        row("Company phone", _esc(lead.company_phone)),
+        row("Company address", _esc(lead.company_address)),
+        row("Property address", _esc(lead.property_address)),
+        row("Rooms", str(room_count)),
+        row("Photos", str(photo_count)),
+    ])
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New packing estimate lead</title>
+</head>
+<body style="margin:0; padding:0; background-color:{COLOR_BG}; font-family:{FONT_STACK_BODY};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{COLOR_BG};">
+    <tr>
+      <td align="center" style="padding:48px 20px;">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0"
+               style="width:560px; max-width:560px; background-color:#ffffff; border:1px solid {COLOR_BORDER}; border-top:4px solid {COLOR_PRIMARY}; border-radius:12px;">
+          <tr>
+            <td style="padding:32px 40px 8px 40px;">
+              <span style="font-family:{FONT_STACK_HEADING}; font-size:19px; font-weight:800; letter-spacing:-0.3px; color:{COLOR_PRIMARY};">
+                Scope<span style="color:{COLOR_FAINT};">It</span>
+              </span>
+              <h1 style="margin:16px 0 8px 0; font-family:{FONT_STACK_HEADING}; font-size:21px; font-weight:800; color:{COLOR_PRIMARY};">
+                New packing estimate lead
+              </h1>
+              <p style="margin:0 0 20px 0; color:{COLOR_TEXT}; font-size:14px; line-height:1.6;">
+                A new visitor just submitted the public packing-estimate form.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 40px 32px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                     style="background-color:{COLOR_BG}; border:1px solid {COLOR_BORDER}; border-radius:10px; padding:8px 16px;">
+                {rows}
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def _send_lead_notification_email(lead: PackingLead, room_count: int, photo_count: int) -> bool:
+    """Notify the internal team of a newly submitted lead. Best-effort: a
+    failure here must never block the visitor's submission."""
+    to_email = (settings.PACKING_LEAD_NOTIFY_EMAIL or "").strip()
+    if not to_email:
+        return False
+
+    company = (lead.company_name or "").strip()
+    subject = (
+        f"[{settings.APP_NAME}] New packing lead: {company or lead.contact_email}"
+    )
+    html_content = _build_lead_notification_email_html(lead, room_count, photo_count)
+    text_content = (
+        "A new visitor just submitted the public packing-estimate form.\n\n"
+        f"Email:            {lead.contact_email}\n"
+        f"Phone:            {lead.contact_phone or '-'}\n"
+        f"Company:          {lead.company_name or '-'}\n"
+        f"Company phone:    {lead.company_phone or '-'}\n"
+        f"Company address:  {lead.company_address or '-'}\n"
+        f"Property address: {lead.property_address or '-'}\n"
+        f"Rooms:            {room_count}\n"
+        f"Photos:           {photo_count}\n"
+    )
+    return email_service.send_email(
+        to_email=to_email,
+        subject=subject,
+        html_content=html_content,
+        text_content=text_content,
+        reply_to=lead.contact_email,
+    )
+
+
 def _check_daily_cap_available(db: Session) -> bool:
     since = _now() - timedelta(hours=24)
     count = (
@@ -467,6 +575,13 @@ async def submit_lead(
         _send_lead_verification_email(data.contact_email, code)
     except Exception:
         logger.exception("Failed to send packing lead verification email")
+
+    # Best-effort internal notification -- a new visitor just came in. Must
+    # never block or fail the visitor's own submission.
+    try:
+        _send_lead_notification_email(lead, len(rooms_input), len(photos))
+    except Exception:
+        logger.exception("Failed to send packing lead notification email")
 
     return LeadSubmitResponse(token=token)
 

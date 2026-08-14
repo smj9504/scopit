@@ -207,6 +207,21 @@ class TestSubmit:
         db.delete(lead)
         db.commit()
 
+    def test_submit_notifies_internal_team(self, db):
+        from app.core.config import settings
+
+        resp, mock_send = _submit_lead()
+        assert resp.status_code == 201
+
+        notify_to = settings.PACKING_LEAD_NOTIFY_EMAIL
+        recipients = [c.kwargs.get("to_email") for c in mock_send.call_args_list]
+        assert notify_to in recipients
+
+        token = resp.json()["token"]
+        lead = db.query(PackingLead).filter(PackingLead.token == token).first()
+        db.delete(lead)
+        db.commit()
+
     def test_duplicate_idempotency_key_returns_same_lead(self, db):
         key = uuid.uuid4().hex
         resp1, _ = _submit_lead(idempotency_key=key)
