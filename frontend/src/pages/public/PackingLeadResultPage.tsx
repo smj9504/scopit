@@ -20,6 +20,7 @@ import { usePendingActionStore } from '@/stores/pendingActionStore';
 import { packingLeadService } from '@/services/packingLeadService';
 import { getErrorMessage } from '@/services/api';
 import type { PackingLeadStatusResponse } from '@/types/packingLead';
+import { Seo } from '@/components/Seo';
 
 const CONTACT_EMAIL = 'hello@scopit.work';
 const POLL_INTERVAL_MS = 3500;
@@ -37,6 +38,12 @@ const ContactFooter: React.FC = () => (
 
 const PageShell: React.FC<{ children: React.ReactNode; isMobile: boolean }> = ({ children, isMobile }) => (
   <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
+    <Seo
+      title="Your Packing Estimate - Scopit"
+      description="View your Scopit packing estimate."
+      path="/packing-estimate/result"
+      noindex
+    />
     <header
       style={{
         padding: '20px 24px',

@@ -13,6 +13,7 @@ import type { UploadFile } from 'antd/es/upload/interface';
 import { PlusOutlined, DeleteOutlined, CameraOutlined } from '@ant-design/icons';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { Seo } from '@/components/Seo';
 import { usePageSEO } from '@/hooks/usePageSEO';
 import { packingLeadService } from '@/services/packingLeadService';
 import { getErrorMessage } from '@/services/api';
@@ -115,6 +116,11 @@ const PackingLeadFormPage: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
+      <Seo
+        title="Free Packing Estimate - Scopit"
+        description="Get a free packing estimate for your restoration or moving job. Upload photos and receive a fast, itemized estimate — no account required."
+        path="/packing-estimate"
+      />
       <header
         style={{
           padding: '20px 24px',

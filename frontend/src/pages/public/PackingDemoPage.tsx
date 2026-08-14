@@ -17,6 +17,7 @@
  * demo, which is expected.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Seo } from '@/components/Seo';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Modal, Typography, App as AntdApp } from 'antd';
 import {
@@ -201,6 +202,11 @@ const PackingDemoPage: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
+      <Seo
+        title="Packing Estimator Demo - Scopit"
+        description="Try Scopit's packing estimator live. Upload room photos and watch it build an itemized packing estimate in minutes — no signup required."
+        path="/demo/packing"
+      />
       <h1
         style={{
           position: 'absolute',
