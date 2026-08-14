@@ -10,7 +10,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Button, App, Progress } from 'antd';
+import { Button, App } from 'antd';
 import axios from 'axios';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -21,6 +21,7 @@ import { packingLeadService } from '@/services/packingLeadService';
 import { getErrorMessage } from '@/services/api';
 import type { PackingLeadStatusResponse } from '@/types/packingLead';
 import { Seo } from '@/components/Seo';
+import AnalysisProgressRing from '@/components/AnalysisProgressRing';
 
 const CONTACT_EMAIL = 'hello@scopit.work';
 const POLL_INTERVAL_MS = 3500;
@@ -227,48 +228,28 @@ const PackingLeadResultPage: React.FC = () => {
     const analyzing = data.status === 'analyzing';
     const progress = analyzing ? data.progress ?? null : null;
     const label = analyzing ? 'Analyzing your rooms' : 'Getting ready';
-    const totalPhotos = progress?.total_photos ?? 0;
-    const donePhotos = progress?.processed_photos ?? 0;
-    const pct = totalPhotos > 0 ? Math.round((donePhotos / totalPhotos) * 100) : 0;
-    const currentRoomNumber = progress
-      ? Math.min(progress.completed_rooms + 1, progress.total_rooms)
-      : 0;
 
     return (
       <PageShell isMobile={isMobile}>
-        <h1 style={{ fontFamily: fonts.heading, fontSize: 20, fontWeight: 700, color: colors.textPrimary, margin: 0, marginBottom: 8 }}>
+        <h1 style={{ fontFamily: fonts.heading, fontSize: 20, fontWeight: 700, color: colors.textPrimary, margin: 0, marginBottom: 20 }}>
           {label}…
         </h1>
 
         {analyzing && progress && progress.total_rooms > 0 ? (
-          <div style={{ marginTop: 8, marginBottom: 4 }}>
-            <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 12 }}>
-              {progress.current_room ? (
-                <>
-                  Analyzing <strong style={{ color: colors.textPrimary }}>{progress.current_room}</strong>
-                  {' '}— room {currentRoomNumber} of {progress.total_rooms}
-                </>
-              ) : (
-                <>Wrapping up your estimate…</>
-              )}
-            </p>
-            <Progress
-              percent={pct}
-              status="active"
-              strokeColor={colors.primary}
-              showInfo={false}
-            />
-            <p style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>
-              {donePhotos} of {totalPhotos} photos analyzed
-            </p>
-          </div>
+          <AnalysisProgressRing
+            totalRooms={progress.total_rooms}
+            completedRooms={progress.completed_rooms}
+            totalPhotos={progress.total_photos}
+            processedPhotos={progress.processed_photos}
+            currentRoom={progress.current_room}
+          />
         ) : (
           <p style={{ color: colors.textSecondary, fontSize: 14 }}>
             This usually takes a few minutes.
           </p>
         )}
 
-        <p style={{ color: colors.textSecondary, fontSize: 14, marginTop: 16 }}>
+        <p style={{ color: colors.textSecondary, fontSize: 14, marginTop: 20 }}>
           You can safely close this tab — we'll email you a link as soon as your estimate is ready.
         </p>
       </PageShell>
