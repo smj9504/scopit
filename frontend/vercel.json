@@ -9,6 +9,18 @@
       "destination": "/demo/packing/index.html"
     },
     {
+      "source": "/packing-estimate",
+      "destination": "/packing-estimate/index.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy/index.html"
+    },
+    {
+      "source": "/terms",
+      "destination": "/terms/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

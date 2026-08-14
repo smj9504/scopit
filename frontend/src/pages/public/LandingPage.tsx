@@ -471,10 +471,10 @@ const LandingPage: React.FC = () => {
           </a>
           
           <nav style={{ display: 'flex', alignItems: 'center', gap: '32px' }} className="desktop-only">
-            <a onClick={() => scrollToSection('features')} style={{ color: '#6b7280', textDecoration: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>Features</a>
-            <a onClick={() => scrollToSection('how-it-works')} style={{ color: '#6b7280', textDecoration: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>How it works</a>
-            <a onClick={() => scrollToSection('faq')} style={{ color: '#6b7280', textDecoration: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>FAQ</a>
-            <a onClick={handleLogin} style={{ color: '#6b7280', textDecoration: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>Log in</a>
+            <button type="button" onClick={() => scrollToSection('features')} style={{ color: '#6b7280', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>Features</button>
+            <button type="button" onClick={() => scrollToSection('how-it-works')} style={{ color: '#6b7280', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>How it works</button>
+            <button type="button" onClick={() => scrollToSection('faq')} style={{ color: '#6b7280', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>FAQ</button>
+            <button type="button" onClick={handleLogin} style={{ color: '#6b7280', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>Log in</button>
             <button className="btn-primary" style={{ padding: '10px 20px', fontSize: 14 }} onClick={handleJoinBeta}>
               Join Beta
             </button>
@@ -486,6 +486,7 @@ const LandingPage: React.FC = () => {
         </div>
       </header>
 
+      <main>
       {/* Hero Section */}
       <section className="hero-section" style={{
         paddingTop: 140,
@@ -1284,6 +1285,7 @@ const LandingPage: React.FC = () => {
           </button>
         </div>
       </section>
+      </main>
 
       {/* Footer */}
       <footer style={{
@@ -1314,9 +1316,9 @@ const LandingPage: React.FC = () => {
               <div>
                 <div style={{ color: 'white', fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Product</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <a onClick={() => scrollToSection('features')} style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14, cursor: 'pointer' }}>Features</a>
-                  <a onClick={() => scrollToSection('how-it-works')} style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14, cursor: 'pointer' }}>How it works</a>
-                  <a onClick={() => scrollToSection('faq')} style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14, cursor: 'pointer' }}>FAQ</a>
+                  <button type="button" onClick={() => scrollToSection('features')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>Features</button>
+                  <button type="button" onClick={() => scrollToSection('how-it-works')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>How it works</button>
+                  <button type="button" onClick={() => scrollToSection('faq')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>FAQ</button>
                 </div>
               </div>
               

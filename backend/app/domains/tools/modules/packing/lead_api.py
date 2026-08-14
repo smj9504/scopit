@@ -52,6 +52,7 @@ from app.core.email import (
 )
 from app.core.storage import get_storage
 from app.domains.auth.verification import generate_verification_code, hash_code
+from app.domains.tools.models import ToolFile
 from app.domains.tools.modules.packing import vision
 from app.domains.tools.modules.packing.lead_cleanup import cleanup_expired_leads
 from app.domains.tools.modules.packing.lead_models import PackingLead, PackingLeadStatus
@@ -65,7 +66,6 @@ from app.domains.tools.modules.packing.lead_schemas import (
     LeadVerifyRequest,
     LeadVerifyResponse,
 )
-from app.domains.tools.models import ToolFile
 from app.domains.tools.service import ToolSessionService
 from app.domains.user.models import User
 

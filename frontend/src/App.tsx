@@ -38,6 +38,9 @@ const PackingDemoPage = lazy(() => import('@/pages/public/PackingDemoPage'));
 const PackingLeadFormPage = lazy(() => import('@/pages/public/PackingLeadFormPage'));
 const PackingLeadVerifyPage = lazy(() => import('@/pages/public/PackingLeadVerifyPage'));
 const PackingLeadResultPage = lazy(() => import('@/pages/public/PackingLeadResultPage'));
+const PrivacyPolicyPage = lazy(() => import('@/pages/public/PrivacyPolicyPage'));
+const TermsPage = lazy(() => import('@/pages/public/TermsPage'));
+const NotFoundPage = lazy(() => import('@/pages/public/NotFoundPage'));
 
 // Admin pages (Superuser only)
 const AdminLayout = lazy(() => import('@/components/layout/AdminLayout'));
@@ -160,6 +163,10 @@ const router = createBrowserRouter(
       <Route path="/packing-estimate/verify/:token" element={<PackingLeadVerifyPage />} />
       <Route path="/packing-estimate/result/:token" element={<PackingLeadResultPage />} />
 
+      {/* Legal (no auth required) */}
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+
       {/* Protected App Routes */}
       <Route
         path="/app"
@@ -215,8 +222,9 @@ const router = createBrowserRouter(
         <Route path="analytics" element={<AdminAnalyticsPage />} />
       </Route>
 
-      {/* 404 */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* 404 - render a real noindex not-found page instead of redirecting
+          to "/" (which produced a soft-404 for unknown URLs) */}
+      <Route path="*" element={<NotFoundPage />} />
     </>,
   ),
 );
