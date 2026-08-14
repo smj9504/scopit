@@ -38,6 +38,8 @@ const PackingDemoPage = lazy(() => import('@/pages/public/PackingDemoPage'));
 const PackingLeadFormPage = lazy(() => import('@/pages/public/PackingLeadFormPage'));
 const PackingLeadVerifyPage = lazy(() => import('@/pages/public/PackingLeadVerifyPage'));
 const PackingLeadResultPage = lazy(() => import('@/pages/public/PackingLeadResultPage'));
+const PrivacyPolicyPage = lazy(() => import('@/pages/public/PrivacyPolicyPage'));
+const TermsPage = lazy(() => import('@/pages/public/TermsPage'));
 
 // Admin pages (Superuser only)
 const AdminLayout = lazy(() => import('@/components/layout/AdminLayout'));
@@ -159,6 +161,10 @@ const router = createBrowserRouter(
       <Route path="/packing-estimate" element={<PackingLeadFormPage />} />
       <Route path="/packing-estimate/verify/:token" element={<PackingLeadVerifyPage />} />
       <Route path="/packing-estimate/result/:token" element={<PackingLeadResultPage />} />
+
+      {/* Legal (no auth required) */}
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
 
       {/* Protected App Routes */}
       <Route
