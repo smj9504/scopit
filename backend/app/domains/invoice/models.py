@@ -48,7 +48,7 @@ class Invoice(Base):
     # Invoice Info
     invoice_number = Column(String(50), nullable=False)
     # Legacy status column (kept for backward compatibility during migration)
-    status = Column(SQLEnum(InvoiceStatus), nullable=True, default=InvoiceStatus.DRAFT)
+    status = Column(SQLEnum(InvoiceStatus, values_callable=lambda x: [e.value for e in x]), nullable=True, default=InvoiceStatus.DRAFT)
     # New status_id column (FK to InvoiceStatusConfig)
     status_id = Column(
         UUID(as_uuid=True),
@@ -214,7 +214,7 @@ class Payment(Base):
 
     # Payment Info
     amount = Column(DECIMAL(15, 2), nullable=False)
-    payment_method = Column(SQLEnum(PaymentMethod), nullable=True, default=PaymentMethod.OTHER)
+    payment_method = Column(SQLEnum(PaymentMethod, values_callable=lambda x: [e.value for e in x]), nullable=True, default=PaymentMethod.OTHER)
     payment_date = Column(Date, nullable=True)  # Optional date
 
     # Reference
@@ -246,7 +246,7 @@ class InvoiceAdjustment(Base):
     invoice_id = Column(UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False)
 
     # Adjustment Info
-    type = Column(SQLEnum(AdjustmentType), nullable=False)  # premium or discount
+    type = Column(SQLEnum(AdjustmentType, values_callable=lambda x: [e.value for e in x]), nullable=False)  # premium or discount
     name = Column(String(255), nullable=False)  # e.g., "Holiday Premium", "Volume Discount"
     percentage = Column(DECIMAL(5, 2), nullable=False)  # e.g., 10.00 = 10%
     amount = Column(DECIMAL(15, 2), nullable=False, default=0)  # Calculated: subtotal * percentage / 100

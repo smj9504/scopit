@@ -44,7 +44,7 @@ class LineItem(Base):
     # Ownership
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    visibility = Column(SQLEnum(LineItemVisibility), nullable=False, default=LineItemVisibility.PRIVATE)
+    visibility = Column(SQLEnum(LineItemVisibility, values_callable=lambda x: [e.value for e in x]), nullable=False, default=LineItemVisibility.PRIVATE)
     
     # Tool ownership (non-null = managed by a tool, hidden from general line items)
     tool_id = Column(String(50), nullable=True, index=True)  # e.g. "packing"

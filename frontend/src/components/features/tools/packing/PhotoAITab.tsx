@@ -2387,8 +2387,13 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           <Alert
             type="warning"
             message="No analyzed rooms"
-            description="Go back to Step 2 and analyze at least one room."
+            description="Go back to the Rooms step and analyze at least one room."
             showIcon
+            action={
+              <Button size="small" onClick={() => setCurrentStep(1)}>
+                Go to Rooms
+              </Button>
+            }
             style={{ borderRadius: borderRadius.md, marginBottom: 20 }}
           />
         )}
