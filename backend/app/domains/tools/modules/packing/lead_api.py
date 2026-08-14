@@ -58,6 +58,7 @@ from app.domains.tools.modules.packing.lead_cleanup import cleanup_expired_leads
 from app.domains.tools.modules.packing.lead_models import PackingLead, PackingLeadStatus
 from app.domains.tools.modules.packing.lead_schemas import (
     LeadClaimResponse,
+    LeadProgress,
     LeadRetryResponse,
     LeadStatusResponse,
     LeadSubmitPayload,
@@ -89,6 +90,15 @@ LEAD_INITIAL_EXPIRY_HOURS = 24
 LEAD_VERIFIED_EXPIRY_DAYS = 14
 STALE_ANALYSIS_MINUTES = 15
 MAX_RETRY_COUNT = 2
+SUPPORT_EMAIL = "hello@scopit.work"
+
+# Friendly message shown when a returning account tries to claim a second free
+# estimate. One claimed lead per account during beta (see claim_lead).
+FREE_ESTIMATE_USED_MESSAGE = (
+    "It looks like you've already used your free estimate on this account. "
+    "During beta, each account gets one estimate on us — we'd love to keep "
+    f"helping, so reach out at {SUPPORT_EMAIL} and we'll sort out more for you."
+)
 
 
 # ============================================
@@ -326,6 +336,78 @@ def _send_lead_notification_email(lead: PackingLead, room_count: int, photo_coun
     )
 
 
+def _build_lead_ready_email_html(result_url: str) -> str:
+    """Sent to the visitor once background analysis finishes, so someone who
+    closed the tab mid-analysis has a link back to their estimate."""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your {settings.APP_NAME} packing estimate is ready</title>
+</head>
+<body style="margin:0; padding:0; background-color:{COLOR_BG}; font-family:{FONT_STACK_BODY};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{COLOR_BG};">
+    <tr>
+      <td align="center" style="padding:48px 20px;">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0"
+               style="width:560px; max-width:560px; background-color:#ffffff; border:1px solid {COLOR_BORDER}; border-top:4px solid {COLOR_PRIMARY}; border-radius:12px;">
+          <tr>
+            <td style="padding:32px 40px 8px 40px;">
+              <span style="font-family:{FONT_STACK_HEADING}; font-size:19px; font-weight:800; letter-spacing:-0.3px; color:{COLOR_PRIMARY};">
+                Scope<span style="color:{COLOR_FAINT};">It</span>
+              </span>
+              <h1 style="margin:16px 0 8px 0; font-family:{FONT_STACK_HEADING}; font-size:23px; font-weight:800; color:{COLOR_PRIMARY};">
+                Your estimate is ready
+              </h1>
+              <p style="margin:0 0 24px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65;">
+                We finished analyzing your room photos. Open your estimate to see the
+                full breakdown and create a free account to save it.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:0 40px 8px 40px;">
+              <a href="{result_url}"
+                 style="display:inline-block; background-color:{COLOR_PRIMARY}; color:#ffffff; text-decoration:none; padding:14px 34px; border-radius:8px; font-family:{FONT_STACK_HEADING}; font-size:15px; font-weight:700;">
+                View my estimate &rarr;
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 40px 32px 40px;">
+              <p style="margin:0; color:{COLOR_FAINT}; font-size:13px; line-height:1.6;">
+                Or paste this link into your browser:<br>
+                <span style="color:{COLOR_MUTED};">{result_url}</span>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def _send_lead_ready_email(lead: PackingLead) -> bool:
+    result_url = f"{settings.FRONTEND_URL}/packing-estimate/result/{lead.token}"
+    subject = f"Your {settings.APP_NAME} packing estimate is ready"
+    html_content = _build_lead_ready_email_html(result_url)
+    text_content = (
+        "Your packing estimate is ready.\n\n"
+        "We finished analyzing your room photos. Open your estimate here to see the "
+        "full breakdown and create a free account to save it:\n\n"
+        f"    {result_url}\n"
+    )
+    return email_service.send_email(
+        to_email=lead.contact_email,
+        subject=subject,
+        html_content=html_content,
+        text_content=text_content,
+    )
+
+
 def _check_daily_cap_available(db: Session) -> bool:
     since = _now() - timedelta(hours=24)
     count = (
@@ -348,6 +430,8 @@ def _start_or_defer_analysis(
     if _check_daily_cap_available(db):
         lead.status = PackingLeadStatus.ANALYZING.value
         lead.analysis_started_at = _now()
+        lead.analysis_completed_rooms = 0
+        lead.analysis_processed_photos = 0
         lead.error_message = None
         db.commit()
         background_tasks.add_task(_run_analysis, lead.id)
@@ -378,6 +462,27 @@ def _compute_teaser(lead: PackingLead) -> LeadTeaser:
         size_category = "large"
 
     return LeadTeaser(room_count=room_count, item_count=item_count, size_category=size_category)
+
+
+def _compute_progress(lead: PackingLead) -> LeadProgress:
+    rooms = lead.rooms_input or []
+    total_rooms = len(rooms)
+    total_photos = sum(len(r.get("photo_keys") or []) for r in rooms)
+    completed_rooms = min(lead.analysis_completed_rooms or 0, total_rooms)
+    processed_photos = min(lead.analysis_processed_photos or 0, total_photos)
+
+    # The room currently being analyzed is the first not-yet-completed one.
+    current_room: Optional[str] = None
+    if completed_rooms < total_rooms:
+        current_room = rooms[completed_rooms].get("room_name") or None
+
+    return LeadProgress(
+        total_rooms=total_rooms,
+        completed_rooms=completed_rooms,
+        total_photos=total_photos,
+        processed_photos=processed_photos,
+        current_room=current_room,
+    )
 
 
 # ============================================
@@ -418,30 +523,35 @@ async def _run_analysis(lead_id) -> None:
                         "result": None,
                         "error_message": "No photos available for this room",
                     })
-                    continue
-
-                resp, err_code, err_msg = await vision.analyze_room_with_retry(
-                    room_name=room_name,
-                    images=images,
-                    max_retries=settings.VISION_RATE_LIMIT_RETRIES,
-                    base_delay=settings.VISION_RATE_LIMIT_BASE_DELAY,
-                )
-
-                if resp is not None:
-                    any_success = True
-                    rooms_result.append({
-                        "room_name": room_name,
-                        "status": "success",
-                        "result": resp.model_dump(),
-                        "error_message": None,
-                    })
                 else:
-                    rooms_result.append({
-                        "room_name": room_name,
-                        "status": "error",
-                        "result": None,
-                        "error_message": err_msg,
-                    })
+                    resp, err_code, err_msg = await vision.analyze_room_with_retry(
+                        room_name=room_name,
+                        images=images,
+                        max_retries=settings.VISION_RATE_LIMIT_RETRIES,
+                        base_delay=settings.VISION_RATE_LIMIT_BASE_DELAY,
+                    )
+
+                    if resp is not None:
+                        any_success = True
+                        rooms_result.append({
+                            "room_name": room_name,
+                            "status": "success",
+                            "result": resp.model_dump(),
+                            "error_message": None,
+                        })
+                    else:
+                        rooms_result.append({
+                            "room_name": room_name,
+                            "status": "error",
+                            "result": None,
+                            "error_message": err_msg,
+                        })
+
+                # Persist progress after each room so the status endpoint can
+                # show "room X of Y" live while later rooms are still running.
+                lead.analysis_completed_rooms = (lead.analysis_completed_rooms or 0) + 1
+                lead.analysis_processed_photos = (lead.analysis_processed_photos or 0) + len(keys)
+                db.commit()
 
             if any_success:
                 lead.ai_result = {"rooms": rooms_result}
@@ -450,10 +560,21 @@ async def _run_analysis(lead_id) -> None:
             else:
                 lead.status = PackingLeadStatus.FAILED.value
                 lead.error_message = "Photo analysis failed for every room."
+            db.commit()
         except Exception as exc:  # noqa: BLE001 -- must never crash the worker
             logger.exception("packing lead analysis failed for lead %s", lead_id)
             lead.status = PackingLeadStatus.FAILED.value
             lead.error_message = str(exc)
+            db.commit()
+
+        # Best-effort "your estimate is ready" email so a visitor who closed
+        # the tab mid-analysis has a link back. Never let a mail failure affect
+        # the analysis result that was just committed above.
+        if lead.status == PackingLeadStatus.READY.value:
+            try:
+                _send_lead_ready_email(lead)
+            except Exception:
+                logger.exception("Failed to send packing lead ready email for %s", lead_id)
 
 
 # ===========================================================================
@@ -653,14 +774,23 @@ async def get_lead_status(
                 and lead.retry_count < MAX_RETRY_COUNT
             ),
             error_message=lead.error_message,
+            progress=(
+                _compute_progress(lead)
+                if lead.status == PackingLeadStatus.ANALYZING.value
+                else None
+            ),
         )
 
     # Ready: teaser only. ai_result/pricing is NEVER returned here, auth or not.
+    # contact_email/company_name are echoed back so the signup form can pre-fill
+    # them (email already verified -> shown locked on the register page).
     return LeadStatusResponse(
         status=lead.status,
         requires_auth=current_user is None,
         already_claimed=lead.claimed_by_user_id is not None,
         teaser=_compute_teaser(lead),
+        contact_email=lead.contact_email,
+        company_name=lead.company_name,
     )
 
 
@@ -725,6 +855,21 @@ async def claim_lead(
         raise HTTPException(
             status_code=409, detail=f"This estimate is not ready to claim (status={lead.status}).",
         )
+
+    # Free-tier limit: one claimed estimate per account. If this account has
+    # already claimed a *different* lead, kindly decline rather than granting a
+    # second free estimate. (Re-claiming this same lead is handled above via the
+    # CLAIMED idempotent early-return, so it never reaches here.)
+    prior_claim = (
+        db.query(PackingLead)
+        .filter(
+            PackingLead.claimed_by_user_id == current_user.id,
+            PackingLead.id != lead.id,
+        )
+        .first()
+    )
+    if prior_claim is not None:
+        raise HTTPException(status_code=409, detail=FREE_ESTIMATE_USED_MESSAGE)
 
     storage = get_storage()
     ai_rooms_by_name = {r.get("room_name"): r for r in (lead.ai_result or {}).get("rooms", [])}

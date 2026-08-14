@@ -350,6 +350,45 @@ class TestStatus:
         assert body["teaser"]["room_count"] == 1
         assert body["teaser"]["item_count"] == 2
 
+    def test_ready_status_echoes_prefill_fields(self, db, lead_ids):
+        lead = _seed_lead(
+            db,
+            status=PackingLeadStatus.READY.value,
+            contact_email="prefill@example.com",
+            company_name="Acme Restoration",
+            rooms_input=[{"room_name": "Bedroom", "photo_keys": []}],
+            ai_result={"rooms": []},
+        )
+        lead_ids.append(lead.id)
+
+        body = client.get(f"/api/packing-leads/{lead.token}/status").json()
+        assert body["status"] == "ready"
+        assert body["contact_email"] == "prefill@example.com"
+        assert body["company_name"] == "Acme Restoration"
+
+    def test_analyzing_status_reports_progress(self, db, lead_ids):
+        lead = _seed_lead(
+            db,
+            status=PackingLeadStatus.ANALYZING.value,
+            analysis_started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+            analysis_completed_rooms=1,
+            analysis_processed_photos=2,
+            rooms_input=[
+                {"room_name": "Bedroom", "photo_keys": ["a", "b"]},
+                {"room_name": "Kitchen", "photo_keys": ["c"]},
+            ],
+        )
+        lead_ids.append(lead.id)
+
+        body = client.get(f"/api/packing-leads/{lead.token}/status").json()
+        assert body["status"] == "analyzing"
+        prog = body["progress"]
+        assert prog["total_rooms"] == 2
+        assert prog["completed_rooms"] == 1
+        assert prog["total_photos"] == 3
+        assert prog["processed_photos"] == 2
+        assert prog["current_room"] == "Kitchen"
+
     def test_stale_analyzing_flips_to_failed(self, db, lead_ids):
         lead = _seed_lead(
             db,
@@ -470,6 +509,24 @@ class TestClaim:
 
         files = db.query(ToolFile).filter(ToolFile.session_id == session.id).all()
         assert len(files) == 1
+
+    def test_second_free_estimate_blocked_for_same_account(self, db, lead_ids, company_and_user):
+        """One free estimate per account: after claiming one lead, claiming a
+        different lead is politely declined."""
+        _, user = company_and_user
+        first = self._seed_ready_lead_with_photo(db, lead_ids)
+        second = self._seed_ready_lead_with_photo(db, lead_ids)
+
+        r1 = client.post(f"/api/packing-leads/{first.token}/claim", headers=_auth_headers(user))
+        assert r1.status_code == 200
+
+        r2 = client.post(f"/api/packing-leads/{second.token}/claim", headers=_auth_headers(user))
+        assert r2.status_code == 409
+        assert "free estimate" in (r2.json()["detail"] or "").lower()
+
+        db.expire_all()
+        second_refreshed = db.query(PackingLead).filter(PackingLead.id == second.id).first()
+        assert second_refreshed.status == PackingLeadStatus.READY.value  # not consumed
 
     def test_claim_is_idempotent_same_user_conflict_other_user(self, db, lead_ids, company_and_user):
         _, user = company_and_user

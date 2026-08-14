@@ -10,7 +10,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Button, App } from 'antd';
+import { Button, App, Progress } from 'antd';
 import axios from 'axios';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -88,6 +88,11 @@ const PackingLeadResultPage: React.FC = () => {
 
   const [autoClaiming, setAutoClaiming] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  // A claim that fails for an authenticated visitor (e.g. they've already used
+  // their one free estimate) is shown as a friendly full-page message rather
+  // than a toast + silent bounce to the dashboard. `friendly` = a 4xx we can
+  // phrase warmly (the backend message is already user-facing).
+  const [claimError, setClaimError] = useState<{ message: string; friendly: boolean } | null>(null);
 
   // Edge case: an already-registered visitor opens this link directly.
   // Skip the teaser/CTA entirely and drop them into the real session.
@@ -100,10 +105,14 @@ const PackingLeadResultPage: React.FC = () => {
         navigate(`/app/tools/packing?sessionId=${tool_session_id}`);
       })
       .catch((error) => {
-        message.error(getErrorMessage(error));
-        navigate('/app/dashboard');
+        setAutoClaiming(false);
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        setClaimError({
+          message: getErrorMessage(error),
+          friendly: status === 409,
+        });
       });
-  }, [token, isAuthenticated, navigate, message]);
+  }, [token, isAuthenticated, navigate]);
 
   const query = useQuery<PackingLeadStatusResponse>({
     queryKey: ['packing-lead-status', token],
@@ -130,15 +139,36 @@ const PackingLeadResultPage: React.FC = () => {
     }
   };
 
-  const goToAuth = (destination: '/register' | '/login') => {
+  const goToAuth = (
+    destination: '/register' | '/login',
+    prefill?: { email?: string | null; companyName?: string | null }
+  ) => {
     if (!token) return;
     setPendingAction({
       type: 'packing-claim',
       token,
       returnPath: `/packing-estimate/result/${token}`,
+      prefillEmail: prefill?.email || undefined,
+      prefillCompanyName: prefill?.companyName ?? null,
     });
     navigate(destination);
   };
+
+  if (claimError) {
+    return (
+      <PageShell isMobile={isMobile}>
+        <h1 style={{ fontFamily: fonts.heading, fontSize: 20, fontWeight: 700, color: colors.textPrimary, margin: 0, marginBottom: 8 }}>
+          {claimError.friendly ? "You've already used your free estimate" : "We couldn't open this estimate"}
+        </h1>
+        <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 24 }}>
+          {claimError.message}
+        </p>
+        <Button type="primary" onClick={() => navigate('/app/dashboard')} style={{ background: colors.primary }}>
+          Go to my dashboard
+        </Button>
+      </PageShell>
+    );
+  }
 
   if (isAuthenticated || autoClaiming) {
     return (
@@ -194,14 +224,52 @@ const PackingLeadResultPage: React.FC = () => {
   const data = query.data;
 
   if (data.status === 'pending_verification' || data.status === 'analyzing') {
-    const label = data.status === 'pending_verification' ? 'Getting ready' : 'Analyzing your rooms';
+    const analyzing = data.status === 'analyzing';
+    const progress = analyzing ? data.progress ?? null : null;
+    const label = analyzing ? 'Analyzing your rooms' : 'Getting ready';
+    const totalPhotos = progress?.total_photos ?? 0;
+    const donePhotos = progress?.processed_photos ?? 0;
+    const pct = totalPhotos > 0 ? Math.round((donePhotos / totalPhotos) * 100) : 0;
+    const currentRoomNumber = progress
+      ? Math.min(progress.completed_rooms + 1, progress.total_rooms)
+      : 0;
+
     return (
       <PageShell isMobile={isMobile}>
         <h1 style={{ fontFamily: fonts.heading, fontSize: 20, fontWeight: 700, color: colors.textPrimary, margin: 0, marginBottom: 8 }}>
           {label}…
         </h1>
-        <p style={{ color: colors.textSecondary, fontSize: 14 }}>
-          This usually takes a few minutes. Feel free to leave this tab open — we'll have your estimate ready shortly.
+
+        {analyzing && progress && progress.total_rooms > 0 ? (
+          <div style={{ marginTop: 8, marginBottom: 4 }}>
+            <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 12 }}>
+              {progress.current_room ? (
+                <>
+                  Analyzing <strong style={{ color: colors.textPrimary }}>{progress.current_room}</strong>
+                  {' '}— room {currentRoomNumber} of {progress.total_rooms}
+                </>
+              ) : (
+                <>Wrapping up your estimate…</>
+              )}
+            </p>
+            <Progress
+              percent={pct}
+              status="active"
+              strokeColor={colors.primary}
+              showInfo={false}
+            />
+            <p style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>
+              {donePhotos} of {totalPhotos} photos analyzed
+            </p>
+          </div>
+        ) : (
+          <p style={{ color: colors.textSecondary, fontSize: 14 }}>
+            This usually takes a few minutes.
+          </p>
+        )}
+
+        <p style={{ color: colors.textSecondary, fontSize: 14, marginTop: 16 }}>
+          You can safely close this tab — we'll email you a link as soon as your estimate is ready.
         </p>
       </PageShell>
     );
@@ -297,14 +365,25 @@ const PackingLeadResultPage: React.FC = () => {
         ))}
       </div>
 
+      <p style={{ fontSize: 13, color: colors.textMuted, margin: '0 0 12px' }}>
+        Free during beta — your first estimate is on us.
+      </p>
       <Button
         type="primary"
         size="large"
         block
-        onClick={() => goToAuth('/register')}
-        style={{ fontWeight: 600, background: colors.primary, marginBottom: 12 }}
+        onClick={() => goToAuth('/register', { email: data.contact_email, companyName: data.company_name })}
+        style={{
+          fontWeight: 600,
+          background: colors.primary,
+          marginBottom: 12,
+          height: 'auto',
+          minHeight: 48,
+          whiteSpace: 'normal',
+          padding: '10px 16px',
+        }}
       >
-        Free during beta — first estimate on us. Create your account to view it.
+        Create your free account to view it
       </Button>
       <Button type="link" onClick={() => goToAuth('/login')} style={{ color: colors.textSecondary }}>
         Already have an account? Log in

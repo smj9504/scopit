@@ -14,6 +14,11 @@ export interface PendingAction {
   type: 'packing-claim';
   token: string;
   returnPath: string;
+  /** Verified lead email — pre-filled and locked on the register form so the
+   * visitor doesn't re-type an address they've already verified. */
+  prefillEmail?: string;
+  /** Submitted company name, pre-filled (editable) on the register form. */
+  prefillCompanyName?: string | null;
 }
 
 interface PendingActionState {
