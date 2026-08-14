@@ -36,6 +36,9 @@ const ToolWrapper = lazy(() => import('@/pages/app/tools/ToolWrapper'));
 const SignPage = lazy(() => import('@/pages/public/SignPage'));
 const PackingDemoPage = lazy(() => import('@/pages/public/PackingDemoPage'));
 const PackingCalculatorPage = lazy(() => import('@/pages/public/PackingCalculatorPage'));
+const PackOutEstimatePage = lazy(() => import('@/pages/public/PackOutEstimatePage'));
+const InsurancePackingEstimatePage = lazy(() => import('@/pages/public/InsurancePackingEstimatePage'));
+const PackingReportPage = lazy(() => import('@/pages/public/PackingReportPage'));
 const PackingLeadFormPage = lazy(() => import('@/pages/public/PackingLeadFormPage'));
 const PackingLeadVerifyPage = lazy(() => import('@/pages/public/PackingLeadVerifyPage'));
 const PackingLeadResultPage = lazy(() => import('@/pages/public/PackingLeadResultPage'));
@@ -159,8 +162,11 @@ const router = createBrowserRouter(
       {/* Public Packing Estimator Demo (no auth required) */}
       <Route path="/demo/packing" element={<PackingDemoPage />} />
 
-      {/* Public Packing Calculator SEO content page (no auth required) */}
+      {/* Public Packing Calculator SEO content pages (no auth required) */}
       <Route path="/packing-calculator" element={<PackingCalculatorPage />} />
+      <Route path="/pack-out-estimate" element={<PackOutEstimatePage />} />
+      <Route path="/insurance-packing-estimate" element={<InsurancePackingEstimatePage />} />
+      <Route path="/packing-report" element={<PackingReportPage />} />
 
       {/* Public Packing Estimate Lead Capture (no auth required) */}
       <Route path="/packing-estimate" element={<PackingLeadFormPage />} />

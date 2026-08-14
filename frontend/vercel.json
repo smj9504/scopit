@@ -13,6 +13,18 @@
       "destination": "/packing-calculator/index.html"
     },
     {
+      "source": "/pack-out-estimate",
+      "destination": "/pack-out-estimate/index.html"
+    },
+    {
+      "source": "/insurance-packing-estimate",
+      "destination": "/insurance-packing-estimate/index.html"
+    },
+    {
+      "source": "/packing-report",
+      "destination": "/packing-report/index.html"
+    },
+    {
       "source": "/packing-estimate",
       "destination": "/packing-estimate/index.html"
     },

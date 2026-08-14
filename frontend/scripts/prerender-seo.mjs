@@ -25,6 +25,24 @@ const routes = [
       "Scopit's packing calculator builds itemized pack-out and pack-back estimates from room photos — insurance-ready breakdowns and a shareable packing report.",
   },
   {
+    path: '/pack-out-estimate',
+    title: 'Pack-Out & Pack-Back Estimate Software | Scopit',
+    description:
+      'Build pack-in / pack-out estimates from room photos. Scopit prices the pack-out and the pack-back together — storage, crew, and staging — for restoration jobs.',
+  },
+  {
+    path: '/insurance-packing-estimate',
+    title: 'Insurance Packing Estimate Breakdown | Scopit',
+    description:
+      'Produce an itemized insurance packing estimate breakdown from room photos — labor, materials, storage, and O&P split per room and per item for contents claims.',
+  },
+  {
+    path: '/packing-report',
+    title: 'Packing Report — PDF & Excel Export | Scopit',
+    description:
+      'Generate a professional packing report from room photos — a branded PDF or Excel with the room-by-room inventory and full cost breakdown for clients and carriers.',
+  },
+  {
     path: '/demo/packing',
     title: 'Free Packing Estimate Demo | Scopit',
     description:
