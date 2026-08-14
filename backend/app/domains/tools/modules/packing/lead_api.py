@@ -784,6 +784,13 @@ async def get_lead_status(
     # Ready: teaser only. ai_result/pricing is NEVER returned here, auth or not.
     # contact_email/company_name are echoed back so the signup form can pre-fill
     # them (email already verified -> shown locked on the register page).
+    #
+    # Exact-match the user lookup (not case-insensitive) so is_existing_user is
+    # true exactly when a fresh registration with this email would conflict --
+    # letting the client offer "log in and continue" instead of a doomed signup.
+    is_existing_user = (
+        db.query(User.id).filter(User.email == lead.contact_email).first() is not None
+    )
     return LeadStatusResponse(
         status=lead.status,
         requires_auth=current_user is None,
@@ -791,6 +798,7 @@ async def get_lead_status(
         teaser=_compute_teaser(lead),
         contact_email=lead.contact_email,
         company_name=lead.company_name,
+        is_existing_user=is_existing_user,
     )
 
 

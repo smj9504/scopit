@@ -29,7 +29,7 @@ services:
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - EMAIL_FROM=${EMAIL_FROM:-noreply@scopit.work}
+      - EMAIL_FROM=${EMAIL_FROM:-no-reply@scopit.work}
       - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-Scopit}
       # AI / Vision (Packing Tool)
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}

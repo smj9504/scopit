@@ -320,7 +320,7 @@ const PackingLeadResultPage: React.FC = () => {
         <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 24 }}>
           Log in to the account that claimed it to view the full estimate.
         </p>
-        <Button type="primary" onClick={() => goToAuth('/login')} style={{ background: colors.primary }}>
+        <Button type="primary" onClick={() => goToAuth('/login', { email: data.contact_email })} style={{ background: colors.primary }}>
           Log in
         </Button>
       </PageShell>
@@ -365,29 +365,60 @@ const PackingLeadResultPage: React.FC = () => {
         ))}
       </div>
 
-      <p style={{ fontSize: 13, color: colors.textMuted, margin: '0 0 12px' }}>
-        Free during beta — your first estimate is on us.
-      </p>
-      <Button
-        type="primary"
-        size="large"
-        block
-        onClick={() => goToAuth('/register', { email: data.contact_email, companyName: data.company_name })}
-        style={{
-          fontWeight: 600,
-          background: colors.primary,
-          marginBottom: 12,
-          height: 'auto',
-          minHeight: 48,
-          whiteSpace: 'normal',
-          padding: '10px 16px',
-        }}
-      >
-        Create your free account to view it
-      </Button>
-      <Button type="link" onClick={() => goToAuth('/login')} style={{ color: colors.textSecondary }}>
-        Already have an account? Log in
-      </Button>
+      {data.is_existing_user ? (
+        <>
+          <p style={{ fontSize: 13, color: colors.textMuted, margin: '0 0 12px' }}>
+            You already have a Scopit account — log in to continue in the packing tool.
+          </p>
+          <Button
+            type="primary"
+            size="large"
+            block
+            onClick={() => goToAuth('/login', { email: data.contact_email })}
+            style={{
+              fontWeight: 600,
+              background: colors.primary,
+              marginBottom: 12,
+              height: 'auto',
+              minHeight: 48,
+              whiteSpace: 'normal',
+              padding: '10px 16px',
+            }}
+          >
+            Log in to continue
+          </Button>
+        </>
+      ) : (
+        <>
+          <p style={{ fontSize: 13, color: colors.textMuted, margin: '0 0 12px' }}>
+            Free during beta — your first estimate is on us.
+          </p>
+          <Button
+            type="primary"
+            size="large"
+            block
+            onClick={() => goToAuth('/register', { email: data.contact_email, companyName: data.company_name })}
+            style={{
+              fontWeight: 600,
+              background: colors.primary,
+              marginBottom: 12,
+              height: 'auto',
+              minHeight: 48,
+              whiteSpace: 'normal',
+              padding: '10px 16px',
+            }}
+          >
+            Create your free account to view it
+          </Button>
+          <Button
+            type="link"
+            onClick={() => goToAuth('/login', { email: data.contact_email })}
+            style={{ color: colors.textSecondary }}
+          >
+            Already have an account? Log in
+          </Button>
+        </>
+      )}
     </PageShell>
   );
 };

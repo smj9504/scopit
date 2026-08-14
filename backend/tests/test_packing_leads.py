@@ -365,6 +365,22 @@ class TestStatus:
         assert body["status"] == "ready"
         assert body["contact_email"] == "prefill@example.com"
         assert body["company_name"] == "Acme Restoration"
+        assert body["is_existing_user"] is False
+
+    def test_ready_status_flags_existing_user(self, db, lead_ids, company_and_user):
+        _, user = company_and_user
+        lead = _seed_lead(
+            db,
+            status=PackingLeadStatus.READY.value,
+            contact_email=user.email,
+            rooms_input=[{"room_name": "Bedroom", "photo_keys": []}],
+            ai_result={"rooms": []},
+        )
+        lead_ids.append(lead.id)
+
+        body = client.get(f"/api/packing-leads/{lead.token}/status").json()
+        assert body["status"] == "ready"
+        assert body["is_existing_user"] is True
 
     def test_analyzing_status_reports_progress(self, db, lead_ids):
         lead = _seed_lead(

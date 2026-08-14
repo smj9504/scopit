@@ -12,6 +12,7 @@ import { getErrorMessage, getErrorCode } from '@/services/api';
 import { colors, fonts } from '@/styles/theme';
 import { warmupBackend } from '@/utils';
 import { useResumePendingAction } from '@/hooks/useResumePendingAction';
+import { usePendingActionStore } from '@/stores/pendingActionStore';
 
 interface LoginForm {
   email: string;
@@ -28,6 +29,12 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { login } = useAuthStore();
   const resumePendingAction = useResumePendingAction();
+
+  // A queued packing-lead claim (e.g. an existing user returning from the
+  // estimate result page) carries their verified email to pre-fill here.
+  const pendingAction = usePendingActionStore((s) => s.pendingAction);
+  const prefillEmail =
+    pendingAction?.type === 'packing-claim' ? pendingAction.prefillEmail : undefined;
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
@@ -201,6 +208,7 @@ const LoginPage: React.FC = () => {
               layout="vertical"
               size="large"
               requiredMark={false}
+              initialValues={{ email: prefillEmail }}
             >
               <Form.Item
                 name="email"

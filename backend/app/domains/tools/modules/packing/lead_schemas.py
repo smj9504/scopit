@@ -81,7 +81,11 @@ class LeadStatusResponse(BaseModel):
     contact_email/company_name are echoed back only on `ready` so the signup
     form can pre-fill them (the email was already verified via the 6-digit
     code, so it's shown locked). Both are the visitor's own submitted values,
-    gated behind the same secret token as the rest of the response."""
+    gated behind the same secret token as the rest of the response.
+
+    is_existing_user (ready only) tells the client the verified email already
+    belongs to a registered account, so it can steer the visitor to log in and
+    continue in the packing tool instead of offering a doomed sign-up."""
     status: str
     can_retry: Optional[bool] = None
     error_message: Optional[str] = None
@@ -91,6 +95,7 @@ class LeadStatusResponse(BaseModel):
     progress: Optional[LeadProgress] = None
     contact_email: Optional[str] = None
     company_name: Optional[str] = None
+    is_existing_user: Optional[bool] = None
 
 
 class LeadClaimResponse(BaseModel):

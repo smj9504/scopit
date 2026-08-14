@@ -84,6 +84,10 @@ export interface PackingLeadStatusReady {
    * verified via the 6-digit code, so the register page shows it locked. */
   contact_email?: string | null;
   company_name?: string | null;
+  /** True when the verified email already belongs to a registered account —
+   * the result page then steers the visitor to log in and continue in the
+   * packing tool instead of offering a sign-up that would conflict. */
+  is_existing_user?: boolean | null;
 }
 
 export type PackingLeadStatusResponse = PackingLeadStatusPending | PackingLeadStatusReady;

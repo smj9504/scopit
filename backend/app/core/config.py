@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    EMAIL_FROM: str = "noreply@scopit.work"
+    EMAIL_FROM: str = "no-reply@scopit.work"
     EMAIL_FROM_NAME: str = "Scopit"
     
     # ===================

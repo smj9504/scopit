@@ -72,7 +72,7 @@ services:
       - key: SMTP_PASSWORD
         sync: false
       - key: EMAIL_FROM
-        value: mjestimate1@gmail.com
+        value: no-reply@scopit.work
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "1440"
       - key: REFRESH_TOKEN_EXPIRE_DAYS
