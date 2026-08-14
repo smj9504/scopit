@@ -19,16 +19,22 @@ const SITE_URL = 'https://www.scopit.work';
 
 const routes = [
   {
+    path: '/packing-calculator',
+    title: 'Packing Calculator & Pack-Out Estimate | Scopit',
+    description:
+      "Scopit's packing calculator builds itemized pack-out and pack-back estimates from room photos — insurance-ready breakdowns and a shareable packing report.",
+  },
+  {
     path: '/demo/packing',
     title: 'Free Packing Estimate Demo | Scopit',
     description:
-      "Try Scopit's AI-powered packing estimator free, no signup required. Snap room photos and get a professional packing estimate in minutes.",
+      "Try Scopit's AI packing calculator free — snap room photos for an instant pack-out estimate with an insurance-ready breakdown and packing report. No signup.",
   },
   {
     path: '/packing-estimate',
     title: 'Free Packing Estimate | Scopit',
     description:
-      'Get a free, itemized packing estimate for your move. Upload room photos and receive a fast professional estimate, no account required.',
+      'Get a free, itemized packing estimate from room photos — a pack-out and pack-back breakdown built for insurance claims, exportable as a packing report.',
   },
   {
     path: '/privacy',
@@ -49,9 +55,20 @@ function setMetaContent(html, attrMatch, value) {
   return html.replace(re, `$1${value}$2`);
 }
 
+// The site-wide FAQ JSON-LD in index.html mirrors the FAQ that only renders on
+// the landing page ("/"). Baking it into every sub-page shell would mark up
+// Q&As that aren't visible on those pages, so strip that one block from the
+// per-route copies (the root "/" index.html is left untouched).
+function stripLandingFaqJsonLd(html) {
+  return html.replace(
+    /\n?\s*<!-- Structured Data: FAQ[\s\S]*?<\/script>/,
+    ''
+  );
+}
+
 for (const route of routes) {
   const url = `${SITE_URL}${route.path}`;
-  let html = template;
+  let html = stripLandingFaqJsonLd(template);
   html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${route.title}</title>`);
   html = setMetaContent(html, 'name="title"', route.title);
   html = setMetaContent(html, 'name="description"', route.description);

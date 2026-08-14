@@ -40,7 +40,7 @@ const PackingLeadFormPage: React.FC = () => {
   usePageSEO({
     title: 'Free Packing Estimate | Scopit',
     description:
-      'Get a free AI-powered packing estimate. Snap a few room photos, verify your email, and see your estimate — free during beta.',
+      'Get a free, itemized packing estimate from room photos — a pack-out and pack-back breakdown built for insurance claims, exportable as a packing report.',
     path: '/packing-estimate',
   });
 
@@ -118,7 +118,7 @@ const PackingLeadFormPage: React.FC = () => {
     <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
       <Seo
         title="Free Packing Estimate | Scopit"
-        description="Get a free, itemized packing estimate for your move. Upload room photos and receive a fast professional estimate, no account required."
+        description="Get a free, itemized packing estimate from room photos — a pack-out and pack-back breakdown built for insurance claims, exportable as a packing report."
         path="/packing-estimate"
       />
       <header

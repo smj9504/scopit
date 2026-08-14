@@ -9,6 +9,10 @@
       "destination": "/demo/packing/index.html"
     },
     {
+      "source": "/packing-calculator",
+      "destination": "/packing-calculator/index.html"
+    },
+    {
       "source": "/packing-estimate",
       "destination": "/packing-estimate/index.html"
     },
