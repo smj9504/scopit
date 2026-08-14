@@ -49,6 +49,13 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       - run: pip install -r requirements.txt
+      - name: Run database migrations
+        run: alembic upgrade head
+        env:
+          ENV: test
+          DATABASE_URL: postgresql://scopit:scopit123@localhost:5432/scopit_test
+          SECRET_KEY: test-secret-key-ci
+          CORS_ORIGINS: http://localhost:3001
       - run: pytest tests/ -v --tb=short
         env:
           ENV: test
