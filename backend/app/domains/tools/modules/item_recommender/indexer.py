@@ -4,16 +4,25 @@ Item Recommender - Data Indexer
 Loads JSON files from parsed_json, creates sentence embeddings,
 and stores a FAISS index + metadata for fast similarity search.
 Tracks file metadata (mtime, size) to detect when re-indexing is needed.
+
+faiss and numpy are heavy imports (a C extension plus its numeric stack) that
+add noticeable latency to process startup. They are only needed when the item
+recommender actually indexes or searches — a feature that is disabled on the
+free plan — so they are imported lazily inside the methods that use them
+instead of at module load. `from __future__ import annotations` keeps the
+`faiss.IndexFlatIP` type hint from forcing an import at class-definition time.
 """
+from __future__ import annotations
+
 import json
 import logging
 import os
 import pickle
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-import faiss
-import numpy as np
+if TYPE_CHECKING:
+    import faiss
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +136,9 @@ class ItemIndex:
 
     def build_index(self) -> None:
         """Build FAISS index from all JSON files."""
+        import faiss
+        import numpy as np
+
         start = time.time()
         self.items = _load_all_items(self.data_dir)
         self.texts = [_build_embedding_text(item) for item in self.items]
@@ -145,6 +157,8 @@ class ItemIndex:
         logger.info(f"Index built: {len(self.items)} items in {elapsed:.1f}s")
 
     def _save_index(self) -> None:
+        import faiss
+
         os.makedirs(self.index_dir, exist_ok=True)
         faiss.write_index(self.faiss_index, self._faiss_path)
         with open(self._meta_path, "wb") as f:
@@ -155,6 +169,8 @@ class ItemIndex:
             }, f)
 
     def _load_index(self) -> None:
+        import faiss
+
         self.faiss_index = faiss.read_index(self._faiss_path)
         with open(self._meta_path, "rb") as f:
             saved = pickle.load(f)
@@ -166,6 +182,8 @@ class ItemIndex:
         """Return top_k items with cosine similarity scores."""
         if self.faiss_index is None or len(self.items) == 0:
             return []
+
+        import numpy as np
 
         model = _get_model()
         q_vec = model.encode([query], normalize_embeddings=True)
