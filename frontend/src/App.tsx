@@ -40,6 +40,7 @@ const PackingLeadVerifyPage = lazy(() => import('@/pages/public/PackingLeadVerif
 const PackingLeadResultPage = lazy(() => import('@/pages/public/PackingLeadResultPage'));
 const PrivacyPolicyPage = lazy(() => import('@/pages/public/PrivacyPolicyPage'));
 const TermsPage = lazy(() => import('@/pages/public/TermsPage'));
+const NotFoundPage = lazy(() => import('@/pages/public/NotFoundPage'));
 
 // Admin pages (Superuser only)
 const AdminLayout = lazy(() => import('@/components/layout/AdminLayout'));
@@ -221,8 +222,9 @@ const router = createBrowserRouter(
         <Route path="analytics" element={<AdminAnalyticsPage />} />
       </Route>
 
-      {/* 404 */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* 404 - render a real noindex not-found page instead of redirecting
+          to "/" (which produced a soft-404 for unknown URLs) */}
+      <Route path="*" element={<NotFoundPage />} />
     </>,
   ),
 );
