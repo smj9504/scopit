@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /
 Allow: /demo/packing
+Allow: /packing-estimate
 
 # Authenticated app - not useful to searchers, keep out of the index
 Disallow: /app/
@@ -14,5 +15,9 @@ Disallow: /auth/callback
 
 # Per-customer e-signature links - private, unique tokens, never indexable
 Disallow: /sign/
+
+# Per-customer packing-estimate token links - private, never indexable
+Disallow: /packing-estimate/verify/
+Disallow: /packing-estimate/result/
 
 Sitemap: https://www.scopit.work/sitemap.xml
