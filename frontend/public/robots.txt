@@ -1,6 +1,9 @@
 User-agent: *
 Allow: /
 Allow: /packing-calculator
+Allow: /pack-out-estimate
+Allow: /insurance-packing-estimate
+Allow: /packing-report
 Allow: /demo/packing
 Allow: /packing-estimate
 
