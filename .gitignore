@@ -53,6 +53,7 @@ yarn-error.log*
 
 # Build output
 frontend/dist/
+frontend/dist-ssr/
 frontend/build/
 frontend/dev-dist/
 
