@@ -525,6 +525,9 @@ const ITEM_ROW_GRID = '1fr 60px 108px 100px 40px 30px';
 // Fixed columns (Size+Weight+Category+Qty+Delete) + gaps + a readable Name floor.
 // Below this width the table scrolls horizontally instead of clipping columns.
 const ITEM_ROW_MIN_WIDTH = 500;
+// Single source of truth for the item-name font size so the detected-items
+// list and the "needs review" list render item names at the same size.
+const ITEM_NAME_FONT_SIZE = 12;
 
 interface ItemRowProps {
   item: DetectedContentItem;
@@ -609,7 +612,7 @@ const ItemRow: React.FC<ItemRowProps> = ({
           title="Click to edit"
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: colors.textPrimary }}>
+            <span style={{ fontSize: ITEM_NAME_FONT_SIZE, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: colors.textPrimary }}>
               {item.name}
             </span>
             {item.is_high_value && (
@@ -1385,7 +1388,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
                               {room.low_confidence_items.map((item, idx) => (
                                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: idx < room.low_confidence_items.length - 1 ? `1px solid ${colors.border}` : undefined }}>
                                   <div style={{ flex: 1 }}>
-                                    <span style={{ fontWeight: 500 }}>{item.name}</span>
+                                    <span style={{ fontSize: ITEM_NAME_FONT_SIZE, fontWeight: 500, color: colors.textPrimary }}>{item.name}</span>
                                     <span style={{ color: colors.textMuted, marginLeft: 6, fontSize: 11 }}>
                                       x{item.quantity} &middot; {item.category}
                                       {item.confidence != null && ` · ${Math.round(item.confidence * 100)}%`}
@@ -1457,7 +1460,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
                           }
                         />
                       )}
-                      <Button type="dashed" icon={<PlusOutlined />} size="small" onClick={() => onAddItem(room.id)} style={{ width: '100%', fontSize: 12, marginBottom: 8 }}>Add Item Manually</Button>
+                      <Button type="dashed" icon={<PlusOutlined />} onClick={() => onAddItem(room.id)} style={{ width: '100%', marginBottom: 8 }}>Add Item Manually</Button>
 
                       {/* Dismissed / deleted items — restorable */}
                       {room.dismissed_items && room.dismissed_items.length > 0 && (
