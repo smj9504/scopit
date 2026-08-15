@@ -747,10 +747,24 @@ a {
     height: auto !important;
   }
 
-  /* Mobile switch touch target */
+  /* Mobile switch touch target — enlarge the whole switch proportionally.
+     Forcing only the track height left the small handle floating in an
+     oversized track, so scale the handle and its checked position too. */
   .ant-modal .ant-switch {
     min-width: 44px !important;
-    min-height: 26px !important;
+    height: 24px !important;
+    line-height: 24px !important;
+  }
+  .ant-modal .ant-switch .ant-switch-handle {
+    width: 20px !important;
+    height: 20px !important;
+    top: 2px !important;
+  }
+  .ant-modal .ant-switch .ant-switch-handle::before {
+    border-radius: 20px !important;
+  }
+  .ant-modal .ant-switch.ant-switch-checked .ant-switch-handle {
+    inset-inline-start: calc(100% - 20px - 2px) !important;
   }
 
   /* Mobile modal form label - consistent 14px */
