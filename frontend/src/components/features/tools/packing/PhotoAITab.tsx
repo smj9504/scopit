@@ -522,6 +522,9 @@ const AddRoomPanel: React.FC<AddRoomPanelProps> = ({ presets, presetsLoading, on
 // ── Inline-Editable Item Row ────────────────────────────────────────────────
 
 const ITEM_ROW_GRID = '1fr 60px 108px 100px 40px 30px';
+// Fixed columns (Size+Weight+Category+Qty+Delete) + gaps + a readable Name floor.
+// Below this width the table scrolls horizontally instead of clipping columns.
+const ITEM_ROW_MIN_WIDTH = 500;
 
 interface ItemRowProps {
   item: DetectedContentItem;
@@ -1357,12 +1360,16 @@ const RoomCard: React.FC<RoomCardProps> = ({
                         <div style={{ textAlign: 'center', padding: '12px 0', color: colors.textMuted, fontSize: 12 }}>No items detected. Try re-analyzing or add items manually.</div>
                       ) : (
                         <div style={{ border: `1px solid ${colors.border}`, borderRadius: borderRadius.base, overflow: 'hidden', marginBottom: 8 }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: ITEM_ROW_GRID, gap: 8, padding: '7px 8px', background: colors.bgLight, borderBottom: `1px solid ${colors.border}`, fontSize: 11, fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.body }}>
-                            <span>Name</span><span>Size</span><span>Weight</span><span>Category</span><span style={{ textAlign: 'center' }}>Qty</span><span />
+                          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                            <div style={{ minWidth: ITEM_ROW_MIN_WIDTH }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: ITEM_ROW_GRID, gap: 8, padding: '7px 8px', background: colors.bgLight, borderBottom: `1px solid ${colors.border}`, fontSize: 11, fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.body }}>
+                                <span>Name</span><span>Size</span><span>Weight</span><span>Category</span><span style={{ textAlign: 'center' }}>Qty</span><span />
+                              </div>
+                              {room.items.map((item, idx) => (
+                                <ItemRow key={idx} item={item} roomId={room.id} itemIndex={idx} editingCell={editingCell} onStartEdit={onStartEdit} onCommitEdit={onCommitEdit} onCancelEdit={onCancelEdit} onDelete={() => onDeleteItem(room.id, idx)} />
+                              ))}
+                            </div>
                           </div>
-                          {room.items.map((item, idx) => (
-                            <ItemRow key={idx} item={item} roomId={room.id} itemIndex={idx} editingCell={editingCell} onStartEdit={onStartEdit} onCommitEdit={onCommitEdit} onCancelEdit={onCancelEdit} onDelete={() => onDeleteItem(room.id, idx)} />
-                          ))}
                         </div>
                       )}
                       {/* Low-confidence items requiring manual review */}
