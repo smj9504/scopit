@@ -919,6 +919,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
   return (
     <Card
       size="small"
+      className="pai-room-card"
       style={{
         borderRadius: borderRadius.lg,
         border: `1px solid ${
@@ -933,7 +934,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
       }}
       bodyStyle={{ padding: 0 }}
       title={
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, minHeight: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
             {editingAttrs ? (
               <Input
@@ -1032,7 +1033,6 @@ const RoomCard: React.FC<RoomCardProps> = ({
               <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Floor</span>
               <Select
                 size="small"
-                variant="borderless"
                 value={room.floor}
                 onChange={(v) => onUpdate(room.id, { floor: v })}
                 style={{ width: '100%' }}
@@ -1047,7 +1047,6 @@ const RoomCard: React.FC<RoomCardProps> = ({
               <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Density</span>
               <Select
                 size="small"
-                variant="borderless"
                 value={room.density}
                 onChange={(v) => onUpdate(room.id, { density: v })}
                 style={{ width: '100%' }}
@@ -1062,7 +1061,6 @@ const RoomCard: React.FC<RoomCardProps> = ({
               <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Contamination</span>
               <Select
                 size="small"
-                variant="borderless"
                 value={room.contamination}
                 onChange={(v) => onUpdate(room.id, { contamination: v })}
                 style={{ width: '100%' }}
