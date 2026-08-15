@@ -85,6 +85,22 @@ export const packingLeadService = {
     const response = await api.post<PackingLeadClaimResponse>(`/packing-leads/${token}/claim`);
     return response.data;
   },
+
+  /**
+   * Public US-address autocomplete for the anonymous lead form. Returns [] on
+   * short queries or any upstream error, so typing never breaks.
+   */
+  addressAutocomplete: async (
+    query: string
+  ): Promise<{ address: string; street: string; city: string; state: string; zip: string }[]> => {
+    if (query.trim().length < 3) return [];
+    try {
+      const response = await api.get('/packing-leads/address-autocomplete', { params: { q: query } });
+      return response.data;
+    } catch {
+      return [];
+    }
+  },
 };
 
 export default packingLeadService;

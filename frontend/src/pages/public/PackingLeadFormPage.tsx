@@ -6,11 +6,11 @@
  * routes to the email-verify step, then the result page which polls for
  * the background AI analysis and gates the full result behind signup.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Form, Input, Upload, App } from 'antd';
+import { AutoComplete, Button, Form, Input, Upload, App } from 'antd';
 import type { UploadFile } from 'antd/es/upload/interface';
-import { PlusOutlined, DeleteOutlined, CameraOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, CameraOutlined, EnvironmentOutlined } from '@ant-design/icons';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { Seo } from '@/components/Seo';
@@ -57,6 +57,42 @@ const PackingLeadFormPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Property-address autocomplete (public Geoapify proxy, debounced).
+  const [addressOptions, setAddressOptions] = useState<{ value: string; label: React.ReactNode }[]>([]);
+  const addressTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleAddressSearch = useCallback((text: string) => {
+    setPropertyAddress(text);
+    clearTimeout(addressTimerRef.current);
+    if (text.trim().length < 3) {
+      setAddressOptions([]);
+      return;
+    }
+    addressTimerRef.current = setTimeout(() => {
+      packingLeadService
+        .addressAutocomplete(text)
+        .then((results) => {
+          setAddressOptions(
+            results.map((r) => ({
+              value: r.address,
+              label: (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                  <EnvironmentOutlined style={{ color: '#999', flexShrink: 0 }} />
+                  <span>{r.address}</span>
+                </div>
+              ),
+            }))
+          );
+        })
+        .catch(() => setAddressOptions([]));
+    }, 300);
+  }, []);
+
+  const handleAddressSelect = useCallback((address: string) => {
+    setPropertyAddress(address);
+    setAddressOptions([]);
+  }, []);
+
   const updateRoomName = (key: string, name: string) => {
     setRooms((prev) => prev.map((r) => (r.key === key ? { ...r, name } : r)));
   };
@@ -76,6 +112,9 @@ const PackingLeadFormPage: React.FC = () => {
 
   const validate = (): string | null => {
     if (!contactEmail.trim()) return 'Please enter your email.';
+    if (!contactPhone.trim()) return 'Please enter your phone number.';
+    if (!companyName.trim()) return 'Please enter your company name.';
+    if (!propertyAddress.trim()) return 'Please enter the property address.';
     const hasAnyPhoto = rooms.some((r) => r.files.length > 0);
     if (!hasAnyPhoto) return 'Please add at least one room photo.';
     const unnamed = rooms.find((r) => r.files.length > 0 && !r.name.trim());
@@ -189,12 +228,13 @@ const PackingLeadFormPage: React.FC = () => {
                   autoComplete="email"
                 />
               </Form.Item>
-              <Form.Item label="Phone (optional)" style={{ marginBottom: 8 }}>
+              <Form.Item label="Phone" required style={{ marginBottom: 8 }}>
                 <Input
                   value={contactPhone}
                   onChange={(e) => setContactPhone(e.target.value)}
                   placeholder="(555) 123-4567"
                   size="large"
+                  type="tel"
                   autoComplete="tel"
                 />
               </Form.Item>
@@ -206,7 +246,7 @@ const PackingLeadFormPage: React.FC = () => {
               Your company
             </h3>
             <p style={{ fontSize: 13, color: colors.textMuted, margin: '0 0 12px' }}>
-              Optional — used to brand your estimate once you create an account.
+              Used to brand your estimate once you create an account.
             </p>
             <div
               style={{
@@ -216,7 +256,7 @@ const PackingLeadFormPage: React.FC = () => {
                 marginBottom: 8,
               }}
             >
-              <Form.Item label="Company name (optional)" style={{ marginBottom: 8 }}>
+              <Form.Item label="Company name" required style={{ marginBottom: 8 }}>
                 <Input
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
@@ -250,14 +290,24 @@ const PackingLeadFormPage: React.FC = () => {
             <h3 style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 700, color: colors.textPrimary, margin: '0 0 12px' }}>
               Property
             </h3>
-            <Form.Item label="Property address (optional)" style={{ marginBottom: 8 }}>
-              <Input
+            <Form.Item label="Property address" required style={{ marginBottom: 8 }}>
+              <AutoComplete
                 value={propertyAddress}
-                onChange={(e) => setPropertyAddress(e.target.value)}
-                placeholder="123 Main St, Springfield, IL"
+                options={addressOptions}
+                onSearch={handleAddressSearch}
+                onSelect={handleAddressSelect}
+                onChange={(val) => setPropertyAddress(val)}
+                style={{ width: '100%' }}
                 size="large"
-                autoComplete="street-address"
-              />
+                popupMatchSelectWidth
+              >
+                <Input
+                  placeholder="Start typing an address…"
+                  size="large"
+                  autoComplete="off"
+                  prefix={<EnvironmentOutlined style={{ color: colors.textMuted }} />}
+                />
+              </AutoComplete>
             </Form.Item>
           </Form>
 

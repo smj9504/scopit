@@ -830,6 +830,54 @@ async def retry_lead(
     return LeadRetryResponse(**result)
 
 
+@public_router.get("/address-autocomplete")
+@limiter.limit("60/minute")
+async def lead_address_autocomplete(request: Request, q: str):
+    """Public address autocomplete for the anonymous lead form.
+
+    Proxies Geoapify (free tier) so the unauthenticated packing-estimate page
+    can suggest US street addresses. Mirrors the authenticated
+    /tools/packing/address-autocomplete endpoint but requires no login.
+    Fails soft (empty list) on any upstream error so typing never breaks.
+    """
+    import httpx
+
+    api_key = settings.GEOAPIFY_API_KEY
+    if not api_key or len(q.strip()) < 3:
+        return []
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                "https://api.geoapify.com/v1/geocode/autocomplete",
+                params={
+                    "text": q,
+                    "type": "street",
+                    "filter": "countrycode:us",
+                    "format": "json",
+                    "limit": 5,
+                    "apiKey": api_key,
+                },
+            )
+            if resp.status_code != 200:
+                return []
+
+            results = resp.json().get("results", [])
+            return [
+                {
+                    "address": r.get("formatted", ""),
+                    "street": r.get("address_line1", ""),
+                    "city": r.get("city", ""),
+                    "state": r.get("state", ""),
+                    "zip": r.get("postcode", ""),
+                }
+                for r in results
+                if r.get("formatted")
+            ]
+    except Exception:
+        return []
+
+
 # ===========================================================================
 # Authenticated endpoints  (prefix: /api/packing-leads)
 # ===========================================================================
