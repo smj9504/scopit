@@ -371,6 +371,118 @@ const LandingPage: React.FC = () => {
           animation: drawLine 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
+        .process-rail {
+          position: relative;
+        }
+
+        .process-rail::before {
+          content: '';
+          position: absolute;
+          top: 27px;
+          left: 0;
+          right: 0;
+          height: 1px;
+          background: #e5e7eb;
+        }
+
+        .process-rail-fill {
+          position: absolute;
+          top: 27px;
+          left: 0;
+          height: 1px;
+          width: 100%;
+          background: #111827;
+          transform-origin: left;
+          transform: scaleX(0);
+        }
+
+        .reveal-visible .process-rail-fill {
+          animation: drawLine 900ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both;
+        }
+
+        .process-step {
+          position: relative;
+          opacity: 0;
+        }
+
+        .reveal-visible .process-step {
+          animation: rowReveal 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .reveal-visible .process-step:nth-child(1) { animation-delay: 120ms; }
+        .reveal-visible .process-step:nth-child(2) { animation-delay: 320ms; }
+        .reveal-visible .process-step:nth-child(3) { animation-delay: 520ms; }
+        .reveal-visible .process-step:nth-child(4) { animation-delay: 720ms; }
+
+        .process-node {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          font-weight: 700;
+          font-size: 18px;
+          color: #9ca3af;
+          position: relative;
+          z-index: 1;
+          transition: all 0.25s ease;
+        }
+
+        .process-step--hero .process-node {
+          background: #111827;
+          border-color: #111827;
+          color: #ffffff;
+          width: 64px;
+          height: 64px;
+          font-size: 20px;
+          box-shadow: 0 12px 24px -8px rgba(17, 24, 39, 0.35);
+        }
+
+        .process-step--hero {
+          margin-top: -4px;
+        }
+
+        @media (max-width: 768px) {
+          .process-rail::before,
+          .process-rail-fill {
+            top: 0;
+            left: 27px;
+            right: auto;
+            bottom: 0;
+            width: 1px;
+            height: 100%;
+          }
+          .process-rail-fill {
+            transform: scaleY(0);
+            transform-origin: top;
+          }
+          .reveal-visible .process-rail-fill {
+            animation-name: drawLineVertical;
+          }
+          .process-step {
+            flex-direction: row !important;
+            align-items: flex-start !important;
+          }
+          .process-step + .process-step {
+            margin-top: 28px;
+          }
+          .process-step--hero {
+            margin-top: 0;
+          }
+          .process-step--hero + .process-step {
+            margin-top: 32px;
+          }
+        }
+
+        @keyframes drawLineVertical {
+          from { transform: scaleY(0); }
+          to { transform: scaleY(1); }
+        }
+
         .site-header {
           transition: box-shadow 200ms ease-out, background-color 200ms ease-out;
           backdrop-filter: blur(12px) saturate(180%);
@@ -941,27 +1053,38 @@ const LandingPage: React.FC = () => {
             </p>
           </div>
 
-          <div className="packing-grid" style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: 20,
-            marginBottom: 40,
-          }}>
-            {packingSteps.map((step) => (
-              <div key={step.num} className="feature-card">
-                <div style={{
-                  fontSize: 32,
-                  fontWeight: 800,
-                  color: '#e5e7eb',
-                  marginBottom: 12,
-                  fontFamily: "'Plus Jakarta Sans', sans-serif",
-                }}>
-                  {step.num}
+          <div
+            className="process-rail packing-grid"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 20,
+              marginBottom: 48,
+            }}
+          >
+            <div className="process-rail-fill" />
+            {packingSteps.map((step, index) => (
+              <div
+                key={step.num}
+                className={`process-step${index === 1 ? ' process-step--hero' : ''}`}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 20 }}
+              >
+                <div className="process-node">{step.num}</div>
+                <div>
+                  <h3
+                    style={{
+                      fontSize: index === 1 ? 20 : 17,
+                      fontWeight: 700,
+                      marginBottom: 8,
+                      color: '#111827',
+                      fontFamily: "'Plus Jakarta Sans', sans-serif",
+                      letterSpacing: '-0.01em',
+                    }}
+                  >
+                    {step.title}
+                  </h3>
+                  <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6 }}>{step.desc}</p>
                 </div>
-                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6, color: '#111827' }}>
-                  {step.title}
-                </h3>
-                <p style={{ color: '#6b7280', fontSize: 14 }}>{step.desc}</p>
               </div>
             ))}
           </div>
