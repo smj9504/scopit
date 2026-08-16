@@ -71,7 +71,15 @@ function defaultClientInfo(): ClientInfo {
 }
 
 function defaultCompanyOverride(): CompanyInfoOverride {
-  return { name: '', address_line1: '', city: '', state: '', zipcode: '', phone: '', email: '' };
+  return {
+    name: 'Summit Restoration Services',
+    address_line1: '1120 Industrial Pkwy',
+    city: 'Springfield',
+    state: 'IL',
+    zipcode: '62703',
+    phone: '(555) 987-6543',
+    email: 'office@summitrestoration.example',
+  };
 }
 
 function buildFixtureRoom(fixture: Awaited<ReturnType<typeof fetchDemoFixtures>>[number]): PhotoRoom {

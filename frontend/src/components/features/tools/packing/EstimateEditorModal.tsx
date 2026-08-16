@@ -2090,10 +2090,15 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                 { key: 'excel', label: 'Excel', icon: <FileExcelOutlined /> },
                 { key: 'report', label: 'Report', icon: <FileTextOutlined /> },
               ],
-              onClick: ({ key }) => {
+              onClick: async ({ key }) => {
                 if (key === 'pdf') setExportOptionsFormat('pdf');
                 else if (key === 'excel') setExportOptionsFormat('excel');
-                else if (key === 'report') setShowReportModal(true);
+                else if (key === 'report') {
+                  // Save latest edits (customer info, etc.) to the session first —
+                  // the report is built server-side from the saved session, not live state.
+                  if (onSaveSession) await onSaveSession();
+                  setShowReportModal(true);
+                }
               },
             }}
           >

@@ -577,32 +577,30 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
               }}
             />
 
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
-              <Input
-                type="email"
-                value={directInput.email}
-                onChange={(e) => handleDirectInputChange('email', e.target.value)}
-                placeholder="Email"
-                disabled={disabled}
-                size="large"
-                style={{
-                  fontFamily: fonts.body,
-                  fontSize: 15,
-                }}
-              />
+            <Input
+              type="email"
+              value={directInput.email}
+              onChange={(e) => handleDirectInputChange('email', e.target.value)}
+              placeholder="Email"
+              disabled={disabled}
+              size="large"
+              style={{
+                fontFamily: fonts.body,
+                fontSize: 15,
+              }}
+            />
 
-              <Input
-                value={directInput.phone}
-                onChange={(e) => handleDirectInputChange('phone', e.target.value)}
-                placeholder="Phone"
-                disabled={disabled}
-                size="large"
-                style={{
-                  fontFamily: fonts.body,
-                  fontSize: 15,
-                }}
-              />
-            </div>
+            <Input
+              value={directInput.phone}
+              onChange={(e) => handleDirectInputChange('phone', e.target.value)}
+              placeholder="Phone"
+              disabled={disabled}
+              size="large"
+              style={{
+                fontFamily: fonts.body,
+                fontSize: 15,
+              }}
+            />
 
             <AutoComplete
               value={directInput.addressLine1}
@@ -636,7 +634,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
               }}
             />
 
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 100px 100px', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr 1.2fr', gap: 12 }}>
               <Input
                 value={directInput.city}
                 onChange={(e) => handleDirectInputChange('city', e.target.value)}
