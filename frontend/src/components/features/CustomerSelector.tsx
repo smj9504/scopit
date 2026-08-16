@@ -300,6 +300,8 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
     if (checked) {
       // Carry the currently selected customer's data (and id) into the editable form,
       // so editing an existing customer's details updates that record instead of creating a duplicate.
+      // If no customer is selected (e.g. user is bouncing back from an unfinished search),
+      // leave directInput as-is so previously typed manual values aren't lost.
       if (selectedCustomer) {
         setDirectInput({
           customerId: selectedCustomer.id,
@@ -315,14 +317,15 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
       }
       setSelectedCustomerId(undefined);
       setSearchInput('');
-    } else {
-      setDirectInput(EMPTY_CUSTOMER_DATA);
     }
+    // Switching to search mode: keep directInput untouched. It only gets cleared
+    // once the user actually picks a customer (handleCustomerSelect) or saves/creates one.
   };
 
   // Handle customer selection
   const handleCustomerSelect = (customerId: string) => {
     setSelectedCustomerId(customerId);
+    setDirectInput(EMPTY_CUSTOMER_DATA);
   };
 
   // Handle clear selection

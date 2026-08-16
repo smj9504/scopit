@@ -1787,32 +1787,6 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                           <Text style={{ fontSize: 13 }}>{s.name}</Text>
                         </Tooltip>
                       </div>
-                      {s.enabled && (
-                        <Input.TextArea
-                          placeholder="Reason (shown on estimate)"
-                          value={s.reason || ''}
-                          onChange={(e) => {
-                            markDirty();
-                            setResult(prev => {
-                              if (!prev) return prev;
-                              return {
-                                ...prev,
-                                supplements: (prev.supplements || []).map(p =>
-                                  p.key === s.key ? { ...p, reason: e.target.value } : p
-                                ),
-                              };
-                            });
-                          }}
-                          autoSize={{ minRows: 2, maxRows: 6 }}
-                          style={{
-                            marginTop: 4,
-                            marginLeft: 28,
-                            width: 'calc(100% - 28px)',
-                            fontSize: 12,
-                            color: colors.textSecondary,
-                          }}
-                        />
-                      )}
                     </Col>
                     <Col flex="none">
                       <InputNumber
@@ -1840,6 +1814,34 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                         }}
                       />
                     </Col>
+                    {s.enabled && (
+                      <Col span={24}>
+                        <Input.TextArea
+                          placeholder="Reason (shown on estimate)"
+                          value={s.reason || ''}
+                          onChange={(e) => {
+                            markDirty();
+                            setResult(prev => {
+                              if (!prev) return prev;
+                              return {
+                                ...prev,
+                                supplements: (prev.supplements || []).map(p =>
+                                  p.key === s.key ? { ...p, reason: e.target.value } : p
+                                ),
+                              };
+                            });
+                          }}
+                          rows={3}
+                          style={{
+                            marginTop: 4,
+                            marginLeft: 28,
+                            width: 'calc(100% - 28px)',
+                            fontSize: 12,
+                            color: colors.textSecondary,
+                          }}
+                        />
+                      </Col>
+                    )}
                   </Row>
                 ))}
               </>
