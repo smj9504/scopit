@@ -746,7 +746,48 @@ async def _analyze_room_with_claude(
     if _TAXONOMY_AVAILABLE and normalize_items_list is not None:
         normalize_items_list(pass1_result["items"])
 
+    # Normalization can map multiple distinct AI-reported names (e.g. "plant"
+    # and "potted plant") onto the same canonical name. Merge those back into
+    # a single line per room instead of leaving duplicate entries with split
+    # quantities.
+    pass1_result["items"] = _merge_duplicate_items(pass1_result["items"])
+
     return pass1_result
+
+
+def _merge_duplicate_items(items: list[dict]) -> list[dict]:
+    """Merge items that share the same normalized name (case-insensitive).
+
+    Quantities are summed; is_high_value/is_fragile are OR'd; confidence
+    takes the max of the group so a merge never pushes an item below the
+    acceptance threshold. First-seen item supplies all other fields.
+    """
+    merged: dict[str, dict] = {}
+    order: list[str] = []
+
+    for item in items:
+        key = (item.get("name") or "").strip().lower()
+        if not key:
+            order.append(key)
+            merged.setdefault(key, item)
+            continue
+
+        if key not in merged:
+            merged[key] = dict(item)
+            order.append(key)
+            continue
+
+        existing = merged[key]
+        existing["quantity"] = existing.get("quantity", 1) + item.get("quantity", 1)
+        existing["is_high_value"] = existing.get("is_high_value", False) or item.get("is_high_value", False)
+        existing["is_fragile"] = existing.get("is_fragile", False) or item.get("is_fragile", False)
+        existing["confidence"] = max(
+            existing.get("confidence", 0.0), item.get("confidence", 0.0)
+        )
+        if not existing.get("estimated_value") and item.get("estimated_value"):
+            existing["estimated_value"] = item["estimated_value"]
+
+    return [merged[key] for key in dict.fromkeys(order)]
 
 
 # Items that are always trivial — not worth a separate packing line.
