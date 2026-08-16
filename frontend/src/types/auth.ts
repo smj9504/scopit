@@ -13,6 +13,7 @@ export interface User {
   isActive: boolean;
   isSuperuser?: boolean;
   defaultPdfTemplate?: 'classic' | 'modern' | 'professional' | 'detailed';
+  hasPassword?: boolean;
   createdAt: string;
 }
 

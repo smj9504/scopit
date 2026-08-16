@@ -2410,6 +2410,20 @@ const AccountSettings: React.FC = () => {
     },
   });
 
+  // Set password mutation (for OAuth accounts without a password yet)
+  const setPasswordMutation = useMutation({
+    mutationFn: authService.setPassword,
+    onSuccess: () => {
+      message.success('Password set successfully. You can now log in with your email and password.');
+      passwordForm.resetFields();
+      setUser({ ...user!, hasPassword: true });
+    },
+    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
+      const detail = error.response?.data?.detail;
+      message.error(detail || 'Failed to set password');
+    },
+  });
+
   const handleSaveProfile = async () => {
     try {
       const values = await form.validateFields(['fullName']);
@@ -2429,10 +2443,16 @@ const AccountSettings: React.FC = () => {
         message.error('Passwords do not match');
         return;
       }
-      changePasswordMutation.mutate({
-        currentPassword: values.currentPassword,
-        newPassword: values.newPassword,
-      });
+      if (user?.hasPassword) {
+        changePasswordMutation.mutate({
+          currentPassword: values.currentPassword,
+          newPassword: values.newPassword,
+        });
+      } else {
+        setPasswordMutation.mutate({
+          newPassword: values.newPassword,
+        });
+      }
     } catch {
       // Validation failed
     }
@@ -2574,18 +2594,26 @@ const AccountSettings: React.FC = () => {
 
       <Divider />
 
-      <h3 style={{ fontFamily: fonts.heading, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
-        Change Password
+      <h3 style={{ fontFamily: fonts.heading, fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
+        {user?.hasPassword ? 'Change Password' : 'Set Password'}
       </h3>
+      {!user?.hasPassword && (
+        <p style={{ color: colors.textSecondary, marginBottom: 16, fontSize: 13 }}>
+          You signed up with Google, so there's no password on your account yet. Set one below to
+          also be able to log in with your email and password.
+        </p>
+      )}
 
       <Form form={passwordForm} layout="vertical" style={{ maxWidth: 500 }}>
-        <Form.Item
-          name="currentPassword"
-          label="Current Password"
-          rules={[{ required: true, message: 'Please enter current password' }]}
-        >
-          <Input.Password placeholder="Enter current password" />
-        </Form.Item>
+        {user?.hasPassword && (
+          <Form.Item
+            name="currentPassword"
+            label="Current Password"
+            rules={[{ required: true, message: 'Please enter current password' }]}
+          >
+            <Input.Password placeholder="Enter current password" />
+          </Form.Item>
+        )}
 
         <Form.Item
           name="newPassword"
@@ -2610,10 +2638,10 @@ const AccountSettings: React.FC = () => {
           type="primary"
           icon={<SaveOutlined />}
           onClick={handleChangePassword}
-          loading={changePasswordMutation.isPending}
+          loading={changePasswordMutation.isPending || setPasswordMutation.isPending}
           style={{ background: colors.primary }}
         >
-          Change Password
+          {user?.hasPassword ? 'Change Password' : 'Set Password'}
         </Button>
       </Form>
     </div>

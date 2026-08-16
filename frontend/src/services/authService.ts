@@ -37,6 +37,7 @@ export const authService = {
         isActive: response.data.user.is_active,
         isSuperuser: response.data.user.is_superuser,
         defaultPdfTemplate: response.data.user.default_pdf_template || 'classic',
+        hasPassword: response.data.user.has_password,
         createdAt: response.data.user.created_at,
       },
     };
@@ -84,6 +85,7 @@ export const authService = {
         isActive: response.data.user.is_active,
         isSuperuser: response.data.user.is_superuser,
         defaultPdfTemplate: response.data.user.default_pdf_template || 'classic',
+        hasPassword: response.data.user.has_password,
         createdAt: response.data.user.created_at,
       },
     };
@@ -126,6 +128,7 @@ export const authService = {
       isActive: response.data.is_active,
       isSuperuser: response.data.is_superuser,
       defaultPdfTemplate: response.data.default_pdf_template || 'classic',
+      hasPassword: response.data.has_password,
       createdAt: response.data.created_at,
     };
   },
@@ -150,6 +153,7 @@ export const authService = {
       isActive: response.data.is_active,
       isSuperuser: response.data.is_superuser,
       defaultPdfTemplate: response.data.default_pdf_template || 'classic',
+      hasPassword: response.data.has_password,
       createdAt: response.data.created_at,
     };
   },
@@ -160,6 +164,15 @@ export const authService = {
   changePassword: async (data: { currentPassword: string; newPassword: string }): Promise<void> => {
     await api.post('/auth/me/change-password', {
       current_password: data.currentPassword,
+      new_password: data.newPassword,
+    });
+  },
+
+  /**
+   * Set a password for an OAuth account that doesn't have one yet
+   */
+  setPassword: async (data: { newPassword: string }): Promise<void> => {
+    await api.post('/auth/me/set-password', {
       new_password: data.newPassword,
     });
   },

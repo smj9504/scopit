@@ -100,6 +100,7 @@ class UserResponse(BaseModel):
     is_active: bool
     is_superuser: bool = False
     default_pdf_template: Optional[str] = None
+    has_password: bool = False
     created_at: datetime
 
     class Config:
@@ -120,6 +121,7 @@ class UserResponse(BaseModel):
                 'is_active': obj.is_active,
                 'is_superuser': obj.is_superuser,
                 'default_pdf_template': obj.default_pdf_template or 'classic',
+                'has_password': bool(obj.hashed_password),
                 'created_at': obj.created_at,
             }
             return cls(**data)
@@ -171,6 +173,10 @@ class UserUpdateRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
+    new_password: str
+
+
+class SetPasswordRequest(BaseModel):
     new_password: str
 
 
@@ -365,7 +371,7 @@ async def login(
     # Find user
     user = db.query(User).filter(User.email == data.email).first()
 
-    if not user or not verify_password(data.password, user.hashed_password):
+    if not user or not user.hashed_password or not verify_password(data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
@@ -510,6 +516,31 @@ async def change_password(
     db.commit()
 
     return MessageResponse(message="Password changed successfully")
+
+
+@router.post("/me/set-password")
+async def set_password(
+    data: SetPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set a password for an OAuth account that has none yet, enabling email/password login"""
+    if current_user.hashed_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password already set. Use change password instead."
+        )
+
+    if len(data.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters"
+        )
+
+    current_user.hashed_password = get_password_hash(data.new_password)
+    db.commit()
+
+    return MessageResponse(message="Password set successfully")
 
 
 @router.post("/logout")
