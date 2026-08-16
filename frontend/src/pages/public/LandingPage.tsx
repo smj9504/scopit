@@ -583,10 +583,10 @@ const LandingPage: React.FC = () => {
           </a>
           
           <nav style={{ display: 'flex', alignItems: 'center', gap: '32px' }} className="desktop-only">
-            <a onClick={() => scrollToSection('features')} style={{ color: '#6b7280', textDecoration: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>Features</a>
-            <a onClick={() => scrollToSection('how-it-works')} style={{ color: '#6b7280', textDecoration: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>How it works</a>
-            <a onClick={() => scrollToSection('faq')} style={{ color: '#6b7280', textDecoration: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>FAQ</a>
-            <a onClick={handleLogin} style={{ color: '#6b7280', textDecoration: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>Log in</a>
+            <button type="button" onClick={() => scrollToSection('features')} style={{ color: '#6b7280', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>Features</button>
+            <button type="button" onClick={() => scrollToSection('how-it-works')} style={{ color: '#6b7280', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>How it works</button>
+            <button type="button" onClick={() => scrollToSection('faq')} style={{ color: '#6b7280', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>FAQ</button>
+            <button type="button" onClick={handleLogin} style={{ color: '#6b7280', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>Log in</button>
             <button className="btn-primary" style={{ padding: '10px 20px', fontSize: 14 }} onClick={handleJoinBeta}>
               Join Beta
             </button>
@@ -598,6 +598,7 @@ const LandingPage: React.FC = () => {
         </div>
       </header>
 
+      <main>
       {/* Hero Section */}
       <section className="hero-section" style={{
         paddingTop: 140,
@@ -1089,30 +1090,113 @@ const LandingPage: React.FC = () => {
             ))}
           </div>
 
-          <div style={{ textAlign: 'center' }}>
-            <button className="btn-primary" style={{ fontSize: 16, padding: '16px 32px' }} onClick={handleTryPackingDemo}>
-              Try the Packing Estimator — Live Demo →
-            </button>
-            <p style={{ marginTop: 16, fontSize: 13, color: '#9ca3af' }}>
-              No signup required · Real sample rooms
-            </p>
-            <button
-              className="btn-link"
-              style={{
-                marginTop: 20,
-                fontSize: 14,
-                fontWeight: 600,
-                color: '#111827',
-                background: 'none',
-                border: 'none',
-                textDecoration: 'underline',
-                cursor: 'pointer',
-                padding: 0,
-              }}
-              onClick={handleGetRealPackingEstimate}
-            >
-              Have your own space? Get a real photo-based estimate — free during beta →
-            </button>
+          {/* Two distinct paths: try a sample (demo) vs. estimate your own space (real) */}
+          <div className="packing-cta-grid" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 20,
+            maxWidth: 820,
+            margin: '0 auto',
+            alignItems: 'stretch',
+          }}>
+            {/* Demo path */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 16,
+              padding: 28,
+              textAlign: 'center',
+            }}>
+              <div style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#9ca3af',
+                letterSpacing: '0.5px',
+                marginBottom: 10,
+              }}>
+                JUST EXPLORING?
+              </div>
+              <h3 style={{ fontSize: 20, fontWeight: 700, color: '#111827', marginBottom: 8 }}>
+                Try it with a sample room
+              </h3>
+              <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 20, flexGrow: 1 }}>
+                See exactly how the estimator works with a real sample room — no photos or signup needed.
+              </p>
+              <button
+                className="btn-secondary"
+                style={{ fontSize: 15, padding: '14px 24px', width: '100%' }}
+                onClick={handleTryPackingDemo}
+              >
+                Launch Live Demo →
+              </button>
+              <p style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
+                No signup required
+              </p>
+            </div>
+
+            {/* Real estimate path — emphasized */}
+            <div style={{
+              position: 'relative',
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#111827',
+              border: '2px solid #111827',
+              borderRadius: 16,
+              padding: 28,
+              textAlign: 'center',
+              boxShadow: '0 12px 32px rgba(17, 24, 39, 0.22)',
+            }}>
+              <div style={{
+                position: 'absolute',
+                top: -12,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                background: '#16a34a',
+                color: '#ffffff',
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '0.5px',
+                padding: '5px 14px',
+                borderRadius: 999,
+                whiteSpace: 'nowrap',
+              }}>
+                FREE DURING BETA
+              </div>
+              <div style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#9ca3af',
+                letterSpacing: '0.5px',
+                marginBottom: 10,
+                marginTop: 4,
+              }}>
+                WORKING ON A REAL JOB?
+              </div>
+              <h3 style={{ fontSize: 20, fontWeight: 700, color: '#ffffff', marginBottom: 8 }}>
+                Estimate your own space
+              </h3>
+              <p style={{ color: '#d1d5db', fontSize: 14, marginBottom: 20, flexGrow: 1 }}>
+                Upload photos of your own room and get a full photo-based packout estimate in minutes.
+              </p>
+              <button
+                className="btn-primary"
+                style={{
+                  fontSize: 16,
+                  padding: '15px 24px',
+                  width: '100%',
+                  background: '#ffffff',
+                  color: '#111827',
+                }}
+                onClick={handleGetRealPackingEstimate}
+              >
+                Get My Real Estimate →
+              </button>
+              <p style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
+                Your photos, a real estimate
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -1407,6 +1491,7 @@ const LandingPage: React.FC = () => {
           </button>
         </div>
       </section>
+      </main>
 
       {/* Footer */}
       <footer style={{
@@ -1437,9 +1522,14 @@ const LandingPage: React.FC = () => {
               <div>
                 <div style={{ color: 'white', fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Product</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <a onClick={() => scrollToSection('features')} style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14, cursor: 'pointer' }}>Features</a>
-                  <a onClick={() => scrollToSection('how-it-works')} style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14, cursor: 'pointer' }}>How it works</a>
-                  <a onClick={() => scrollToSection('faq')} style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14, cursor: 'pointer' }}>FAQ</a>
+                  <button type="button" onClick={() => scrollToSection('features')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>Features</button>
+                  <button type="button" onClick={() => scrollToSection('how-it-works')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>How it works</button>
+                  <button type="button" onClick={() => scrollToSection('faq')} style={{ color: '#9ca3af', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>FAQ</button>
+                  <a href="/packing-calculator" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>Packing calculator</a>
+                  <a href="/pack-out-estimate" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>Pack-out estimate</a>
+                  <a href="/insurance-packing-estimate" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>Insurance packing estimate</a>
+                  <a href="/packing-report" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>Packing report</a>
+                  <a href="/demo/packing" style={{ color: '#9ca3af', textDecoration: 'none', fontSize: 14 }}>Packing estimate demo</a>
                 </div>
               </div>
               

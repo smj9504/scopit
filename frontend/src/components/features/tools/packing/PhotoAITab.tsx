@@ -522,6 +522,12 @@ const AddRoomPanel: React.FC<AddRoomPanelProps> = ({ presets, presetsLoading, on
 // ── Inline-Editable Item Row ────────────────────────────────────────────────
 
 const ITEM_ROW_GRID = '1fr 60px 108px 100px 40px 30px';
+// Fixed columns (Size+Weight+Category+Qty+Delete) + gaps + a readable Name floor.
+// Below this width the table scrolls horizontally instead of clipping columns.
+const ITEM_ROW_MIN_WIDTH = 500;
+// Single source of truth for the item-name font size so the detected-items
+// list and the "needs review" list render item names at the same size.
+const ITEM_NAME_FONT_SIZE = 12;
 
 interface ItemRowProps {
   item: DetectedContentItem;
@@ -606,7 +612,7 @@ const ItemRow: React.FC<ItemRowProps> = ({
           title="Click to edit"
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: colors.textPrimary }}>
+            <span style={{ fontSize: ITEM_NAME_FONT_SIZE, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: colors.textPrimary }}>
               {item.name}
             </span>
             {item.is_high_value && (
@@ -913,6 +919,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
   return (
     <Card
       size="small"
+      className="pai-room-card"
       style={{
         borderRadius: borderRadius.lg,
         border: `1px solid ${
@@ -927,7 +934,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
       }}
       bodyStyle={{ padding: 0 }}
       title={
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, minHeight: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
             {editingAttrs ? (
               <Input
@@ -1026,7 +1033,6 @@ const RoomCard: React.FC<RoomCardProps> = ({
               <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Floor</span>
               <Select
                 size="small"
-                variant="borderless"
                 value={room.floor}
                 onChange={(v) => onUpdate(room.id, { floor: v })}
                 style={{ width: '100%' }}
@@ -1041,7 +1047,6 @@ const RoomCard: React.FC<RoomCardProps> = ({
               <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Density</span>
               <Select
                 size="small"
-                variant="borderless"
                 value={room.density}
                 onChange={(v) => onUpdate(room.id, { density: v })}
                 style={{ width: '100%' }}
@@ -1056,7 +1061,6 @@ const RoomCard: React.FC<RoomCardProps> = ({
               <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.body, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>Contamination</span>
               <Select
                 size="small"
-                variant="borderless"
                 value={room.contamination}
                 onChange={(v) => onUpdate(room.id, { contamination: v })}
                 style={{ width: '100%' }}
@@ -1357,12 +1361,16 @@ const RoomCard: React.FC<RoomCardProps> = ({
                         <div style={{ textAlign: 'center', padding: '12px 0', color: colors.textMuted, fontSize: 12 }}>No items detected. Try re-analyzing or add items manually.</div>
                       ) : (
                         <div style={{ border: `1px solid ${colors.border}`, borderRadius: borderRadius.base, overflow: 'hidden', marginBottom: 8 }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: ITEM_ROW_GRID, gap: 8, padding: '7px 8px', background: colors.bgLight, borderBottom: `1px solid ${colors.border}`, fontSize: 11, fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.body }}>
-                            <span>Name</span><span>Size</span><span>Weight</span><span>Category</span><span style={{ textAlign: 'center' }}>Qty</span><span />
+                          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                            <div style={{ minWidth: ITEM_ROW_MIN_WIDTH }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: ITEM_ROW_GRID, gap: 8, padding: '7px 8px', background: colors.bgLight, borderBottom: `1px solid ${colors.border}`, fontSize: 11, fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.body }}>
+                                <span>Name</span><span>Size</span><span>Weight</span><span>Category</span><span style={{ textAlign: 'center' }}>Qty</span><span />
+                              </div>
+                              {room.items.map((item, idx) => (
+                                <ItemRow key={idx} item={item} roomId={room.id} itemIndex={idx} editingCell={editingCell} onStartEdit={onStartEdit} onCommitEdit={onCommitEdit} onCancelEdit={onCancelEdit} onDelete={() => onDeleteItem(room.id, idx)} />
+                              ))}
+                            </div>
                           </div>
-                          {room.items.map((item, idx) => (
-                            <ItemRow key={idx} item={item} roomId={room.id} itemIndex={idx} editingCell={editingCell} onStartEdit={onStartEdit} onCommitEdit={onCommitEdit} onCancelEdit={onCancelEdit} onDelete={() => onDeleteItem(room.id, idx)} />
-                          ))}
                         </div>
                       )}
                       {/* Low-confidence items requiring manual review */}
@@ -1378,7 +1386,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
                               {room.low_confidence_items.map((item, idx) => (
                                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: idx < room.low_confidence_items.length - 1 ? `1px solid ${colors.border}` : undefined }}>
                                   <div style={{ flex: 1 }}>
-                                    <span style={{ fontWeight: 500 }}>{item.name}</span>
+                                    <span style={{ fontSize: ITEM_NAME_FONT_SIZE, fontWeight: 500, color: colors.textPrimary }}>{item.name}</span>
                                     <span style={{ color: colors.textMuted, marginLeft: 6, fontSize: 11 }}>
                                       x{item.quantity} &middot; {item.category}
                                       {item.confidence != null && ` · ${Math.round(item.confidence * 100)}%`}
@@ -1450,7 +1458,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
                           }
                         />
                       )}
-                      <Button type="dashed" icon={<PlusOutlined />} size="small" onClick={() => onAddItem(room.id)} style={{ width: '100%', fontSize: 12, marginBottom: 8 }}>Add Item Manually</Button>
+                      <Button type="dashed" icon={<PlusOutlined />} onClick={() => onAddItem(room.id)} style={{ width: '100%', marginBottom: 8 }}>Add Item Manually</Button>
 
                       {/* Dismissed / deleted items — restorable */}
                       {room.dismissed_items && room.dismissed_items.length > 0 && (

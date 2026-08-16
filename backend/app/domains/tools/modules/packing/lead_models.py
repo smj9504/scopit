@@ -88,6 +88,11 @@ class PackingLead(Base):
     verified_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     analysis_started_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # Live progress for the background analysis job, updated per-room as each
+    # room's vision call completes so the public status endpoint can surface
+    # "analyzing room X of Y". Reset to 0 whenever analysis (re)starts.
+    analysis_completed_rooms = Column(Integer, nullable=False, default=0, server_default="0")
+    analysis_processed_photos = Column(Integer, nullable=False, default=0, server_default="0")
     retry_count = Column(Integer, nullable=False, default=0, server_default="0")
 
     claimed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

@@ -738,6 +738,26 @@ const SignPage: React.FC = () => {
     document.head.appendChild(link);
   }, []);
 
+  // Belt-and-suspenders noindex: robots.txt already disallows /sign/, but this
+  // per-recipient token page must never be indexed if a link ever leaks. Set it
+  // imperatively so it applies across every render state, and restore the site
+  // default when navigating away so "index, follow" isn't left flipped off.
+  useEffect(() => {
+    const tag =
+      document.querySelector<HTMLMetaElement>('meta[name="robots"]') ??
+      (() => {
+        const m = document.createElement('meta');
+        m.setAttribute('name', 'robots');
+        document.head.appendChild(m);
+        return m;
+      })();
+    const previous = tag.getAttribute('content');
+    tag.setAttribute('content', 'noindex, nofollow');
+    return () => {
+      tag.setAttribute('content', previous ?? 'index, follow');
+    };
+  }, []);
+
   useEffect(() => {
     if (!token) { setStatus('error'); setErrorMessage('Invalid signing link.'); return; }
 

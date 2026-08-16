@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    EMAIL_FROM: str = "noreply@scopit.work"
+    EMAIL_FROM: str = "no-reply@scopit.work"
     EMAIL_FROM_NAME: str = "Scopit"
     
     # ===================
@@ -135,6 +135,9 @@ class Settings(BaseSettings):
     # Revisit before production launch (per the approved plan).
     PACKING_LEAD_DAILY_CAP: int = 25
     PACKING_LEAD_RATE_LIMIT: str = "5/hour"
+    # Internal address notified whenever a new anonymous lead is submitted on
+    # the public /packing-estimate form. Empty string disables the notification.
+    PACKING_LEAD_NOTIFY_EMAIL: str = "mjbuildworks@gmail.com"
 
     class Config:
         env_file = ".env.local"

@@ -1,6 +1,14 @@
 User-agent: *
 Allow: /
+Allow: /packing-calculator
+Allow: /pack-out-estimate
+Allow: /insurance-packing-estimate
+Allow: /packing-report
+Allow: /xactimate-packing-estimate
+Allow: /water-damage-contents-estimate
+Allow: /fire-damage-contents-estimate
 Allow: /demo/packing
+Allow: /packing-estimate
 
 # Authenticated app - not useful to searchers, keep out of the index
 Disallow: /app/
@@ -9,10 +17,17 @@ Disallow: /admin/
 # Auth flows - thin/duplicate pages, no ranking value
 Disallow: /login
 Disallow: /register
+# But keep the PWA service-worker script crawlable — "/register" is a prefix
+# match that would otherwise also block "/registerSW.js" (a render resource).
+Allow: /registerSW.js
 Disallow: /forgot-password
 Disallow: /auth/callback
 
 # Per-customer e-signature links - private, unique tokens, never indexable
 Disallow: /sign/
+
+# Per-customer packing-estimate token links - private, never indexable
+Disallow: /packing-estimate/verify/
+Disallow: /packing-estimate/result/
 
 Sitemap: https://www.scopit.work/sitemap.xml

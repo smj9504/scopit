@@ -604,11 +604,13 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
               onSearch={handleAddressSearch}
               onSelect={handleAddressSelect}
               disabled={disabled}
+              size="large"
               style={{ width: '100%' }}
             >
               <Input
+                size="large"
                 placeholder="Address (start typing to search...)"
-                suffix={<EnvironmentOutlined style={{ color: '#bbb' }} />}
+                suffix={<EnvironmentOutlined style={{ color: '#bbb', flexShrink: 0 }} />}
                 style={{
                   fontFamily: fonts.body,
                   fontSize: 15,

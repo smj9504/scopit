@@ -53,6 +53,7 @@ yarn-error.log*
 
 # Build output
 frontend/dist/
+frontend/dist-ssr/
 frontend/build/
 frontend/dev-dist/
 
@@ -122,7 +123,8 @@ uploads/
 # ===================
 # Claude / AI
 # ===================
-.claude/
+.claude/*
+!.claude/skills/
 CLAUDE.md
 .claude_cache/
 .anthropic/

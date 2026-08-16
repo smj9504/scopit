@@ -13,6 +13,7 @@ import { colors, fonts } from '@/styles/theme';
 import { warmupBackend } from '@/utils';
 import VerifyEmailStep from '@/components/auth/VerifyEmailStep';
 import { useResumePendingAction } from '@/hooks/useResumePendingAction';
+import { usePendingActionStore } from '@/stores/pendingActionStore';
 import type { VerifyEmailResponse } from '@/types/auth';
 
 interface RegisterForm {
@@ -38,6 +39,14 @@ const RegisterPage: React.FC = () => {
   const location = useLocation();
   const { login } = useAuthStore();
   const resumePendingAction = useResumePendingAction();
+
+  // A queued packing-lead claim carries the visitor's already-verified email
+  // (locked below) and submitted company name so they don't re-type them.
+  const pendingAction = usePendingActionStore((s) => s.pendingAction);
+  const claimPrefill =
+    pendingAction?.type === 'packing-claim' ? pendingAction : null;
+  const lockedEmail = claimPrefill?.prefillEmail || undefined;
+  const prefillCompanyName = claimPrefill?.prefillCompanyName || undefined;
 
   const locationState = location.state as RegisterLocationState | null;
   const [step, setStep] = useState<'form' | 'verify'>(
@@ -202,6 +211,7 @@ const RegisterPage: React.FC = () => {
                   layout="vertical"
                   size="large"
                   requiredMark={false}
+                  initialValues={{ email: lockedEmail, companyName: prefillCompanyName }}
                 >
                   <Form.Item
                     name="fullName"
@@ -231,11 +241,17 @@ const RegisterPage: React.FC = () => {
                       { required: true, message: 'Please enter your email' },
                       { type: 'email', message: 'Please enter a valid email' },
                     ]}
+                    extra={
+                      lockedEmail
+                        ? "Verified — this is the email you confirmed for your estimate."
+                        : undefined
+                    }
                   >
                     <Input
                       prefix={<MailOutlined style={{ color: colors.textMuted }} />}
                       placeholder="Email"
                       autoComplete="email"
+                      disabled={!!lockedEmail}
                     />
                   </Form.Item>
 

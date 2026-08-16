@@ -20,6 +20,8 @@ import { usePendingActionStore } from '@/stores/pendingActionStore';
 import { packingLeadService } from '@/services/packingLeadService';
 import { getErrorMessage } from '@/services/api';
 import type { PackingLeadStatusResponse } from '@/types/packingLead';
+import { Seo } from '@/components/Seo';
+import AnalysisProgressRing from '@/components/AnalysisProgressRing';
 
 const CONTACT_EMAIL = 'hello@scopit.work';
 const POLL_INTERVAL_MS = 3500;
@@ -37,6 +39,12 @@ const ContactFooter: React.FC = () => (
 
 const PageShell: React.FC<{ children: React.ReactNode; isMobile: boolean }> = ({ children, isMobile }) => (
   <div style={{ minHeight: '100vh', background: colors.bgLight, fontFamily: fonts.body }}>
+    <Seo
+      title="Your Packing Estimate - Scopit"
+      description="View your Scopit packing estimate."
+      path="/packing-estimate/result"
+      noindex
+    />
     <header
       style={{
         padding: '20px 24px',
@@ -81,6 +89,11 @@ const PackingLeadResultPage: React.FC = () => {
 
   const [autoClaiming, setAutoClaiming] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  // A claim that fails for an authenticated visitor (e.g. they've already used
+  // their one free estimate) is shown as a friendly full-page message rather
+  // than a toast + silent bounce to the dashboard. `friendly` = a 4xx we can
+  // phrase warmly (the backend message is already user-facing).
+  const [claimError, setClaimError] = useState<{ message: string; friendly: boolean } | null>(null);
 
   // Edge case: an already-registered visitor opens this link directly.
   // Skip the teaser/CTA entirely and drop them into the real session.
@@ -93,10 +106,14 @@ const PackingLeadResultPage: React.FC = () => {
         navigate(`/app/tools/packing?sessionId=${tool_session_id}`);
       })
       .catch((error) => {
-        message.error(getErrorMessage(error));
-        navigate('/app/dashboard');
+        setAutoClaiming(false);
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        setClaimError({
+          message: getErrorMessage(error),
+          friendly: status === 409,
+        });
       });
-  }, [token, isAuthenticated, navigate, message]);
+  }, [token, isAuthenticated, navigate]);
 
   const query = useQuery<PackingLeadStatusResponse>({
     queryKey: ['packing-lead-status', token],
@@ -123,15 +140,36 @@ const PackingLeadResultPage: React.FC = () => {
     }
   };
 
-  const goToAuth = (destination: '/register' | '/login') => {
+  const goToAuth = (
+    destination: '/register' | '/login',
+    prefill?: { email?: string | null; companyName?: string | null }
+  ) => {
     if (!token) return;
     setPendingAction({
       type: 'packing-claim',
       token,
       returnPath: `/packing-estimate/result/${token}`,
+      prefillEmail: prefill?.email || undefined,
+      prefillCompanyName: prefill?.companyName ?? null,
     });
     navigate(destination);
   };
+
+  if (claimError) {
+    return (
+      <PageShell isMobile={isMobile}>
+        <h1 style={{ fontFamily: fonts.heading, fontSize: 20, fontWeight: 700, color: colors.textPrimary, margin: 0, marginBottom: 8 }}>
+          {claimError.friendly ? "You've already used your free estimate" : "We couldn't open this estimate"}
+        </h1>
+        <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 24 }}>
+          {claimError.message}
+        </p>
+        <Button type="primary" onClick={() => navigate('/app/dashboard')} style={{ background: colors.primary }}>
+          Go to my dashboard
+        </Button>
+      </PageShell>
+    );
+  }
 
   if (isAuthenticated || autoClaiming) {
     return (
@@ -187,14 +225,32 @@ const PackingLeadResultPage: React.FC = () => {
   const data = query.data;
 
   if (data.status === 'pending_verification' || data.status === 'analyzing') {
-    const label = data.status === 'pending_verification' ? 'Getting ready' : 'Analyzing your rooms';
+    const analyzing = data.status === 'analyzing';
+    const progress = analyzing ? data.progress ?? null : null;
+    const label = analyzing ? 'Analyzing your rooms' : 'Getting ready';
+
     return (
       <PageShell isMobile={isMobile}>
-        <h1 style={{ fontFamily: fonts.heading, fontSize: 20, fontWeight: 700, color: colors.textPrimary, margin: 0, marginBottom: 8 }}>
+        <h1 style={{ fontFamily: fonts.heading, fontSize: 20, fontWeight: 700, color: colors.textPrimary, margin: 0, marginBottom: 20 }}>
           {label}…
         </h1>
-        <p style={{ color: colors.textSecondary, fontSize: 14 }}>
-          This usually takes a few minutes. Feel free to leave this tab open — we'll have your estimate ready shortly.
+
+        {analyzing && progress && progress.total_rooms > 0 ? (
+          <AnalysisProgressRing
+            totalRooms={progress.total_rooms}
+            completedRooms={progress.completed_rooms}
+            totalPhotos={progress.total_photos}
+            processedPhotos={progress.processed_photos}
+            currentRoom={progress.current_room}
+          />
+        ) : (
+          <p style={{ color: colors.textSecondary, fontSize: 14 }}>
+            This usually takes a few minutes.
+          </p>
+        )}
+
+        <p style={{ color: colors.textSecondary, fontSize: 14, marginTop: 20 }}>
+          You can safely close this tab — we'll email you a link as soon as your estimate is ready.
         </p>
       </PageShell>
     );
@@ -245,7 +301,7 @@ const PackingLeadResultPage: React.FC = () => {
         <p style={{ color: colors.textSecondary, fontSize: 14, marginBottom: 24 }}>
           Log in to the account that claimed it to view the full estimate.
         </p>
-        <Button type="primary" onClick={() => goToAuth('/login')} style={{ background: colors.primary }}>
+        <Button type="primary" onClick={() => goToAuth('/login', { email: data.contact_email })} style={{ background: colors.primary }}>
           Log in
         </Button>
       </PageShell>
@@ -290,18 +346,60 @@ const PackingLeadResultPage: React.FC = () => {
         ))}
       </div>
 
-      <Button
-        type="primary"
-        size="large"
-        block
-        onClick={() => goToAuth('/register')}
-        style={{ fontWeight: 600, background: colors.primary, marginBottom: 12 }}
-      >
-        Free during beta — first estimate on us. Create your account to view it.
-      </Button>
-      <Button type="link" onClick={() => goToAuth('/login')} style={{ color: colors.textSecondary }}>
-        Already have an account? Log in
-      </Button>
+      {data.is_existing_user ? (
+        <>
+          <p style={{ fontSize: 13, color: colors.textMuted, margin: '0 0 12px' }}>
+            You already have a Scopit account — log in to continue in the packing tool.
+          </p>
+          <Button
+            type="primary"
+            size="large"
+            block
+            onClick={() => goToAuth('/login', { email: data.contact_email })}
+            style={{
+              fontWeight: 600,
+              background: colors.primary,
+              marginBottom: 12,
+              height: 'auto',
+              minHeight: 48,
+              whiteSpace: 'normal',
+              padding: '10px 16px',
+            }}
+          >
+            Log in to continue
+          </Button>
+        </>
+      ) : (
+        <>
+          <p style={{ fontSize: 13, color: colors.textMuted, margin: '0 0 12px' }}>
+            Free during beta — your first estimate is on us.
+          </p>
+          <Button
+            type="primary"
+            size="large"
+            block
+            onClick={() => goToAuth('/register', { email: data.contact_email, companyName: data.company_name })}
+            style={{
+              fontWeight: 600,
+              background: colors.primary,
+              marginBottom: 12,
+              height: 'auto',
+              minHeight: 48,
+              whiteSpace: 'normal',
+              padding: '10px 16px',
+            }}
+          >
+            Create your free account to view it
+          </Button>
+          <Button
+            type="link"
+            onClick={() => goToAuth('/login', { email: data.contact_email })}
+            style={{ color: colors.textSecondary }}
+          >
+            Already have an account? Log in
+          </Button>
+        </>
+      )}
     </PageShell>
   );
 };

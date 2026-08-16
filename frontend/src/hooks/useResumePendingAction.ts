@@ -31,8 +31,16 @@ export function useResumePendingAction() {
         const { tool_session_id } = await packingLeadService.claim(action.token);
         navigate(`/app/tools/packing?sessionId=${tool_session_id}`);
       } catch (error) {
-        message.error(getErrorMessage(error));
-        navigate('/app/dashboard');
+        // Route back to the estimate result page, which re-attempts the claim
+        // and renders a friendly full-page message on failure (e.g. the
+        // account has already used its one free estimate) — nicer than a bare
+        // toast + silent dashboard bounce.
+        if (action.returnPath) {
+          navigate(action.returnPath);
+        } else {
+          message.error(getErrorMessage(error));
+          navigate('/app/dashboard');
+        }
       }
       return true;
     }

@@ -9,6 +9,46 @@
       "destination": "/demo/packing/index.html"
     },
     {
+      "source": "/packing-calculator",
+      "destination": "/packing-calculator/index.html"
+    },
+    {
+      "source": "/pack-out-estimate",
+      "destination": "/pack-out-estimate/index.html"
+    },
+    {
+      "source": "/insurance-packing-estimate",
+      "destination": "/insurance-packing-estimate/index.html"
+    },
+    {
+      "source": "/packing-report",
+      "destination": "/packing-report/index.html"
+    },
+    {
+      "source": "/xactimate-packing-estimate",
+      "destination": "/xactimate-packing-estimate/index.html"
+    },
+    {
+      "source": "/water-damage-contents-estimate",
+      "destination": "/water-damage-contents-estimate/index.html"
+    },
+    {
+      "source": "/fire-damage-contents-estimate",
+      "destination": "/fire-damage-contents-estimate/index.html"
+    },
+    {
+      "source": "/packing-estimate",
+      "destination": "/packing-estimate/index.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy/index.html"
+    },
+    {
+      "source": "/terms",
+      "destination": "/terms/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

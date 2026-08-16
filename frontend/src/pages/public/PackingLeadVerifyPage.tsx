@@ -13,6 +13,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Form, Input, Button, App } from 'antd';
 import { MailOutlined } from '@ant-design/icons';
 import { colors, fonts } from '@/styles/theme';
+import { Seo } from '@/components/Seo';
 import { usePageSEO } from '@/hooks/usePageSEO';
 import { packingLeadService } from '@/services/packingLeadService';
 import { getErrorMessage } from '@/services/api';
@@ -56,6 +57,12 @@ const PackingLeadVerifyPage: React.FC = () => {
         fontFamily: fonts.body,
       }}
     >
+      <Seo
+        title="Verify Your Packing Estimate - Scopit"
+        description="Verify your email to access your Scopit packing estimate."
+        path="/packing-estimate/verify"
+        noindex
+      />
       <header
         style={{
           padding: '20px 24px',

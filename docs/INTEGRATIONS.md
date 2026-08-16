@@ -380,7 +380,7 @@ export const subscriptionService = {
 
 EMAIL_PROVIDER=sendgrid  # sendgrid, ses, smtp
 SENDGRID_API_KEY=SG.xxxxxxxxxxxxx
-EMAIL_FROM=noreply@scopit.work
+EMAIL_FROM=no-reply@scopit.work
 EMAIL_FROM_NAME=Scopit
 ```
 
