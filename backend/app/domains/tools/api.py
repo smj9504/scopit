@@ -74,11 +74,13 @@ class CreateEstimateFromToolRequest(BaseModel):
     customer_id: Optional[str] = None
     customer_name: Optional[str] = None
     title: Optional[str] = None
+    update_existing: bool = False
 
 
 class CreateEstimateFromToolResponse(BaseModel):
     estimate_id: str
     estimate_number: str
+    updated: bool = False
 
 
 class CreateInvoiceFromToolRequest(BaseModel):
@@ -247,10 +249,8 @@ async def create_estimate_from_tool(
         title=req.title,
     )
 
-    # 4. Create estimate using existing logic (inline to avoid circular import)
+    # 4. Create or update estimate using existing logic (inline to avoid circular import)
     company = db.query(Company).filter(Company.id == current_user.company_id).first()
-    estimate_number = f"{company.estimate_prefix}-{company.next_estimate_number}"
-    company.next_estimate_number += 1
 
     customer_name = payload.get("customer_name") or req.customer_name
     customer_email = payload.get("customer_email")
@@ -271,40 +271,83 @@ async def create_estimate_from_tool(
             customer_state = customer.state
             customer_zipcode = customer.zipcode
 
-    default_status = (
-        db.query(EstimateStatusConfig)
-        .filter(
-            EstimateStatusConfig.company_id == current_user.company_id,
-            EstimateStatusConfig.is_default == True,
-            EstimateStatusConfig.is_active == True,
+    # Look up a previously-linked estimate on this session, if the caller
+    # wants to update it rather than create a new one.
+    existing_estimate = None
+    existing_estimate_id = (tool_session.data or {}).get("linked_estimate_id")
+    if req.update_existing and existing_estimate_id:
+        existing_estimate = (
+            db.query(Estimate)
+            .filter(
+                Estimate.id == existing_estimate_id,
+                Estimate.company_id == current_user.company_id,
+            )
+            .first()
         )
-        .first()
-    )
+        if not existing_estimate:
+            raise BadRequestException(
+                "The previously linked estimate no longer exists. Create a new estimate instead."
+            )
 
-    estimate = Estimate(
-        company_id=current_user.company_id,
-        estimate_number=estimate_number,
-        status=EstimateStatus.DRAFT,
-        status_id=default_status.id if default_status else None,
-        estimate_date=date.today(),
-        customer_id=req.customer_id,
-        customer_name=customer_name,
-        customer_email=customer_email,
-        customer_address_line1=customer_address_line1,
-        customer_address_line2=customer_address_line2,
-        customer_city=customer_city,
-        customer_state=customer_state,
-        customer_zipcode=customer_zipcode,
-        title=payload.get("title") or req.title,
-        description=payload.get("description"),
-        tax_rate=payload.get("tax_rate") or company.default_tax_rate,
-        tax_label=company.default_tax_label,
-        notes=company.default_notes,
-        terms=company.default_terms,
-        created_by=current_user.id,
-    )
-    db.add(estimate)
-    db.flush()
+    updated = existing_estimate is not None
+
+    if existing_estimate:
+        estimate = existing_estimate
+        estimate.customer_id = req.customer_id
+        estimate.customer_name = customer_name
+        estimate.customer_email = customer_email
+        estimate.customer_address_line1 = customer_address_line1
+        estimate.customer_address_line2 = customer_address_line2
+        estimate.customer_city = customer_city
+        estimate.customer_state = customer_state
+        estimate.customer_zipcode = customer_zipcode
+        estimate.title = payload.get("title") or req.title
+        estimate.description = payload.get("description")
+        if payload.get("tax_rate") is not None:
+            estimate.tax_rate = payload["tax_rate"]
+
+        # Replace sections/items with the freshly converted content.
+        db.query(EstimateItem).filter(EstimateItem.estimate_id == estimate.id).delete()
+        db.query(EstimateSection).filter(EstimateSection.estimate_id == estimate.id).delete()
+        db.flush()
+    else:
+        estimate_number = f"{company.estimate_prefix}-{company.next_estimate_number}"
+        company.next_estimate_number += 1
+
+        default_status = (
+            db.query(EstimateStatusConfig)
+            .filter(
+                EstimateStatusConfig.company_id == current_user.company_id,
+                EstimateStatusConfig.is_default == True,
+                EstimateStatusConfig.is_active == True,
+            )
+            .first()
+        )
+
+        estimate = Estimate(
+            company_id=current_user.company_id,
+            estimate_number=estimate_number,
+            status=EstimateStatus.DRAFT,
+            status_id=default_status.id if default_status else None,
+            estimate_date=date.today(),
+            customer_id=req.customer_id,
+            customer_name=customer_name,
+            customer_email=customer_email,
+            customer_address_line1=customer_address_line1,
+            customer_address_line2=customer_address_line2,
+            customer_city=customer_city,
+            customer_state=customer_state,
+            customer_zipcode=customer_zipcode,
+            title=payload.get("title") or req.title,
+            description=payload.get("description"),
+            tax_rate=payload.get("tax_rate") or company.default_tax_rate,
+            tax_label=company.default_tax_label,
+            notes=company.default_notes,
+            terms=company.default_terms,
+            created_by=current_user.id,
+        )
+        db.add(estimate)
+        db.flush()
 
     sections = payload.get("sections", [])
     for idx, section_data in enumerate(sections):
@@ -351,6 +394,7 @@ async def create_estimate_from_tool(
     return CreateEstimateFromToolResponse(
         estimate_id=str(estimate.id),
         estimate_number=estimate.estimate_number,
+        updated=updated,
     )
 
 

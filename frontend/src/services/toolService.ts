@@ -99,6 +99,7 @@ export const toolService = {
     return {
       estimateId: response.data.estimate_id,
       estimateNumber: response.data.estimate_number,
+      updated: response.data.updated ?? false,
     };
   },
   // Tool → Invoice bridge

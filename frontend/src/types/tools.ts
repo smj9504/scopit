@@ -41,11 +41,13 @@ export interface CreateEstimateFromToolRequest {
   customer_id?: string;
   customer_name?: string;
   title?: string;
+  update_existing?: boolean;
 }
 
 export interface CreateEstimateFromToolResponse {
   estimateId: string;
   estimateNumber: string;
+  updated: boolean;
 }
 
 export interface CreateInvoiceFromToolRequest {

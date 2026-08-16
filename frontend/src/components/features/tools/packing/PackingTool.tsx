@@ -505,7 +505,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   }, [editorMode, photoRooms, rooms, settings, materialsMode]);
 
   // ── Create Scopit Estimate ────────────────────────────────────────────
-  const handleCreateEstimate = useCallback(async () => {
+  const runCreateEstimate = useCallback(async (updateExisting: boolean) => {
     if (!activeSessionId) {
       message.warning('Calculate estimate first');
       return;
@@ -517,17 +517,39 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         title: clientInfo.property_address_line1
           ? `Packing & Moving - ${[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}`
           : 'Packing & Moving Estimate',
+        update_existing: updateExisting,
       });
-      message.success(`Estimate ${res.estimateNumber} created`);
+      message.success(res.updated ? `Estimate ${res.estimateNumber} updated` : `Estimate ${res.estimateNumber} created`);
       const linked: LinkedDocRef = { id: res.estimateId, number: res.estimateNumber };
       setLinkedEstimate(linked);
       await saveEstimate(estimateMode, undefined, { linked_estimate: linked });
       onCreateEstimate?.(activeSessionId);
       navigate(`/app/estimates/${res.estimateId}`);
     } catch {
-      message.error('Failed to create estimate');
+      message.error(updateExisting ? 'Failed to update estimate' : 'Failed to create estimate');
     }
   }, [activeSessionId, estimateMode, saveEstimate, onCreateEstimate, clientInfo, navigate]);
+
+  const handleCreateEstimate = useCallback(async () => {
+    if (!activeSessionId) {
+      message.warning('Calculate estimate first');
+      return;
+    }
+    if (linkedEstimate) {
+      Modal.confirm({
+        title: 'Estimate already created',
+        content: `This session is already linked to Estimate ${linkedEstimate.number}. Do you want to update it with the current data, or create a brand new estimate?`,
+        okText: 'Update Existing',
+        cancelText: 'Create New',
+        onOk: () => runCreateEstimate(true),
+        onCancel: () => runCreateEstimate(false),
+        okButtonProps: { type: 'primary' },
+        cancelButtonProps: { type: 'default' },
+      });
+      return;
+    }
+    await runCreateEstimate(false);
+  }, [activeSessionId, linkedEstimate, runCreateEstimate]);
 
   // ── Manually mark this estimate as completed/draft ─────────────────────
   const handleToggleManuallyCompleted = useCallback((checked: boolean) => {
@@ -1078,11 +1100,33 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {result && (
             isStale ? (
-              <Tag color="warning" style={{ margin: 0, padding: '5px 10px', fontSize: 13, lineHeight: '18px' }}>
+              <Tag
+                color="warning"
+                style={{
+                  margin: 0,
+                  padding: '0 12px',
+                  height: 40,
+                  fontSize: 13,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  boxSizing: 'border-box',
+                }}
+              >
                 Needs Recalculation
               </Tag>
             ) : linkedInvoice || linkedEstimate ? (
-              <Tag color="success" style={{ margin: 0, padding: '5px 10px', fontSize: 13, lineHeight: '18px' }}>
+              <Tag
+                color="success"
+                style={{
+                  margin: 0,
+                  padding: '0 12px',
+                  height: 40,
+                  fontSize: 13,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  boxSizing: 'border-box',
+                }}
+              >
                 {linkedInvoice ? `Invoice ${linkedInvoice.number}` : `Estimate ${linkedEstimate!.number}`}
               </Tag>
             ) : (
