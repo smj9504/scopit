@@ -2113,13 +2113,34 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             alignItems: 'stretch',
             gap: 8,
             marginBottom: 12,
+            flexWrap: isNarrow ? 'wrap' : 'nowrap',
           }}
         >
-          <div style={{ flex: 1, display: 'flex' }}>
+          <div style={{ flex: isNarrow ? '1 1 100%' : '1 1 auto', display: 'flex', minWidth: 0 }}>
             <div style={{ width: '100%' }}>
               <AddRoomPanel presets={presets} presetsLoading={presetsLoading} onAddRoom={addRoom} />
             </div>
           </div>
+          {!batchState.isRunning && unanalyzedWithPhotos.length > 0 && (
+            <Tooltip title={`Analyze ${unanalyzedWithPhotos.length} unanalyzed room${unanalyzedWithPhotos.length !== 1 ? 's' : ''}`}>
+              <Button
+                type="primary"
+                icon={<ThunderboltOutlined />}
+                onClick={handleBatchAnalyze}
+                style={{
+                  flexShrink: 0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  height: 'auto',
+                  borderRadius: borderRadius.lg,
+                  background: colors.primary,
+                  borderColor: colors.primary,
+                }}
+              >
+                Analyze All ({unanalyzedWithPhotos.length})
+              </Button>
+            </Tooltip>
+          )}
           <Tooltip title="Import rooms from folder">
             <Button
               icon={<FolderOpenOutlined />}
@@ -2204,27 +2225,6 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
               </Button>
             </div>
           )}
-          {!batchState.isRunning && unanalyzedWithPhotos.length > 0 && (
-            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end' }}>
-              <Tooltip title={`Analyze ${unanalyzedWithPhotos.length} unanalyzed room${unanalyzedWithPhotos.length !== 1 ? 's' : ''}`}>
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<ThunderboltOutlined />}
-                  onClick={handleBatchAnalyze}
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    background: colors.primary,
-                    borderColor: colors.primary,
-                  }}
-                >
-                  Analyze All ({unanalyzedWithPhotos.length})
-                </Button>
-              </Tooltip>
-            </div>
-          )}
-
           {/* Batch failure summary */}
           {!batchState.isRunning && batchState.failedRooms.length > 0 && (
             <div
@@ -2569,8 +2569,16 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
         boxSizing: 'border-box',
       }}
     >
-      {/* Step Indicator + Save Draft */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 28, flexWrap: 'wrap' }}>
+      {/* Step Indicator + Save */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isNarrow ? 'column' : 'row',
+          alignItems: isNarrow ? 'stretch' : 'center',
+          gap: isNarrow ? 12 : 16,
+          marginBottom: 28,
+        }}
+      >
         <Steps
           current={currentStep}
           onChange={handleStepClick}
@@ -2586,9 +2594,9 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             icon: s.icon,
           }))}
           size="small"
-          style={{ maxWidth: 600, flex: 1, minWidth: 260 }}
+          style={{ flex: 1, minWidth: 0 }}
         />
-        <Tooltip title={photoRoomsDirty ? 'Save your photo/analysis changes as a draft' : 'No unsaved AI analysis changes'}>
+        <Tooltip title={photoRoomsDirty ? 'Save your photo/analysis changes' : 'No unsaved AI analysis changes'}>
           <Button
             type={photoRoomsDirty ? 'primary' : 'default'}
             icon={<SaveOutlined />}
@@ -2597,12 +2605,14 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             onClick={onSavePhotoRooms}
             style={{
               borderRadius: borderRadius.base,
-              fontWeight: 600,
+              height: 40,
+              fontSize: 14,
               flexShrink: 0,
+              alignSelf: isNarrow ? 'flex-end' : 'center',
               ...(photoRoomsDirty ? { background: colors.primary, borderColor: colors.primary } : {}),
             }}
           >
-            {photoRoomsDirty ? 'Save Draft' : 'Draft Saved'}
+            {photoRoomsDirty ? 'Save' : 'Saved'}
           </Button>
         </Tooltip>
       </div>
