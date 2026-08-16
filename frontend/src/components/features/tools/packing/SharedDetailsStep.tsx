@@ -483,8 +483,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
             )}
           </div>
 
-          <Row gutter={[12, 12]}>
-            <Col xs={24} sm={12}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
               {fieldLabel('Company Name')}
               <Input
                 placeholder="Restoration Co."
@@ -492,8 +492,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
                 onChange={(e) => patchCompany({ name: e.target.value })}
                 aria-label="Company name override"
               />
-            </Col>
-            <Col xs={24} sm={12}>
+            </div>
+            <div>
               {fieldLabel('Street Address')}
               <Input
                 placeholder="456 Business Ave"
@@ -501,8 +501,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
                 onChange={(e) => patchCompany({ address_line1: e.target.value })}
                 aria-label="Company street address override"
               />
-            </Col>
-            <Col xs={24} sm={12}>
+            </div>
+            <div>
               {fieldLabel('Apt/Suite/Unit')}
               <Input
                 placeholder="Suite 200 (optional)"
@@ -510,35 +510,37 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
                 onChange={(e) => patchCompany({ address_line2: e.target.value })}
                 aria-label="Company address line 2 override"
               />
-            </Col>
-            <Col xs={24} sm={8}>
-              {fieldLabel('City')}
-              <Input
-                placeholder="Dallas"
-                value={companyOverride.city ?? ''}
-                onChange={(e) => patchCompany({ city: e.target.value })}
-                aria-label="Company city override"
-              />
-            </Col>
-            <Col xs={12} sm={8}>
-              {fieldLabel('State')}
-              <Input
-                placeholder="TX"
-                value={companyOverride.state ?? ''}
-                onChange={(e) => patchCompany({ state: e.target.value })}
-                aria-label="Company state override"
-              />
-            </Col>
-            <Col xs={12} sm={8}>
-              {fieldLabel('Zip')}
-              <Input
-                placeholder="75201"
-                value={companyOverride.zipcode ?? ''}
-                onChange={(e) => patchCompany({ zipcode: e.target.value })}
-                aria-label="Company zip override"
-              />
-            </Col>
-            <Col xs={24} sm={12}>
+            </div>
+            <Row gutter={[12, 12]}>
+              <Col xs={24} sm={12}>
+                {fieldLabel('City')}
+                <Input
+                  placeholder="Dallas"
+                  value={companyOverride.city ?? ''}
+                  onChange={(e) => patchCompany({ city: e.target.value })}
+                  aria-label="Company city override"
+                />
+              </Col>
+              <Col xs={12} sm={6}>
+                {fieldLabel('State')}
+                <Input
+                  placeholder="TX"
+                  value={companyOverride.state ?? ''}
+                  onChange={(e) => patchCompany({ state: e.target.value })}
+                  aria-label="Company state override"
+                />
+              </Col>
+              <Col xs={12} sm={6}>
+                {fieldLabel('Zip')}
+                <Input
+                  placeholder="75201"
+                  value={companyOverride.zipcode ?? ''}
+                  onChange={(e) => patchCompany({ zipcode: e.target.value })}
+                  aria-label="Company zip override"
+                />
+              </Col>
+            </Row>
+            <div>
               {fieldLabel('Phone')}
               <Input
                 placeholder="(555) 111-2222"
@@ -546,8 +548,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
                 onChange={(e) => patchCompany({ phone: e.target.value })}
                 aria-label="Company phone override"
               />
-            </Col>
-            <Col xs={24} sm={12}>
+            </div>
+            <div>
               {fieldLabel('Email')}
               <Input
                 type="email"
@@ -556,8 +558,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
                 onChange={(e) => patchCompany({ email: e.target.value })}
                 aria-label="Company email override"
               />
-            </Col>
-          </Row>
+            </div>
+          </div>
         </>,
       )}
     </section>
