@@ -145,6 +145,7 @@ export interface EstimateResponse {
   materials: Record<string, number>;
   material_details?: MaterialItem[];
   materials_detail?: Record<string, string>;
+  materials_mode?: MaterialsMode | null;
   storage_sf: number;
   staging_type: StagingType;
   room_summaries?: RoomItemSummary[];
@@ -234,6 +235,8 @@ export interface ContentRoomInput {
   hint_qty?: Record<string, number>;
 }
 
+export type MaterialsMode = 'pct_of_labor' | 'itemized';
+
 export interface ContentEstimateRequest {
   rooms: ContentRoomInput[];
   crew_size: number;
@@ -243,6 +246,7 @@ export interface ContentEstimateRequest {
   include_op: boolean;
   op_rate: number;
   material_rate: number;
+  materials_mode?: MaterialsMode;
   include_contingency?: boolean;
   contingency_rate?: number;
   region: Region;
@@ -333,7 +337,8 @@ export interface PackingSessionData {
   linked_invoice_number?: string;
   // Photo AI specific
   photo_rooms?: PhotoRoom[];
-  // Packout specific
+  // Packout specific — retired; kept only so old saved sessions still
+  // type-check when opened read-only (see PackingTool.tsx legacy handling).
   packout_rooms?: PackoutRoom[];
   packout_settings?: PackoutSettings;
 }
@@ -531,7 +536,10 @@ export interface SavedEstimateEntry {
   updated_at: string;
 }
 
-// ── Packout Types ──────────────────────────────────────────────────────────
+// ── Packout Types (retired) ──────────────────────────────────────────────
+// The Packout mode itself has been removed (superseded by Photo AI's
+// itemized materials_mode). These types are kept only so old saved
+// sessions with mode: 'packout' still type-check when opened read-only.
 
 export type BoxType = 'small' | 'medium' | 'large' | 'wardrobe' | 'picture' | 'dish_pack' | 'specialty';
 export type StorageMode = 'on_site' | 'off_site';
@@ -582,53 +590,3 @@ export interface PackoutRoom {
   custom_special_items: CustomSpecialItem[];
 }
 
-export interface PackoutEstimateRequest {
-  rooms: Array<{
-    room_name: string;
-    room_size: RoomSize;
-    floor: Floor;
-    density: Density;
-    contamination: ContaminationLevel;
-    box_counts: Record<string, number>;
-    non_boxable_items: NonBoxableItem[];
-    lump_large_item_count?: number;
-    floor_coverage_pct: number;
-    blanket_override?: number;
-    source_items?: DetectedContentItem[];
-    special_items?: string[];
-    custom_special_items?: CustomSpecialItem[];
-  }>;
-  detail_level: EstimateDetail;
-  crew_size: number;
-  storage_mode: StorageMode;
-  repair_duration_months: number;
-  on_property_pct: number;
-  include_packback: boolean;
-  include_op: boolean;
-  op_rate: number;
-  include_contingency?: boolean;
-  contingency_rate?: number;
-  region: Region;
-  special_items?: string[];
-  custom_special_items?: CustomSpecialItem[];
-}
-
-export interface PackoutEstimateResponse {
-  estimate: EstimateResponse;
-  total_non_boxable_items: number;
-  total_boxes: Record<string, number>;
-  total_blankets: number;
-  total_protection_materials: Record<string, number>;
-  storage_mode: StorageMode;
-  repair_duration_months: number;
-  effective_storage_months: number;
-  detail_level: EstimateDetail;
-}
-
-export interface PackoutClassification {
-  non_boxable_items: NonBoxableItem[];
-  lump_large_item_count: number;
-  box_counts: Record<string, number>;
-  blanket_count: number;
-  estimated_floor_coverage_pct: number;
-}

@@ -23,6 +23,7 @@ import {
   Collapse,
   Divider,
   Image,
+  Radio,
 } from 'antd';
 import {
   PlusOutlined,
@@ -75,6 +76,7 @@ import type {
   BatchAnalysisState,
   BatchRoomEvent,
   BatchCompleteEvent,
+  MaterialsMode,
 } from './types';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { useIsNarrow } from '@/hooks/useIsMobile';
@@ -103,6 +105,12 @@ interface PhotoAITabProps {
   onSavePhotoRooms: () => void;
   photoRoomsDirty: boolean;
   savingPhotoRooms: boolean;
+  /** Materials calculation method for the next Generate — % of pack-out
+   * labor (existing model) or itemized (real per-box/per-material pricing).
+   * Lifted to PackingTool.tsx so the Estimate Editor's Recalculate uses the
+   * same choice instead of silently reverting to the default. */
+  materialsMode: MaterialsMode;
+  setMaterialsMode: React.Dispatch<React.SetStateAction<MaterialsMode>>;
 }
 
 // Inline edit state tracks which cell is being edited
@@ -1575,6 +1583,8 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
   onSavePhotoRooms,
   photoRoomsDirty,
   savingPhotoRooms,
+  materialsMode,
+  setMaterialsMode,
 }) => {
   const gDrive = useGoogleDrive();
   const isNarrow = useIsNarrow();
@@ -2007,6 +2017,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
         include_op: settings.include_op,
         op_rate: settings.op_rate,
         material_rate: settings.material_rate ?? 25,
+        materials_mode: materialsMode,
         include_contingency: false,
         contingency_rate: 0,
         region: settings.region,
@@ -2021,7 +2032,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
     } finally {
       setGeneratingEstimate(false);
     }
-  }, [analyzedRooms, settings, onEstimateResult]);
+  }, [analyzedRooms, settings, materialsMode, onEstimateResult]);
 
   const handleGenerateEstimate = useCallback(() => {
     if (analyzedRooms.length === 0) return;
@@ -2405,6 +2416,36 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             style={{ borderRadius: borderRadius.md, marginBottom: 20 }}
           />
         )}
+
+        {/* Materials calculation method */}
+        <Card
+          size="small"
+          style={{ borderRadius: borderRadius.md, border: `1.5px solid ${colors.border}`, marginBottom: 20 }}
+          styles={{ body: { padding: '12px 16px' } }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 10 }}>
+            MATERIAL CALCULATION METHOD
+          </div>
+          <Radio.Group
+            value={materialsMode}
+            onChange={(e) => setMaterialsMode(e.target.value)}
+            style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}
+          >
+            <Radio value="pct_of_labor" style={{ fontSize: 13, color: colors.textPrimary }}>
+              % of Pack-Out Labor
+              <div style={{ fontSize: 12, color: colors.textSecondary, marginLeft: 24, fontWeight: 400 }}>
+                Recommended for most jobs — materials scale with job size.
+              </div>
+            </Radio>
+            <Radio value="itemized" style={{ fontSize: 13, color: colors.textPrimary }}>
+              Itemized — by box &amp; protection type
+              <div style={{ fontSize: 12, color: colors.textSecondary, marginLeft: 24, fontWeight: 400 }}>
+                Detailed line-by-line pricing that matches physical box counts.
+                {' '}Material Rate % (in Settings) is ignored for this method.
+              </div>
+            </Radio>
+          </Radio.Group>
+        </Card>
 
         <Button
           type="primary"

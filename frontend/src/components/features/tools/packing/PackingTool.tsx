@@ -36,7 +36,6 @@ import { packingApi } from './packingApi';
 import { DEFAULT_SETTINGS } from './constants';
 import { QuickEstimateTab } from './QuickEstimateTab';
 import { PhotoAITab } from './PhotoAITab';
-import { PackoutTab } from './PackoutTab';
 import { SharedDetailsStep } from './SharedDetailsStep';
 import { HistoryTab } from './HistoryTab';
 import { PricesTab } from './PricesTab';
@@ -53,6 +52,7 @@ import type {
   EstimateResponse,
   RoomPreset,
   PackingMode,
+  MaterialsMode,
 } from './types';
 
 const { Text, Title } = Typography;
@@ -104,7 +104,12 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   const [rooms, setRooms] = useState<PackingRoom[]>([]);
   // Photo AI rooms
   const [photoRooms, setPhotoRooms] = useState<PhotoRoom[]>([]);
-  // Packout rooms
+  // Photo AI materials calculation method — % of pack-out labor (default) or
+  // itemized. A per-estimate choice, not a saved setting; seeded from
+  // result.materials_mode on load so it survives reload for free.
+  const [materialsMode, setMaterialsMode] = useState<MaterialsMode>('pct_of_labor');
+  // Packout rooms — retired mode; state kept only so old sessions with
+  // mode: 'packout' still load and display read-only (see editorContent below).
   const [packoutRooms, setPackoutRooms] = useState<PackoutRoom[]>([]);
   const [packoutSettings, setPackoutSettings] = useState<PackoutSettings>({
     detail_level: 'detailed',
@@ -213,7 +218,10 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       if (d?.settings) setSettings(d.settings);
       if (d?.client_info) setClientInfo(d.client_info);
       if (d?.company_override) setCompanyOverride(d.company_override);
-      if (d?.result) setResult(d.result);
+      if (d?.result) {
+        setResult(d.result);
+        setMaterialsMode(d.result.materials_mode === 'itemized' ? 'itemized' : 'pct_of_labor');
+      }
       setManuallyCompleted(!!d?.manually_completed);
       setLinkedEstimate(d?.linked_estimate_id ? { id: d.linked_estimate_id, number: d.linked_estimate_number ?? '' } : null);
       setLinkedInvoice(d?.linked_invoice_id ? { id: d.linked_invoice_id, number: d.linked_invoice_number ?? '' } : null);
@@ -415,6 +423,12 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   // ── Calculate from editor ─────────────────────────────────────────────
   const handleCalculateFromEditor = useCallback(async () => {
     const mode = editorMode;
+    if (mode === 'packout') {
+      // Retired mode — recalculation isn't available; switch to Quick
+      // Estimate or Photo AI to generate a new estimate for this session.
+      message.warning('Packout mode has been retired. Switch to Quick Estimate or Photo AI to recalculate.');
+      return;
+    }
     if (mode === 'content') {
       const analyzedRooms = photoRooms.filter((r) => r.analyzed || r.usePreset);
       if (analyzedRooms.length === 0) {
@@ -446,6 +460,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         include_op: settings.include_op,
         op_rate: settings.op_rate,
         material_rate: settings.material_rate ?? 25,
+        materials_mode: materialsMode,
         include_contingency: false,
         contingency_rate: 0,
         region: settings.region,
@@ -487,7 +502,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       });
       return res;
     }
-  }, [editorMode, photoRooms, rooms, settings]);
+  }, [editorMode, photoRooms, rooms, settings, materialsMode]);
 
   // ── Create Scopit Estimate ────────────────────────────────────────────
   const handleCreateEstimate = useCallback(async () => {
@@ -532,6 +547,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     setRooms([]);
     setPhotoRooms([]);
     setPackoutRooms([]);
+    setMaterialsMode('pct_of_labor');
     setSettings({ ...DEFAULT_SETTINGS });
     setClientInfo(defaultClientInfo());
     setCompanyOverride(defaultCompanyOverride());
@@ -578,6 +594,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     if (d?.result) {
       setResult(d.result);
       setEstimateMode(d.mode || 'quick');
+      setMaterialsMode(d.result.materials_mode === 'itemized' ? 'itemized' : 'pct_of_labor');
       setEditorOpen(true);
     }
     setManuallyCompleted(!!d?.manually_completed);
@@ -870,65 +887,6 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
                 </Tag>
               </div>
             </Card>
-
-            {/* Packout option */}
-            <Card
-              hoverable
-              onClick={() => handleSelectMode('packout')}
-              style={{
-                borderRadius: borderRadius.lg,
-                border: `1.5px solid ${colors.border}`,
-                cursor: 'pointer',
-              }}
-              styles={{ body: { padding: '16px 20px' } }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: borderRadius.md,
-                    background: '#fef3c7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <InboxOutlined style={{ fontSize: 20, color: '#d97706' }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text
-                    strong
-                    style={{
-                      fontSize: 15,
-                      fontFamily: fonts.heading,
-                      color: colors.textPrimary,
-                      display: 'block',
-                      marginBottom: 2,
-                    }}
-                  >
-                    Packout
-                  </Text>
-                  <Text style={{ fontSize: 13, color: colors.textSecondary }}>
-                    Box counts, non-boxable items, storage & labor calculation.
-                  </Text>
-                </div>
-                <Tag
-                  style={{
-                    borderRadius: borderRadius.full,
-                    fontSize: 11,
-                    background: '#fef3c7',
-                    borderColor: '#fde68a',
-                    color: '#d97706',
-                    margin: 0,
-                    fontWeight: 600,
-                  }}
-                >
-                  New
-                </Tag>
-              </div>
-            </Card>
           </div>
         </Modal>
       </div>
@@ -961,23 +919,22 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       onSavePhotoRooms={savePhotoRooms}
       photoRoomsDirty={photoRoomsDirty}
       savingPhotoRooms={savingPhotoRooms}
+      materialsMode={materialsMode}
+      setMaterialsMode={setMaterialsMode}
     />
   ) : editorMode === 'packout' ? (
-    <PackoutTab
-      packoutRooms={packoutRooms}
-      setPackoutRooms={setPackoutRooms}
-      packoutSettings={packoutSettings}
-      setPackoutSettings={setPackoutSettings}
-      settings={settings}
-      setSettings={setSettings}
-      clientInfo={clientInfo}
-      setClientInfo={setClientInfo}
-      companyOverride={companyOverride}
-      setCompanyOverride={setCompanyOverride}
-      onEstimateResult={(res) => handleEstimateResult(res, 'packout')}
-      photoRooms={photoRooms}
-      hasExistingEstimate={!!result}
-    />
+    <div style={{ padding: 24, maxWidth: 640 }}>
+      <Card style={{ borderRadius: borderRadius.lg, border: `1.5px solid ${colors.border}` }}>
+        <Text strong style={{ display: 'block', marginBottom: 8, fontFamily: fonts.heading, fontSize: 15 }}>
+          Packout Mode Has Been Retired
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+          This estimate was created with the Packout mode, which is no longer available
+          for new estimates. You can still view and export it below, but recalculating
+          requires switching to Quick Estimate or Photo AI for a new estimate.
+        </Text>
+      </Card>
+    </div>
   ) : (
     <QuickEstimateTab
       presets={presets}

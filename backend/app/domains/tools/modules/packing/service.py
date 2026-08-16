@@ -6,7 +6,7 @@ Ported from moving_estimate standalone application.
 """
 
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -1130,6 +1130,88 @@ class EstimateCalculator:
 
         return rounded_total, lines, material_details
 
+    # Display ordering for itemized materials: boxes (small->specialty),
+    # then protective materials, then consumables/specialty last.
+    _ITEMIZED_BOX_ORDER = [
+        "box_small", "box_medium", "box_large", "box_xlarge", "box_book",
+        "box_dish", "box_wardrobe", "box_wardrobe_small", "box_wardrobe_large",
+        "box_mirror", "box_tv", "box_lamp",
+    ]
+    _ITEMIZED_PROTECTIVE_ORDER = [
+        "blanket", "furniture_pad", "chair_cover", "sofa_cover",
+        "bubble_12", "bubble_24", "shrink_wrap", "corner_protector",
+    ]
+    _ITEMIZED_CONSUMABLE_ORDER = ["packing_paper", "packing_tape"]
+    _ITEMIZED_SPECIALTY_ORDER = [
+        "mattress_twin", "mattress_full", "mattress_queen", "mattress_king",
+    ]
+
+    def build_itemized_materials(
+        self,
+        materials: Dict[str, int],
+        rooms: Optional[List[Any]] = None,
+    ) -> Tuple[float, List[dict], List[dict]]:
+        """Compute material cost as a real itemized sum (Mode B).
+
+        Every material key in `materials` becomes its own priced line, using
+        the SAME MATERIAL_CODES -> LineItem price catalog as Quick Estimate /
+        the hybrid % model. No % anchoring — total is a literal sum of
+        qty x unit price.
+
+        Returns (total_cost, section_detail_lines, material_details).
+        """
+        detail_strings: Dict[str, str] = {}
+        if rooms:
+            try:
+                detail_strings = self.build_material_detail_strings(rooms, materials)
+            except Exception:
+                detail_strings = {}
+
+        # Fixed display order: boxes -> protective -> consumables -> specialty,
+        # then anything unrecognized appended at the end.
+        order = (
+            self._ITEMIZED_BOX_ORDER
+            + self._ITEMIZED_PROTECTIVE_ORDER
+            + self._ITEMIZED_CONSUMABLE_ORDER
+            + self._ITEMIZED_SPECIALTY_ORDER
+        )
+        ordered_keys = [k for k in order if k in materials]
+        ordered_keys += [k for k in materials if k not in order]
+
+        lines: List[dict] = []
+        material_details: List[dict] = []
+        total_cost = 0.0
+
+        for mat_key in ordered_keys:
+            qty = materials.get(mat_key, 0)
+            if qty <= 0:
+                continue
+            code = MATERIAL_CODES.get(mat_key)
+            if not code:
+                continue
+
+            p = self.prices.get(code)
+            unit_price = self.get_price(code)
+            name = p.name if p else DEFAULT_PRICES.get(code, {}).get("name", mat_key)
+            unit = p.unit if p else DEFAULT_PRICES.get(code, {}).get("unit", "EA")
+            amount = round(unit_price * qty, 2)
+            total_cost += amount
+
+            detail = detail_strings.get(mat_key) or MATERIAL_DETAIL.get(mat_key, "")
+
+            lines.append({
+                "name": name, "qty": qty, "unit": unit,
+                "rate": unit_price, "detail": detail, "amount": amount,
+            })
+            material_details.append({
+                "code": code, "name": name,
+                "quantity": qty, "unit": unit,
+                "unit_price": unit_price, "total": amount,
+                "detail": detail,
+            })
+
+        return round(total_cost, 2), lines, material_details
+
     def calculate_estimate(self, request: QuickEstimateRequest) -> EstimateResponse:
         """Main calculation method"""
 
@@ -1448,6 +1530,7 @@ class EstimateCalculator:
             section_details=section_details,
             materials=materials,
             material_details=material_details,
+            materials_mode="pct_of_labor",
             storage_sf=storage_sf if not is_on_site else 0,
             staging_type=request.staging_type,
             room_summaries=room_summaries,
@@ -2950,14 +3033,22 @@ class EstimateCalculator:
             + supervisor_hours * fragile_rate_adj       # 1 person
         )
 
-        # Hybrid materials: total anchored to pack-out labor × rate%,
-        # split into 2-3 categories based on itemised breakdown ratios.
-        material_rate_pct = getattr(request, 'material_rate', 25)
-        material_cost, mat_section_lines, mat_details_legacy = (
-            self.build_hybrid_materials(
-                pack_out_labor, material_rate_pct, materials,
+        # Materials calc: either hybrid (% of pack-out labor, collapsed into
+        # 2-3 category lines) or itemized (real per-box/per-material pricing,
+        # one line per material) — user's choice, made at the Photo AI review
+        # step and carried on the request as `materials_mode`.
+        materials_mode = getattr(request, 'materials_mode', 'pct_of_labor') or 'pct_of_labor'
+        if materials_mode == "itemized":
+            material_cost, mat_section_lines, mat_details_legacy = (
+                self.build_itemized_materials(materials, request.rooms)
             )
-        )
+        else:
+            material_rate_pct = getattr(request, 'material_rate', 25)
+            material_cost, mat_section_lines, mat_details_legacy = (
+                self.build_hybrid_materials(
+                    pack_out_labor, material_rate_pct, materials,
+                )
+            )
 
         # Transport & Storage costs depend on staging type
         is_on_site = request.staging_type == StagingType.ON_SITE
@@ -3355,6 +3446,7 @@ class EstimateCalculator:
             section_details=section_details,
             materials=materials,
             material_details=material_details,
+            materials_mode=materials_mode,
             storage_sf=storage_sf if not is_on_site else 0,
             staging_type=request.staging_type,
             room_summaries=room_summaries,

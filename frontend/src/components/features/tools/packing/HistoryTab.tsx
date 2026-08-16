@@ -22,6 +22,7 @@ import {
   ThunderboltOutlined,
   CameraOutlined,
   ReloadOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { toolService } from '@/services/toolService';
@@ -177,21 +178,41 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
       render: (_: unknown, record: ToolSession) => {
         const d = getSessionData(record);
         const mode = d?.mode ?? 'quick';
-        return mode === 'content' ? (
-          <Tag
-            icon={<CameraOutlined />}
-            style={{
-              borderRadius: borderRadius.full,
-              fontSize: fontSizes.xs,
-              fontFamily: fonts.body,
-              background: '#eff6ff',
-              borderColor: '#bfdbfe',
-              color: '#2563eb',
-            }}
-          >
-            Photo AI
-          </Tag>
-        ) : (
+        if (mode === 'content') {
+          return (
+            <Tag
+              icon={<CameraOutlined />}
+              style={{
+                borderRadius: borderRadius.full,
+                fontSize: fontSizes.xs,
+                fontFamily: fonts.body,
+                background: '#eff6ff',
+                borderColor: '#bfdbfe',
+                color: '#2563eb',
+              }}
+            >
+              Photo AI
+            </Tag>
+          );
+        }
+        if (mode === 'packout') {
+          return (
+            <Tag
+              icon={<InboxOutlined />}
+              style={{
+                borderRadius: borderRadius.full,
+                fontSize: fontSizes.xs,
+                fontFamily: fonts.body,
+                background: '#fef3c7',
+                borderColor: '#fde68a',
+                color: '#d97706',
+              }}
+            >
+              Packout (Retired)
+            </Tag>
+          );
+        }
+        return (
           <Tag
             icon={<ThunderboltOutlined />}
             style={{
@@ -364,6 +385,20 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
                   }}
                 >
                   Photo AI
+                </Tag>
+              ) : mode === 'packout' ? (
+                <Tag
+                  icon={<InboxOutlined />}
+                  style={{
+                    borderRadius: borderRadius.full,
+                    fontSize: fontSizes.xs,
+                    background: '#fef3c7',
+                    borderColor: '#fde68a',
+                    color: '#d97706',
+                    margin: 0,
+                  }}
+                >
+                  Packout (Retired)
                 </Tag>
               ) : (
                 <Tag

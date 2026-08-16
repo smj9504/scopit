@@ -39,6 +39,8 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app.domains.tools.modules.packing.service import MATERIAL_CODES
+
 # ============================================
 # SCOPIT COMPANY INFO HELPER
 # ============================================
@@ -591,10 +593,16 @@ def get_line_items_from_estimate(
 # SECTION DETAILS → LINE ITEMS CONVERTER
 # ============================================
 
+_BOX_CODES = {
+    code for key, code in MATERIAL_CODES.items() if key.startswith('box_')
+}
+
+
 def _section_details_to_line_items(
     section_details: Dict[str, Any],
     sections_totals: Dict[str, float],
     material_details: Optional[List[Dict]] = None,
+    materials_mode: Optional[str] = None,
 ) -> List[Dict]:
     """Convert section_details (from calculate_estimate_from_content) to the
     line_items format expected by the PDF/Excel export.
@@ -617,6 +625,32 @@ def _section_details_to_line_items(
         # Materials section: use material_details (not in section_details)
         if section_name == 'Materials' and material_details:
             processed.add(section_name)
+
+            if materials_mode == 'itemized':
+                # Mode B: split into two scannable subgroups instead of one
+                # flat list — "Packing Boxes" and "Protective & Packing
+                # Supplies" — matching how moving-industry estimates
+                # conventionally separate box SKUs from wrap/pad consumables.
+                box_items = []
+                other_items = []
+                for m in material_details:
+                    entry = {
+                        'name': m.get('name', ''),
+                        'detail': m.get('detail', ''),
+                        'qty': m.get('quantity', 1),
+                        'unit': m.get('unit', 'EA'),
+                        'price': m.get('unit_price', 0),
+                    }
+                    if m.get('code') in _BOX_CODES:
+                        box_items.append(entry)
+                    else:
+                        other_items.append(entry)
+                if box_items:
+                    result.append({'title': 'Materials - Packing Boxes', 'items': box_items})
+                if other_items:
+                    result.append({'title': 'Materials - Protective & Packing Supplies', 'items': other_items})
+                continue
+
             items = []
             for m in material_details:
                 items.append({
@@ -723,6 +757,7 @@ def generate_estimate_pdf(
             section_details,
             estimate_data.get('sections', {}),
             estimate_data.get('material_details'),
+            estimate_data.get('materials_mode'),
         )
     else:
         sections = get_line_items_from_estimate(estimate_data, prices=prices)
@@ -1254,6 +1289,7 @@ def generate_estimate_excel(
             section_details,
             estimate_data.get('sections', {}),
             estimate_data.get('material_details'),
+            estimate_data.get('materials_mode'),
         )
     else:
         sections = get_line_items_from_estimate(estimate_data, prices=prices)

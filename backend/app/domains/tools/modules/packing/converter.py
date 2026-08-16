@@ -45,6 +45,118 @@ Session data shape (ToolSession.data JSONB):
 }
 """
 from app.domains.tools.converter import ToolEstimateConverter, register_converter
+from app.domains.tools.modules.packing.service import MATERIAL_CODES
+
+# Medium-granularity grouping for itemized (Mode B) materials flowing into a
+# real Scopit Estimate: one line per box SIZE, one line per protective
+# material TYPE — more detail than the 3-category hybrid collapse, but far
+# short of the packing tool's own full per-SKU itemization (which is a
+# presentation-layer feature of the packing tool's PDF/editor only).
+_ITEMIZED_BOX_LABELS = {
+    "box_small": "Small Boxes",
+    "box_medium": "Medium Boxes",
+    "box_large": "Large Boxes",
+    "box_xlarge": "XL Boxes",
+    "box_book": "Book Boxes",
+    "box_dish": "Dish Pack Boxes",
+    "box_wardrobe": "Wardrobe Boxes",
+    "box_wardrobe_small": "Wardrobe Boxes - Small",
+    "box_wardrobe_large": "Wardrobe Boxes - Large",
+    "box_mirror": "Mirror/Picture Boxes",
+    "box_tv": "TV Boxes",
+    "box_lamp": "Lamp Boxes",
+}
+_ITEMIZED_PROTECTIVE_LABELS = {
+    "blanket": "Moving Blankets",
+    "furniture_pad": "Furniture Pads",
+    "chair_cover": "Chair Covers",
+    "sofa_cover": "Sofa Covers",
+    "bubble_12": "Bubble Wrap",
+    "bubble_24": "Bubble Wrap",
+    "shrink_wrap": "Shrink Wrap",
+    "corner_protector": "Corner Protectors",
+    "mattress_twin": "Mattress Bags",
+    "mattress_full": "Mattress Bags",
+    "mattress_queen": "Mattress Bags",
+    "mattress_king": "Mattress Bags",
+}
+# Consumables fold into whichever bucket makes sense — paper travels with
+# boxes (it's void-fill for boxed contents), tape travels with protective
+# supplies (it's a securing material, not a box).
+_ITEMIZED_CONSUMABLE_BUCKET = {
+    "packing_paper": ("box", "Packing Paper"),
+    "packing_tape": ("protective", "Packing Tape"),
+}
+
+# Reverse lookup: MATERIAL_CODES code -> material key, so grouping can work
+# from the `code` field already present on every material_details entry.
+_CODE_TO_KEY = {code: key for key, code in MATERIAL_CODES.items()}
+
+
+def _group_itemized_materials_for_estimate(material_details: list) -> list:
+    """Group Mode B's per-SKU material_details into medium-granularity real
+    Estimate line items: one line per box size present, one line per
+    distinct protective-material type present (not merged into a single
+    bucket, not left fully itemized).
+
+    Returns a list of item dicts (name/description/unit/quantity/unit_price/
+    amount/is_taxable/order_index) ready to attach to an estimate section.
+    """
+    # key -> {"qty": total_qty, "total": total_$, "label": display_name}
+    buckets: dict = {}
+    order: list = []  # preserves first-seen order for stable output
+
+    def _bucket(key: str, label: str, qty: float, total: float):
+        if key not in buckets:
+            buckets[key] = {"label": label, "qty": 0.0, "total": 0.0}
+            order.append(key)
+        buckets[key]["qty"] += qty
+        buckets[key]["total"] += total
+
+    for m in material_details:
+        code = m.get("code", "")
+        mat_key = _CODE_TO_KEY.get(code)
+        qty = float(m.get("quantity", 0) or 0)
+        total = float(m.get("total", 0) or 0)
+        if qty <= 0 or total <= 0:
+            continue
+
+        # Bucket key is scoped by kind + LABEL (not raw material key) so
+        # same-label variants merge (e.g. bubble_12/bubble_24 -> one "Bubble
+        # Wrap" line, mattress_twin/queen -> one "Mattress Bags" line) while
+        # distinctly-labeled variants stay separate (e.g. wardrobe box
+        # small vs large are genuinely different SKUs, not merged).
+        if mat_key in _ITEMIZED_BOX_LABELS:
+            label = _ITEMIZED_BOX_LABELS[mat_key]
+            _bucket(f"box:{label}", label, qty, total)
+        elif mat_key in _ITEMIZED_PROTECTIVE_LABELS:
+            label = _ITEMIZED_PROTECTIVE_LABELS[mat_key]
+            _bucket(f"prot:{label}", label, qty, total)
+        elif mat_key in _ITEMIZED_CONSUMABLE_BUCKET:
+            bucket_kind, label = _ITEMIZED_CONSUMABLE_BUCKET[mat_key]
+            _bucket(f"{bucket_kind}:{label}", label, qty, total)
+        else:
+            # Unrecognized material key — keep its own line rather than
+            # silently dropping cost from the real Estimate.
+            label = m.get("name", "Material")
+            _bucket(f"other:{mat_key or code}", label, qty, total)
+
+    items = []
+    for i, key in enumerate(order):
+        b = buckets[key]
+        avg_unit_price = round(b["total"] / b["qty"], 2) if b["qty"] else round(b["total"], 2)
+        items.append({
+            "name": b["label"],
+            "description": "",
+            "unit": "EA",
+            "quantity": b["qty"],
+            "unit_price": avg_unit_price,
+            "amount": round(b["total"], 2),
+            "is_taxable": True,
+            "order_index": i,
+        })
+    return items
+
 
 # Canonical display order matching the packing service output
 _SECTION_ORDER = [
@@ -107,6 +219,19 @@ class PackingEstimateConverter(ToolEstimateConverter):
             items = []
 
             if section_name == "Materials" and material_details:
+                if result.get("materials_mode") == "itemized":
+                    # Mode B: group into medium-granularity lines (one per
+                    # box size, one per protective-material type) rather
+                    # than the 3-category hybrid collapse OR the packing
+                    # tool's own full per-SKU itemization.
+                    items = _group_itemized_materials_for_estimate(material_details)
+                    sections.append({
+                        "name": section_name,
+                        "order_index": idx,
+                        "items": items,
+                    })
+                    continue
+
                 # Check if already grouped into categories
                 # (Packing Supplies / Protective Wrapping / etc.)
                 is_category = all(

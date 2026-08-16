@@ -39,6 +39,7 @@ import type {
   CompanyInfoOverride,
   ContentRoomInput,
   EstimateResponse,
+  MaterialsMode,
   PackingSettings,
   PhotoRoom,
 } from '@/components/features/tools/packing/types';
@@ -125,6 +126,7 @@ const PackingDemoPage: React.FC = () => {
 
   const [photoRooms, setPhotoRooms] = useState<PhotoRoom[]>([]);
   const [settings, setSettings] = useState<PackingSettings>({ ...DEFAULT_SETTINGS });
+  const [materialsMode, setMaterialsMode] = useState<MaterialsMode>('pct_of_labor');
   const [clientInfo, setClientInfo] = useState<ClientInfo>(defaultClientInfo());
   const [companyOverride, setCompanyOverride] = useState<CompanyInfoOverride>(defaultCompanyOverride());
 
@@ -424,6 +426,8 @@ const PackingDemoPage: React.FC = () => {
               onSavePhotoRooms={() => {}}
               photoRoomsDirty={false}
               savingPhotoRooms={false}
+              materialsMode={materialsMode}
+              setMaterialsMode={setMaterialsMode}
             />
           </div>
           <div style={{ display: editorOpen ? 'block' : 'none' }}>

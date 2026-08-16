@@ -14,10 +14,6 @@ import type {
   BatchRoomEvent,
   BatchCompleteEvent,
   ReportExportRequest,
-  PackoutEstimateRequest,
-  PackoutEstimateResponse,
-  PackoutClassification,
-  DetectedContentItem,
 } from './types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
@@ -32,25 +28,6 @@ export const packingApi = {
   // ── Content Estimate (Photo AI mode) ──────────────────────────────────────
   contentEstimate: async (data: ContentEstimateRequest): Promise<EstimateResponse> => {
     const response = await api.post<EstimateResponse>('/tools/packing/content-estimate', data, { timeout: 120_000 });
-    return response.data;
-  },
-
-  // ── Packout Estimate ────────────────────────────────────────────────────
-  packoutEstimate: async (data: PackoutEstimateRequest): Promise<PackoutEstimateResponse> => {
-    const response = await api.post<PackoutEstimateResponse>('/tools/packing/packout-estimate', data, { timeout: 60_000 });
-    return response.data;
-  },
-
-  classifyForPackout: async (
-    items: DetectedContentItem[],
-    detailLevel: string = 'detailed',
-    roomSize: string = 'large',
-  ): Promise<PackoutClassification> => {
-    const response = await api.post<PackoutClassification>('/tools/packing/classify-for-packout', {
-      items,
-      detail_level: detailLevel,
-      room_size: roomSize,
-    });
     return response.data;
   },
 

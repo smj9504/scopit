@@ -1150,6 +1150,20 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
               >
                 {sectionName}{isMaterialsSection && (result?.material_details || detail?.lines) ? ` (${(result?.material_details?.length ?? detail?.lines?.length ?? 0)} items)` : ''}
               </Text>
+              {isMaterialsSection && result?.materials_mode && (
+                <Tag
+                  style={{
+                    marginLeft: 8,
+                    borderRadius: borderRadius.sm,
+                    fontSize: 11,
+                    border: 'none',
+                    background: result.materials_mode === 'itemized' ? colors.primary + '15' : colors.bgSunken,
+                    color: result.materials_mode === 'itemized' ? colors.primary : colors.textSecondary,
+                  }}
+                >
+                  {result.materials_mode === 'itemized' ? 'Itemized' : '% of Labor'}
+                </Tag>
+              )}
             </Col>
             <Col>
               <Text
@@ -1173,7 +1187,22 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           <SectionLineTable
             sectionName={sectionName}
             lines={
-              isMaterialDetailsLegacy(result.material_details)
+              // materials_mode self-declares the shape (itemized = many real
+              // lines, pct_of_labor = 2-3 lump-sum category lines already in
+              // material_details) for any estimate computed after this field
+              // was added — no need to guess from shape either way. Only
+              // sessions with no materials_mode at all (saved before this
+              // field existed) fall back to the legacy shape-sniffing.
+              result.materials_mode
+                ? result.material_details.map((m) => ({
+                    name: m.name,
+                    detail: m.detail ?? '',
+                    qty: m.quantity,
+                    unit: m.unit,
+                    rate: m.unit_price,
+                    amount: m.total,
+                  }))
+                : isMaterialDetailsLegacy(result.material_details)
                 ? groupMaterialDetails(result.material_details)
                 : result.material_details.map((m) => ({
                     name: m.name,

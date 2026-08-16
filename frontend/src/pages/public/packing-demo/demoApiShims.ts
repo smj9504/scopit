@@ -158,12 +158,6 @@ export function installPackingDemoShims() {
   packingApi.quickEstimate = async () => {
     throw new Error('Quick Estimate mode is not available in this demo — try Photo AI.');
   };
-  packingApi.packoutEstimate = async () => {
-    throw new Error('Packout mode is not available in this demo — try Photo AI.');
-  };
-  packingApi.classifyForPackout = async () => {
-    throw new Error('Packout mode is not available in this demo.');
-  };
   packingApi.masterContent = async () => ({
     items: [],
     total_items: 0,

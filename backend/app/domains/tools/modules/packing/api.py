@@ -23,13 +23,10 @@ from app.domains.tools.modules.packing.schemas import (
     BatchCompleteEvent,
     BatchRoomAnalysisRequest,
     BatchRoomEvent,
-    DetectedContentItem,
     EstimateResponse,
     ExportRequest,
     MasterContentRequest,
     MasterContentResponse,
-    PackoutEstimateRequest,
-    PackoutEstimateResponse,
     QuickEstimateRequest,
     ReportExportRequest,
     RoomAnalysisResponse,
@@ -120,31 +117,6 @@ async def content_estimate(
         if warnings:
             result.notes = (result.notes or []) + [f"⚠ {w}" for w in warnings]
     return result
-
-
-@router.post("/packout-estimate", response_model=PackoutEstimateResponse)
-async def packout_estimate(
-    request: PackoutEstimateRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(_gate),
-):
-    """Generate a packout estimate from room-level box/item counts."""
-    from app.domains.tools.modules.packing.packout_service import PackoutCalculator
-    calculator = PackoutCalculator(db, current_user.company_id)
-    return calculator.calculate_packout(request)
-
-
-@router.post("/classify-for-packout")
-async def classify_for_packout(
-    request: dict,
-    current_user: User = Depends(_gate),
-):
-    """Classify AI-detected items into packout categories (non-boxable + box counts)."""
-    from app.domains.tools.modules.packing.packout_classifier import classify_items_for_packout
-    items = [DetectedContentItem(**i) for i in request.get("items", [])]
-    detail_level = request.get("detail_level", "detailed")
-    room_size = request.get("room_size", "large")
-    return classify_items_for_packout(items, detail_level, room_size)
 
 
 @router.post("/analyze-room", response_model=RoomAnalysisResponse)
