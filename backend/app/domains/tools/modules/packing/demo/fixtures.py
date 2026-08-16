@@ -55,38 +55,62 @@ class DemoRoomFixture:
 def _basement() -> DemoRoomFixture:
     items = [
         DetectedContentItem(
-            name="Dresser", description="6-drawer, wood", size="L", weight="heavy",
-            category="Furniture", quantity=1, confidence=0.91,
+            name="Sofa", description="leather, 3-seat", size="L", weight="heavy",
+            category="Furniture", quantity=1, confidence=0.90,
         ),
         DetectedContentItem(
-            name="China Cabinet", size="L", weight="heavy",
-            category="Furniture", quantity=1, needs_disassembly=True, confidence=0.88,
+            name="Folding Screen / Room Divider", description="6-panel, painted", size="L", weight="medium",
+            category="Furniture", quantity=1, is_fragile=True, confidence=0.85,
         ),
         DetectedContentItem(
-            name="Framed Art / Wall Scrolls", size="M", weight="light",
-            category="Artwork", quantity=5, is_fragile=True, confidence=0.86,
+            name="Bed Frame with Mattress", size="XL", weight="heavy",
+            category="Furniture", quantity=1, needs_disassembly=True, confidence=0.87,
         ),
         DetectedContentItem(
-            name="Moving Box, Packed", description="labeled 'contents'", size="M", weight="medium",
-            category="Other", quantity=4, confidence=0.90,
+            name="Wood Dresser / Nightstand", size="M", weight="heavy",
+            category="Furniture", quantity=2, confidence=0.88,
         ),
         DetectedContentItem(
-            name="Quilt / Bedding, Bagged", size="M", weight="light",
-            category="Clothing", quantity=3, confidence=0.83,
+            name="Wooden Ladder Shelf / Display Stand", size="M", weight="medium",
+            category="Furniture", quantity=1, confidence=0.82,
         ),
         DetectedContentItem(
-            name="Decorative Tray/Vanity Set", size="S", weight="light",
-            category="Collectibles", quantity=1, is_fragile=True, confidence=0.78,
+            name="Framed Art / Wall Prints", size="M", weight="light",
+            category="Artwork", quantity=3, is_fragile=True, confidence=0.86,
         ),
         DetectedContentItem(
-            name="Exercise Bike", size="L", weight="heavy",
-            category="Sports", quantity=1, confidence=0.84,
+            name="Moving Box, Packed", description="mix of retail and mover-branded boxes", size="M", weight="medium",
+            category="Other", quantity=8, confidence=0.89,
+        ),
+        DetectedContentItem(
+            name="Quilt / Bedding, Wrapped", size="M", weight="light",
+            category="Clothing", quantity=2, confidence=0.81,
+        ),
+        DetectedContentItem(
+            name="Wicker Basket", size="S", weight="light",
+            category="Other", quantity=1, confidence=0.76,
+        ),
+        DetectedContentItem(
+            name="Exercise Equipment", description="rowing/bench-style machine", size="L", weight="heavy",
+            category="Sports", quantity=1, confidence=0.79,
+        ),
+        DetectedContentItem(
+            name="Storage Trunk / Chest", size="M", weight="medium",
+            category="Other", quantity=1, confidence=0.77,
+        ),
+        DetectedContentItem(
+            name="File Box", size="S", weight="medium",
+            category="Other", quantity=2, confidence=0.80,
         ),
     ]
     low_confidence_items = [
         DetectedContentItem(
-            name="Ceramic Table Lamp", size="S", weight="light",
-            category="Fragile", quantity=1, is_fragile=True, confidence=0.58,
+            name="Router / Networking Equipment", size="S", weight="light",
+            category="Electronics", quantity=1, confidence=0.55,
+        ),
+        DetectedContentItem(
+            name="Crutches / Mobility Aid", size="M", weight="light",
+            category="Other", quantity=1, confidence=0.50,
         ),
     ]
     analysis = RoomAnalysisResponse(
@@ -98,7 +122,9 @@ def _basement() -> DemoRoomFixture:
         confidence_score=0.85,
         fragile_count=sum(i.quantity for i in items if i.is_fragile),
         high_value_count=sum(i.quantity for i in items if i.is_high_value),
-        field_notes=[],
+        field_notes=[
+            "Bedding on the bed frame was already partially wrapped by the homeowner at time of photo.",
+        ],
     )
     return DemoRoomFixture(
         room_key="basement",
