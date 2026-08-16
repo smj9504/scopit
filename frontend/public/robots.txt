@@ -5,6 +5,8 @@ Allow: /pack-out-estimate
 Allow: /insurance-packing-estimate
 Allow: /packing-report
 Allow: /xactimate-packing-estimate
+Allow: /water-damage-contents-estimate
+Allow: /fire-damage-contents-estimate
 Allow: /demo/packing
 Allow: /packing-estimate
 

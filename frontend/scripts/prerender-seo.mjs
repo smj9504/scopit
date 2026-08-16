@@ -61,6 +61,18 @@ const routes = [
       'Price restoration packing & contents fast with photo-based estimates — an itemized breakdown to run alongside Xactimate. ESX export is on our roadmap.',
   },
   {
+    path: '/water-damage-contents-estimate',
+    title: 'Water Damage Contents Estimate Software | Scopit',
+    description:
+      'Price the pack-out and contents on a water loss from room photos — storage while the structure dries, salvageable vs total loss, itemized for the claim.',
+  },
+  {
+    path: '/fire-damage-contents-estimate',
+    title: 'Fire Damage Contents Estimate Software | Scopit',
+    description:
+      'Price fire & smoke contents from room photos — clean-and-store vs total loss, off-site cleaning pack-out, storage, itemized per room for the claim.',
+  },
+  {
     path: '/demo/packing',
     title: 'Free Packing Estimate Demo | Scopit',
     description:

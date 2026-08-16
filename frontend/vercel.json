@@ -29,6 +29,14 @@
       "destination": "/xactimate-packing-estimate/index.html"
     },
     {
+      "source": "/water-damage-contents-estimate",
+      "destination": "/water-damage-contents-estimate/index.html"
+    },
+    {
+      "source": "/fire-damage-contents-estimate",
+      "destination": "/fire-damage-contents-estimate/index.html"
+    },
+    {
       "source": "/packing-estimate",
       "destination": "/packing-estimate/index.html"
     },

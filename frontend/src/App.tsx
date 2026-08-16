@@ -40,6 +40,8 @@ const PackOutEstimatePage = lazy(() => import('@/pages/public/PackOutEstimatePag
 const InsurancePackingEstimatePage = lazy(() => import('@/pages/public/InsurancePackingEstimatePage'));
 const PackingReportPage = lazy(() => import('@/pages/public/PackingReportPage'));
 const XactimatePackingEstimatePage = lazy(() => import('@/pages/public/XactimatePackingEstimatePage'));
+const WaterDamageContentsEstimatePage = lazy(() => import('@/pages/public/WaterDamageContentsEstimatePage'));
+const FireDamageContentsEstimatePage = lazy(() => import('@/pages/public/FireDamageContentsEstimatePage'));
 const PackingLeadFormPage = lazy(() => import('@/pages/public/PackingLeadFormPage'));
 const PackingLeadVerifyPage = lazy(() => import('@/pages/public/PackingLeadVerifyPage'));
 const PackingLeadResultPage = lazy(() => import('@/pages/public/PackingLeadResultPage'));
@@ -169,6 +171,8 @@ const router = createBrowserRouter(
       <Route path="/insurance-packing-estimate" element={<InsurancePackingEstimatePage />} />
       <Route path="/packing-report" element={<PackingReportPage />} />
       <Route path="/xactimate-packing-estimate" element={<XactimatePackingEstimatePage />} />
+      <Route path="/water-damage-contents-estimate" element={<WaterDamageContentsEstimatePage />} />
+      <Route path="/fire-damage-contents-estimate" element={<FireDamageContentsEstimatePage />} />
 
       {/* Public Packing Estimate Lead Capture (no auth required) */}
       <Route path="/packing-estimate" element={<PackingLeadFormPage />} />
