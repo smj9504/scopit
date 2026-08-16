@@ -31,6 +31,12 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://www.scopit.work/xactimate-packing-estimate</loc>
+    <lastmod>2026-08-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://www.scopit.work/demo/packing</loc>
     <lastmod>2026-08-14</lastmod>
     <changefreq>monthly</changefreq>

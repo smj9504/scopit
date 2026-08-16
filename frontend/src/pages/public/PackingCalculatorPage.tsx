@@ -71,6 +71,7 @@ const RELATED: RelatedLink[] = [
   { label: 'Pack-out estimate', to: '/pack-out-estimate' },
   { label: 'Insurance packing estimate', to: '/insurance-packing-estimate' },
   { label: 'Packing report', to: '/packing-report' },
+  { label: 'Xactimate packing estimate', to: '/xactimate-packing-estimate' },
 ];
 
 const PackingCalculatorPage: React.FC = () => (

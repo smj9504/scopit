@@ -4,6 +4,7 @@ Allow: /packing-calculator
 Allow: /pack-out-estimate
 Allow: /insurance-packing-estimate
 Allow: /packing-report
+Allow: /xactimate-packing-estimate
 Allow: /demo/packing
 Allow: /packing-estimate
 
