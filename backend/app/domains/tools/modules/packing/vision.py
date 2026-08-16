@@ -427,13 +427,26 @@ Common items by room type:
 - Gym: treadmill, elliptical, stationary bike, weight bench, cable machine, dumbbell rack, power rack
 - Garage: tool chest, workbench, bicycle, freestanding shelving
 
-STEP 2 — FIND SMALLER ITEMS:
+STEP 2 — FIND SMALLER ITEMS (REPORT AT BOX-QUANTITY, NEVER AS SINGLE UNITS):
 Look on surfaces, shelves, floor, and inside visible storage for smaller items.
-Bundle small related items into groups:
-- Bedding (pillows, sheets, blankets, comforter) → "Bedding Set" qty=1
+NEVER report a single trivial unit as its own line item — one shoe, one hat, one
+pillow, one book, one towel is NOT a packable line by itself. These only matter
+when there's enough of them to fill part of a box. Always group into a single
+entry sized like "how many would fit in a box," not one entry per object:
+- Bedding (pillows, sheets, blankets, comforter) → "Bedding Set" qty=1 (only if
+  there's a full set/bedful — a single lone pillow is too small to list at all)
+- Clothing/shoes/hats seen in any quantity → "Clothing Items" qty=estimated
+  garment count (a handful of clothes on a chair is still a box-worth; group them)
 - Small kitchenware → "Kitchen Utensils Set" qty=1
 - Small toiletries → "Bathroom Sundries" qty=estimated count
-- Small scattered items → "Miscellaneous Small Items" qty=estimated count
+- Small scattered items (decor, knick-knacks, odds and ends) → "Miscellaneous
+  Small Items" qty=estimated count
+RULE OF THUMB: if a single instance of the object could not justify its own box
+or a meaningful fraction of one (a shoe, a hat, a magazine, a single sock), do
+NOT create a line item for it in isolation — either fold it into a group above
+or skip it entirely if there isn't enough of it to matter. Only report an
+individual small item on its own line if it is fragile, high-value, or
+otherwise needs individual handling (see NEVER bundle guidance below).
 {kitchen_cabinet_note}
 STEP 3 — EXCLUDE FIXED STRUCTURES:
 EXCLUDE anything attached to the building: ceiling lights, ceiling fans, blinds, built-in cabinets, kitchen islands, toilets, bathtubs, wall-mounted mirrors, wall-mounted pull-up bars, HVAC vents, smoke detectors.
@@ -761,6 +774,24 @@ _TRIVIAL_KEYWORDS = {
     "leash", "pet toy", "pet bowl",
 }
 
+# Small personal-effect items that are only worth listing once there's a
+# box-worth of them. A single instance (1 shoe, 1 hat, 1 pillow) is too
+# small to justify its own packing line and must be bundled or dropped.
+# Matched via substring against the item name.
+_SMALL_UNIT_KEYWORDS = {
+    "shoe", "boot", "sneaker", "sandal", "slipper",
+    "hat", "cap", "beanie", "scarf", "glove", "mitten", "tie",
+    "sock", "belt",
+    "pillow", "cushion", "throw blanket",
+    "towel", "washcloth",
+    "magazine", "paperback",
+    "t-shirt", "shirt", "sweater", "pants", "jeans", "shorts",
+}
+
+# Below this quantity, a small-unit item is folded into the misc bundle
+# instead of getting its own line — it's not enough to fill a box.
+_SMALL_UNIT_MIN_QUANTITY = 3
+
 # Categories where individual items are almost always small enough to bundle
 _TRIVIAL_CATEGORIES = {"Collectibles"}
 
@@ -800,6 +831,13 @@ def _bundle_trivial_items(
             any(k in name_lower for k in _TRIVIAL_KEYWORDS)
             or item.category in _TRIVIAL_CATEGORIES
         )
+
+        # Small personal-effect items (shoe, hat, pillow, single garment...)
+        # only earn their own line once there's a box-worth of them.
+        # Below the threshold, fold into the misc bundle instead.
+        if not is_trivial and item.quantity < _SMALL_UNIT_MIN_QUANTITY:
+            if any(k in name_lower for k in _SMALL_UNIT_KEYWORDS):
+                is_trivial = True
 
         if is_trivial:
             bundle_qty += item.quantity
