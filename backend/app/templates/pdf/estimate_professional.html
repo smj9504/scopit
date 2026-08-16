@@ -65,11 +65,6 @@
             break-after: avoid;
         }
 
-        .totals-section {
-            page-break-inside: avoid;
-            break-inside: avoid;
-        }
-
         .items-table {
             page-break-inside: auto;
         }
@@ -245,20 +240,10 @@
         }
 
         /* Totals Section */
-        .totals-section {
-            margin-top: 15px;
-            display: table;
-            width: 100%;
-        }
-
-        .totals-spacer {
-            display: table-cell;
-            width: 60%;
-        }
-
-        .totals-table-wrapper {
-            display: table-cell;
+        .totals-wrap {
             width: 40%;
+            margin-left: auto;
+            margin-top: 15px;
         }
 
         .totals-table {
@@ -268,6 +253,8 @@
 
         .totals-table tr {
             border-bottom: 1px solid #e5e5e5;
+            page-break-inside: avoid;
+            break-inside: avoid;
         }
 
         .totals-table tr.total-row {
@@ -487,32 +474,29 @@
     {% endfor %}
 
     <!-- Totals -->
-    <div class="totals-section">
-        <div class="totals-spacer"></div>
-        <div class="totals-table-wrapper">
-            <table class="totals-table">
-                <tr>
-                    <td class="label">Items Subtotal</td>
-                    <td class="value">{{ subtotal | format_currency }}</td>
-                </tr>
-                {% for adjustment in adjustments %}
-                <tr>
-                    <td class="label">{{ adjustment.name }}{% if adjustment.percentage %} ({{ adjustment.percentage }}%){% endif %}</td>
-                    <td class="value">{% if adjustment.type == 'discount' %}-{% endif %}{{ adjustment.amount | format_currency }}</td>
-                </tr>
-                {% endfor %}
-                {% if tax_amount and tax_amount > 0 %}
-                <tr>
-                    <td class="label">{{ tax_label | default('Tax') }}{% if tax_rate %} ({{ tax_rate }}%){% endif %}</td>
-                    <td class="value">{{ tax_amount | format_currency }}</td>
-                </tr>
-                {% endif %}
-                <tr class="total-row">
-                    <td class="label">Estimated Total</td>
-                    <td class="value">{{ total | format_currency }}</td>
-                </tr>
-            </table>
-        </div>
+    <div class="totals-wrap">
+        <table class="totals-table">
+            <tr>
+                <td class="label">Items Subtotal</td>
+                <td class="value">{{ subtotal | format_currency }}</td>
+            </tr>
+            {% for adjustment in adjustments %}
+            <tr>
+                <td class="label">{{ adjustment.name }}{% if adjustment.percentage %} ({{ adjustment.percentage }}%){% endif %}</td>
+                <td class="value">{% if adjustment.type == 'discount' %}-{% endif %}{{ adjustment.amount | format_currency }}</td>
+            </tr>
+            {% endfor %}
+            {% if tax_amount and tax_amount > 0 %}
+            <tr>
+                <td class="label">{{ tax_label | default('Tax') }}{% if tax_rate %} ({{ tax_rate }}%){% endif %}</td>
+                <td class="value">{{ tax_amount | format_currency }}</td>
+            </tr>
+            {% endif %}
+            <tr class="total-row">
+                <td class="label">Estimated Total</td>
+                <td class="value">{{ total | format_currency }}</td>
+            </tr>
+        </table>
     </div>
 
     <!-- Attached Photos -->

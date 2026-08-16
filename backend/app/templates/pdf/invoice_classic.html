@@ -240,9 +240,6 @@
             margin-top: 8px;
         }
 
-        .last-section-totals-group {
-        }
-
         .summary-spacer {
             display: none;
         }
@@ -256,6 +253,8 @@
             display: table;
             width: 100%;
             border-top: 1px solid #e5e5e5;
+            page-break-inside: avoid;
+            break-inside: avoid;
         }
 
         .summary-row:first-child {
@@ -443,7 +442,6 @@
 
     <!-- Line Items -->
     {% for section in sections %}
-    {% if loop.last %}<div class="last-section-totals-group">{% endif %}
     {% if section.name and section.name != 'Items' and section.name != 'Default' %}
     <div class="section-title">{{ section.name }}</div>
     {% endif %}
@@ -563,7 +561,6 @@
             </div>
         </div>
     </div>
-    </div><!-- /last-section-totals-group -->
 
     <!-- Attached Photos -->
     {% if attached_photos %}

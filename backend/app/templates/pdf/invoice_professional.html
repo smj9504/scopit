@@ -65,12 +65,6 @@
             break-after: avoid;
         }
 
-        .totals-section {
-        }
-
-        .last-section-totals-group {
-        }
-
         .items-table {
             page-break-inside: auto;
         }
@@ -288,6 +282,8 @@
 
         .totals-table tr {
             border-bottom: 1px solid #e5e5e5;
+            page-break-inside: avoid;
+            break-inside: avoid;
         }
 
         .totals-table tr.total-row {
@@ -481,7 +477,6 @@
 
     <!-- Items by Section -->
     {% for section in sections %}
-    {% if loop.last %}<div class="last-section-totals-group">{% endif %}
 
     {% if section.name and section.name != 'Items' and section.name != 'Default' %}
     <div class="section-header">{{ section.name }}</div>
@@ -587,7 +582,6 @@
             </table>
         </div>
     </div>
-    </div><!-- /last-section-totals-group -->
 
     <!-- Attached Photos -->
     {% if attached_photos %}
