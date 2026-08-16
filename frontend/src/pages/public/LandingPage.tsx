@@ -68,6 +68,24 @@ const LandingPage: React.FC = () => {
   const howItWorksReveal = useInView<HTMLDivElement>();
   const betaReveal = useInView<HTMLDivElement>();
 
+  // Packing steps auto-advance while in view; hovering a step takes over immediately
+  // and auto-advance resumes from that step once the pointer leaves.
+  const [activeStep, setActiveStep] = useState(0);
+  const [stepHovered, setStepHovered] = useState(false);
+  const reducedMotion = useRef(false);
+
+  useEffect(() => {
+    reducedMotion.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
+
+  useEffect(() => {
+    if (!packingReveal.inView || stepHovered || reducedMotion.current) return;
+    const id = setInterval(() => {
+      setActiveStep((prev) => (prev + 1) % 4);
+    }, 2600);
+    return () => clearInterval(id);
+  }, [packingReveal.inView, stepHovered]);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
@@ -393,11 +411,12 @@ const LandingPage: React.FC = () => {
           width: 100%;
           background: #111827;
           transform-origin: left;
-          transform: scaleX(0);
+          transform: scaleX(var(--fill, 0));
+          transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .reveal-visible .process-rail-fill {
-          animation: drawLine 900ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both;
+          transition-delay: 200ms;
         }
 
         .process-step {
@@ -457,11 +476,8 @@ const LandingPage: React.FC = () => {
             height: 100%;
           }
           .process-rail-fill {
-            transform: scaleY(0);
+            transform: scaleY(var(--fill, 0));
             transform-origin: top;
-          }
-          .reveal-visible .process-rail-fill {
-            animation-name: drawLineVertical;
           }
           .process-step {
             flex-direction: row !important;
@@ -476,11 +492,6 @@ const LandingPage: React.FC = () => {
           .process-step--hero + .process-step {
             margin-top: 32px;
           }
-        }
-
-        @keyframes drawLineVertical {
-          from { transform: scaleY(0); }
-          to { transform: scaleY(1); }
         }
 
         .site-header {
@@ -1056,30 +1067,36 @@ const LandingPage: React.FC = () => {
 
           <div
             className="process-rail packing-grid"
+            onMouseLeave={() => setStepHovered(false)}
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(4, 1fr)',
               gap: 20,
-              marginBottom: 48,
+              marginBottom: 8,
             }}
           >
-            <div className="process-rail-fill" />
+            <div
+              className="process-rail-fill"
+              style={{ '--fill': (activeStep + 1) / 4 } as React.CSSProperties}
+            />
             {packingSteps.map((step, index) => (
               <div
                 key={step.num}
-                className={`process-step${index === 1 ? ' process-step--hero' : ''}`}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 20 }}
+                className={`process-step${index === activeStep ? ' process-step--hero' : ''}`}
+                onMouseEnter={() => { setStepHovered(true); setActiveStep(index); }}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 20, cursor: 'pointer' }}
               >
                 <div className="process-node">{step.num}</div>
                 <div>
                   <h3
                     style={{
-                      fontSize: index === 1 ? 20 : 17,
+                      fontSize: index === activeStep ? 20 : 17,
                       fontWeight: 700,
                       marginBottom: 8,
                       color: '#111827',
                       fontFamily: "'Plus Jakarta Sans', sans-serif",
                       letterSpacing: '-0.01em',
+                      transition: 'font-size 0.25s ease',
                     }}
                   >
                     {step.title}
@@ -1089,6 +1106,14 @@ const LandingPage: React.FC = () => {
               </div>
             ))}
           </div>
+
+          {/* Divider: separates the step explainer from the action zone below */}
+          <div style={{
+            maxWidth: 820,
+            margin: '0 auto 40px',
+            paddingTop: 40,
+            borderTop: '1px solid #e5e7eb',
+          }} />
 
           {/* Two distinct paths: try a sample (demo) vs. estimate your own space (real) */}
           <div className="packing-cta-grid" style={{
