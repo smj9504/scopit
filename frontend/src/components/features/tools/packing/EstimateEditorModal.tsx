@@ -1788,8 +1788,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                         </Tooltip>
                       </div>
                       {s.enabled && (
-                        <Input
-                          size="small"
+                        <Input.TextArea
                           placeholder="Reason (shown on estimate)"
                           value={s.reason || ''}
                           onChange={(e) => {
@@ -1804,6 +1803,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                               };
                             });
                           }}
+                          autoSize={{ minRows: 2, maxRows: 6 }}
                           style={{
                             marginTop: 4,
                             marginLeft: 28,
