@@ -45,6 +45,16 @@ def _solo_detail(desc: str, hrs: float, rate: float, amt: float) -> str:
     return f"1 person ({desc}) · {hrs} hr × {_fmt_money(rate)}/hr = {_fmt_money(amt)}"
 
 
+def rh(x: float) -> float:
+    """Round hours to the nearest 0.5 — every displayed labor-hour line
+    must land on a half-hour increment (0.5, 1.0, 1.5, ...), never 0.1/0.4-
+    style fractions. Callers that need a floor (so real, nonzero labor
+    never rounds away to 0 and silently drops a line) should wrap with
+    max(0.5, rh(x)) themselves.
+    """
+    return round(x * 2) / 2
+
+
 # ============================================
 # CONSTANTS
 # ============================================
@@ -1240,11 +1250,11 @@ class EstimateCalculator:
         total_hours = person_hours_total / request.crew_size if request.crew_size > 0 else person_hours_total
 
         # Pack-out/pack-back split (elapsed hours)
-        pack_out_hours = round(total_hours * 0.62, 1)
-        pack_back_hours = round(total_hours * 0.38, 1) if request.include_packback else 0
+        pack_out_hours = max(0.5, rh(total_hours * 0.62))
+        pack_back_hours = rh(total_hours * 0.38) if request.include_packback else 0
 
         # Supervision hours (1 person, not full crew)
-        supervisor_hours = max(1, round(total_hours * 0.1))
+        supervisor_hours = max(1.0, rh(total_hours * 0.1))
         supervisor_rate = self.get_price("2911")
 
         crew = request.crew_size
@@ -1361,18 +1371,18 @@ class EstimateCalculator:
         # Split Pack-Out Labor into sub-lines matching PDF format.
         # Line items show ELAPSED hours (wall-clock time on site);
         # rate = per-person rate × crew size, so amount = elapsed × crew_rate.
-        _po_elapsed_std = max(1, round(pack_out_hours * 0.6, 1))
-        _po_elapsed_fragile = round(pack_out_hours * 0.15, 1)
-        _po_elapsed_specialty = round(pack_out_hours * 0.08, 1)
-        _po_elapsed_furniture = round(pack_out_hours * 0.1, 1)
-        _po_elapsed_appliance = round(pack_out_hours * 0.08, 1)
-        _po_inventory_hours = max(1, round(total_hours * 0.06))  # 1 person, not crew
+        _po_elapsed_std = max(0.5, rh(pack_out_hours * 0.6))
+        _po_elapsed_fragile = rh(pack_out_hours * 0.15)
+        _po_elapsed_specialty = rh(pack_out_hours * 0.08)
+        _po_elapsed_furniture = rh(pack_out_hours * 0.1)
+        _po_elapsed_appliance = rh(pack_out_hours * 0.08)
+        _po_inventory_hours = max(1.0, rh(total_hours * 0.06))  # 1 person, not crew
 
         crew_labor_rate = round(labor_rate * crew, 2)
         _specialty_rate = self.get_price("2912") or 125.00
         _specialty_crew_rate = round(_specialty_rate * crew, 2)
 
-        _po_crew_elapsed = round(_po_elapsed_std + _po_elapsed_furniture + _po_elapsed_appliance, 1)
+        _po_crew_elapsed = rh(_po_elapsed_std + _po_elapsed_furniture + _po_elapsed_appliance)
         _po_crew_amt = round(_po_crew_elapsed * crew_labor_rate, 2)
         _sv_amt = round(supervisor_hours * supervisor_rate, 2)
         po_detail_lines = [
@@ -1385,7 +1395,7 @@ class EstimateCalculator:
              "detail": f"On-site supervision across {len(request.rooms)} rooms · {supervisor_hours} hr × {_fmt_money(supervisor_rate)}/hr = {_fmt_money(_sv_amt)}",
              "amount": _sv_amt},
         ]
-        _po_specialized_elapsed = round(_po_elapsed_fragile + _po_elapsed_specialty, 1)
+        _po_specialized_elapsed = rh(_po_elapsed_fragile + _po_elapsed_specialty)
         if _po_specialized_elapsed > 0:
             _spec_amt = round(_po_specialized_elapsed * _specialty_crew_rate, 2)
             po_detail_lines.append(
@@ -1440,12 +1450,12 @@ class EstimateCalculator:
                 )
         if request.include_packback:
             # Split Pack-Back into sub-lines (elapsed hours; rate = crew_labor_rate)
-            _pb_elapsed_base = max(1, round(pack_back_hours * 0.70, 1))
-            _pb_elapsed_reassembly = round(pack_back_hours * 0.15, 1)
-            _pb_elapsed_appliance = round(pack_back_hours * 0.08, 1)
-            _pb_supervisor = max(1, round(pack_back_hours * 0.12))  # 1 person
+            _pb_elapsed_base = max(0.5, rh(pack_back_hours * 0.70))
+            _pb_elapsed_reassembly = rh(pack_back_hours * 0.15)
+            _pb_elapsed_appliance = rh(pack_back_hours * 0.08)
+            _pb_supervisor = max(1.0, rh(pack_back_hours * 0.12))  # 1 person
 
-            _pb_crew_elapsed = round(_pb_elapsed_base + _pb_elapsed_reassembly + _pb_elapsed_appliance, 1)
+            _pb_crew_elapsed = rh(_pb_elapsed_base + _pb_elapsed_reassembly + _pb_elapsed_appliance)
             _pb_crew_amt = round(_pb_crew_elapsed * crew_labor_rate, 2)
             _pb_sv_amt = round(_pb_supervisor * supervisor_rate, 2)
 
@@ -3004,10 +3014,6 @@ class EstimateCalculator:
         po_furniture = labor_hours["furniture_disassembly"] * packout_fraction
         po_appliance = labor_hours["appliance"] * packout_fraction
 
-        def rh(x):
-            """Round to nearest 0.5."""
-            return round(x * 2) / 2
-
         # Inventory & documentation: 1 person does this, not full crew
         inventory_hours = rh(total_labor_hours * 0.05) if total_labor_hours > 2 else 0.5
         # Supervisor: 1 person, not full crew
@@ -3280,8 +3286,8 @@ class EstimateCalculator:
         # back-derived (rate / crew) so "elapsed × crew × per_rate = amount" holds
         # for the numbers actually printed — this is exactly the note/qty
         # reproducibility bug being fixed elsewhere in this refactor.
-        _carry_out_elapsed = round(carry_person_hours / crew, 1) if crew > 0 else carry_person_hours
-        _carry_in_elapsed = round(carry_in_person_hours / crew, 1) if crew > 0 else carry_in_person_hours
+        _carry_out_elapsed = max(0.5, rh(carry_person_hours / crew)) if crew > 0 else carry_person_hours
+        _carry_in_elapsed = max(0.5, rh(carry_in_person_hours / crew)) if crew > 0 else carry_in_person_hours
         _carry_out_amt = round(carry_person_hours * labor_rate, 2)
         _carry_in_amt = round(carry_in_person_hours * labor_rate, 2)
         _carry_out_rate = round(_carry_out_amt / _carry_out_elapsed, 2) if _carry_out_elapsed > 0 else crew_labor_rate
