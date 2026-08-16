@@ -11,10 +11,16 @@
  * safe empty data) instead of the real, auth-gated backend.
  *
  * Rooms start pre-populated with a couple of sample photo sets (already
- * "analyzed") — visitors can also add their own rooms with their own photos
- * exactly like the real tool. Nothing here is persisted: no database writes,
- * no sessions, no photo uploads to storage. Refreshing the page resets the
- * demo, which is expected.
+ * "analyzed" with hand-authored, canned results — no real Claude Vision call
+ * is ever made here). Adding a new room is intentionally disabled
+ * (disableAddRoom on PhotoAITab): any room name outside the curated fixtures
+ * would silently fall back to a generic, photo-independent placeholder
+ * result in demoApiShims.ts, which reads as "the AI got it wrong" to a
+ * visitor even though no analysis of their photo ever happened. Everything
+ * downstream of the item list (editing, estimate math, PDF/Excel export) is
+ * fully real. Nothing here is persisted: no database writes, no sessions,
+ * no photo uploads to storage. Refreshing the page resets the demo, which
+ * is expected.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Seo } from '@/components/Seo';
@@ -241,9 +247,9 @@ const PackingDemoPage: React.FC = () => {
         banner
         message={
           <span>
-            <strong>This is a live demo</strong> of the real Packing Estimator — sample rooms are
-            pre-analyzed (no real AI call runs), but every edit, the estimate math, and PDF/Excel
-            export are fully real. Nothing here is saved.
+            <strong>This is a live demo</strong> of the real Packing Estimator — the sample rooms
+            below are pre-analyzed (no real AI call runs), but every edit, the estimate math, and
+            PDF/Excel export are fully real. Nothing here is saved.
           </span>
         }
         action={
@@ -428,6 +434,7 @@ const PackingDemoPage: React.FC = () => {
               savingPhotoRooms={false}
               materialsMode={materialsMode}
               setMaterialsMode={setMaterialsMode}
+              disableAddRoom
             />
           </div>
           <div style={{ display: editorOpen ? 'block' : 'none' }}>

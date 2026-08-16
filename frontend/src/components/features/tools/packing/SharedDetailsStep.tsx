@@ -6,8 +6,6 @@
  */
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  Row,
-  Col,
   Select,
   Input,
   InputNumber,
@@ -511,17 +509,17 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
                 aria-label="Company address line 2 override"
               />
             </div>
-            <Row gutter={[12, 12]}>
-              <Col xs={24} sm={12}>
-                {fieldLabel('City')}
-                <Input
-                  placeholder="Dallas"
-                  value={companyOverride.city ?? ''}
-                  onChange={(e) => patchCompany({ city: e.target.value })}
-                  aria-label="Company city override"
-                />
-              </Col>
-              <Col xs={12} sm={6}>
+            <div>
+              {fieldLabel('City')}
+              <Input
+                placeholder="Dallas"
+                value={companyOverride.city ?? ''}
+                onChange={(e) => patchCompany({ city: e.target.value })}
+                aria-label="Company city override"
+              />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
                 {fieldLabel('State')}
                 <Input
                   placeholder="TX"
@@ -529,8 +527,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
                   onChange={(e) => patchCompany({ state: e.target.value })}
                   aria-label="Company state override"
                 />
-              </Col>
-              <Col xs={12} sm={6}>
+              </div>
+              <div>
                 {fieldLabel('Zip')}
                 <Input
                   placeholder="75201"
@@ -538,8 +536,8 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
                   onChange={(e) => patchCompany({ zipcode: e.target.value })}
                   aria-label="Company zip override"
                 />
-              </Col>
-            </Row>
+              </div>
+            </div>
             <div>
               {fieldLabel('Phone')}
               <Input

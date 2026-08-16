@@ -111,6 +111,13 @@ interface PhotoAITabProps {
    * same choice instead of silently reverting to the default. */
   materialsMode: MaterialsMode;
   setMaterialsMode: React.Dispatch<React.SetStateAction<MaterialsMode>>;
+  /** Hides "Add a room" / "Import" so users can't add rooms with photos
+   * that have no real analysis behind them. Used by the public demo, where
+   * only a couple of curated rooms have genuine (hand-authored) analysis
+   * results — any other room name would silently fall back to a generic,
+   * photo-independent placeholder result, which reads as "the AI is wrong"
+   * even though no real AI call was ever made for it. */
+  disableAddRoom?: boolean;
 }
 
 // Inline edit state tracks which cell is being edited
@@ -1585,6 +1592,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
   savingPhotoRooms,
   materialsMode,
   setMaterialsMode,
+  disableAddRoom,
 }) => {
   const gDrive = useGoogleDrive();
   const isNarrow = useIsNarrow();
@@ -2090,35 +2098,45 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
   const renderStepRooms = () => (
     <div>
       {/* Import toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'stretch',
-          gap: 8,
-          marginBottom: 12,
-        }}
-      >
-        <div style={{ flex: 1, display: 'flex' }}>
-          <div style={{ width: '100%' }}>
-            <AddRoomPanel presets={presets} presetsLoading={presetsLoading} onAddRoom={addRoom} />
+      {disableAddRoom ? (
+        <Alert
+          type="info"
+          showIcon
+          message="This demo only analyzes the sample rooms below"
+          description="Adding your own room isn't available here since it wouldn't have a real AI analysis behind it. Sign up to try Photo AI with your own photos."
+          style={{ borderRadius: borderRadius.md, marginBottom: 12 }}
+        />
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'stretch',
+            gap: 8,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ flex: 1, display: 'flex' }}>
+            <div style={{ width: '100%' }}>
+              <AddRoomPanel presets={presets} presetsLoading={presetsLoading} onAddRoom={addRoom} />
+            </div>
           </div>
+          <Tooltip title="Import rooms from folder">
+            <Button
+              icon={<FolderOpenOutlined />}
+              onClick={() => setFolderModalOpen(true)}
+              style={{
+                flexShrink: 0,
+                fontSize: 13,
+                fontWeight: 500,
+                height: 'auto',
+                borderRadius: borderRadius.lg,
+              }}
+            >
+              Import
+            </Button>
+          </Tooltip>
         </div>
-        <Tooltip title="Import rooms from folder">
-          <Button
-            icon={<FolderOpenOutlined />}
-            onClick={() => setFolderModalOpen(true)}
-            style={{
-              flexShrink: 0,
-              fontSize: 13,
-              fontWeight: 500,
-              height: 'auto',
-              borderRadius: borderRadius.lg,
-            }}
-          >
-            Import
-          </Button>
-        </Tooltip>
-      </div>
+      )}
 
       {photoRooms.length === 0 ? (
         <Card

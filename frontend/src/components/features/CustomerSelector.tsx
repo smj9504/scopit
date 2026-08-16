@@ -634,18 +634,19 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
               }}
             />
 
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr 1.2fr', gap: 12 }}>
-              <Input
-                value={directInput.city}
-                onChange={(e) => handleDirectInputChange('city', e.target.value)}
-                placeholder="City"
-                disabled={disabled}
-                size="large"
-                style={{
-                  fontFamily: fonts.body,
-                  fontSize: 15,
-                }}
-              />
+            <Input
+              value={directInput.city}
+              onChange={(e) => handleDirectInputChange('city', e.target.value)}
+              placeholder="City"
+              disabled={disabled}
+              size="large"
+              style={{
+                fontFamily: fonts.body,
+                fontSize: 15,
+              }}
+            />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <Input
                 value={directInput.state}
                 onChange={(e) => handleDirectInputChange('state', e.target.value)}
