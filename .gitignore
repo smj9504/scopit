@@ -124,7 +124,6 @@ uploads/
 # Claude / AI
 # ===================
 .claude/*
-!.claude/skills/
 CLAUDE.md
 .claude_cache/
 .anthropic/
