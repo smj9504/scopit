@@ -65,23 +65,25 @@ def _sanitize_filename(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def _build_address_slug(property_address: str | None) -> str:
-    """Extract 'Street, City' from a property address for use in filenames.
-
-    Expects formats like '123 Main St, Dallas, TX 75201' or multi-line.
-    Returns e.g. '123 Main St, Dallas' or empty string.
-    """
-    if not property_address:
+def _build_address_slug(address_line1: str | None, city: str | None) -> str:
+    """Build 'Street, City' from structured address parts for use in filenames."""
+    if not address_line1:
         return ''
-    # Normalise newlines to commas
-    addr = property_address.replace('\n', ', ').replace('\r', '')
-    parts = [p.strip() for p in addr.split(',') if p.strip()]
-    if len(parts) >= 2:
-        # street + city (skip state/zip)
-        return _sanitize_filename(f"{parts[0]}, {parts[1]}")
-    if parts:
-        return _sanitize_filename(parts[0])
-    return ''
+    if city:
+        return _sanitize_filename(f"{address_line1}, {city}")
+    return _sanitize_filename(address_line1)
+
+
+def _format_address_lines(line1, line2, city, state, zipcode) -> str:
+    """Join structured address parts into a '\\n'-joined multi-line string,
+    the format export.py's PDF/Excel generators expect for property_address."""
+    lines = [line1] if line1 else []
+    if line2:
+        lines.append(line2)
+    csz = ", ".join(filter(None, [city, " ".join(filter(None, [state, zipcode]))]))
+    if csz:
+        lines.append(csz)
+    return "\n".join(lines)
 
 
 @router.post("/quick-estimate", response_model=EstimateResponse)
@@ -369,7 +371,13 @@ async def export_pdf(
     # include_packback, staging_type, crew_size, etc.
     estimate_data = {**settings, **(session_data.get("result") or session_data)}
 
-    property_address = client_info.get("property_address")
+    property_address = _format_address_lines(
+        client_info.get("property_address_line1"),
+        client_info.get("property_address_line2"),
+        client_info.get("property_city"),
+        client_info.get("property_state"),
+        client_info.get("property_zipcode"),
+    )
 
     # Build notes string from result-level notes (e.g. workday scheduling)
     result_notes = (session_data.get("result") or {}).get("notes", [])
@@ -390,7 +398,10 @@ async def export_pdf(
     )
 
     # Filename: Pack Out Estimate - 123 Main St, Dallas - EST-2025-AB1234.pdf
-    addr_slug = _build_address_slug(property_address)
+    addr_slug = _build_address_slug(
+        client_info.get("property_address_line1"),
+        client_info.get("property_city"),
+    )
     est_num = request.session_id[:8]
     fname_parts = ["Pack Out Estimate"]
     if addr_slug:
@@ -447,7 +458,13 @@ async def export_excel(
     estimate_data = {**settings, **(session_data.get("result") or session_data)}
 
     import asyncio
-    property_address = client_info.get("property_address")
+    property_address = _format_address_lines(
+        client_info.get("property_address_line1"),
+        client_info.get("property_address_line2"),
+        client_info.get("property_city"),
+        client_info.get("property_state"),
+        client_info.get("property_zipcode"),
+    )
 
     # Build notes string from result-level notes (e.g. workday scheduling)
     result_notes = (session_data.get("result") or {}).get("notes", [])
@@ -466,7 +483,10 @@ async def export_excel(
         show_breakdown=request.show_breakdown,
     )
 
-    addr_slug = _build_address_slug(property_address)
+    addr_slug = _build_address_slug(
+        client_info.get("property_address_line1"),
+        client_info.get("property_city"),
+    )
     est_num = request.session_id[:8]
     fname_parts = ["Pack Out Estimate"]
     if addr_slug:
@@ -687,7 +707,13 @@ async def export_report(
     )
 
     import asyncio
-    property_address = client_info.get("property_address")
+    property_address = _format_address_lines(
+        client_info.get("property_address_line1"),
+        client_info.get("property_address_line2"),
+        client_info.get("property_city"),
+        client_info.get("property_state"),
+        client_info.get("property_zipcode"),
+    )
     pdf_bytes = await asyncio.to_thread(
         generate_report_pdf,
         session_data=session_data,
@@ -707,7 +733,10 @@ async def export_report(
         photos_per_page=request.photos_per_page,
     )
 
-    addr_slug = _build_address_slug(property_address)
+    addr_slug = _build_address_slug(
+        client_info.get("property_address_line1"),
+        client_info.get("property_city"),
+    )
     sid = request.session_id[:8]
     include_pb = (session_data.get("result") or session_data).get("include_packback", False)
     report_label = "Content Pack-Out Pack-Back Report" if include_pb else "Content Pack-Out Report"
@@ -774,7 +803,11 @@ PROFILES_TOOL_ID = "packing_company_profiles"
 
 class CompanyProfileData(BaseModel):
     name: str | None = None
-    address: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zipcode: str | None = None
     phone: str | None = None
     email: str | None = None
     license: str | None = None

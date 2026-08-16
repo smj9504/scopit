@@ -1282,7 +1282,11 @@ const InvoiceEditorPage: React.FC = () => {
     name: '',
     email: '',
     phone: '',
-    address: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    state: '',
+    zipcode: '',
   });
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState<InvoiceStatus>('draft');
@@ -1385,7 +1389,11 @@ const InvoiceEditorPage: React.FC = () => {
         name: invoiceData.customerName || '',
         email: invoiceData.customerEmail || '',
         phone: '',
-        address: invoiceData.customerAddress || '',
+        addressLine1: invoiceData.customerAddressLine1 || '',
+        addressLine2: invoiceData.customerAddressLine2 || '',
+        city: invoiceData.customerCity || '',
+        state: invoiceData.customerState || '',
+        zipcode: invoiceData.customerZipcode || '',
       });
 
       // Invoice details
@@ -1990,7 +1998,11 @@ const InvoiceEditorPage: React.FC = () => {
         customerId: customerData.customerId || null,
         customerName: customerData.name || null,
         customerEmail: customerData.email || null,
-        customerAddress: customerData.address || null,
+        customerAddressLine1: customerData.addressLine1 || null,
+        customerAddressLine2: customerData.addressLine2 || null,
+        customerCity: customerData.city || null,
+        customerState: customerData.state || null,
+        customerZipcode: customerData.zipcode || null,
         invoiceDate: invoiceDate.format('YYYY-MM-DD'),
         dueDate: dueDate.format('YYYY-MM-DD'),
         title: title || undefined,

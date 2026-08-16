@@ -1292,7 +1292,11 @@ const EstimateEditorPage: React.FC = () => {
     name: '',
     email: '',
     phone: '',
-    address: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    state: '',
+    zipcode: '',
   });
   const [title, setTitle] = useState('');
   const [estimateDate, setEstimateDate] = useState(dayjs());
@@ -1387,7 +1391,11 @@ const EstimateEditorPage: React.FC = () => {
         name: estimateData.customerName || '',
         email: estimateData.customerEmail || '',
         phone: '',
-        address: estimateData.customerAddress || '',
+        addressLine1: estimateData.customerAddressLine1 || '',
+        addressLine2: estimateData.customerAddressLine2 || '',
+        city: estimateData.customerCity || '',
+        state: estimateData.customerState || '',
+        zipcode: estimateData.customerZipcode || '',
       });
 
       // Estimate details
@@ -1915,7 +1923,11 @@ const EstimateEditorPage: React.FC = () => {
       customer_id: customerData.customerId || null,
       customer_name: customerData.name || null,
       customer_email: customerData.email || null,
-      customer_address: customerData.address || null,
+      customer_address_line1: customerData.addressLine1 || null,
+      customer_address_line2: customerData.addressLine2 || null,
+      customer_city: customerData.city || null,
+      customer_state: customerData.state || null,
+      customer_zipcode: customerData.zipcode || null,
       title,
       estimate_date: estimateDate.format('YYYY-MM-DD'),
       valid_until: validUntil.format('YYYY-MM-DD'),

@@ -51,6 +51,11 @@ function formatCurrency(value: number | undefined): string {
   }).format(value);
 }
 
+function formatPropertyAddress(clientInfo: any): string {
+  if (!clientInfo) return '';
+  return [clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ');
+}
+
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -143,10 +148,10 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
             <Text strong style={{ fontSize: fontSizes.sm, color: colors.textPrimary }}>
               {clientName}
             </Text>
-            {d?.client_info?.property_address && (
+            {d?.client_info?.property_address_line1 && (
               <div>
                 <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary }}>
-                  {d.client_info.property_address}
+                  {formatPropertyAddress(d.client_info)}
                 </Text>
               </div>
             )}
@@ -330,7 +335,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
             >
               {clientName}
             </Text>
-            {d?.client_info?.property_address && (
+            {d?.client_info?.property_address_line1 && (
               <Text
                 style={{
                   fontSize: fontSizes.xs,
@@ -342,7 +347,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {d.client_info.property_address}
+                {formatPropertyAddress(d.client_info)}
               </Text>
             )}
             <Space size={6} wrap>

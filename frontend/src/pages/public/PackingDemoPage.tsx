@@ -63,12 +63,15 @@ function defaultClientInfo(): ClientInfo {
     name: 'Sarah Mitchell',
     phone: '(555) 123-4567',
     email: 'sarah.mitchell@example.com',
-    property_address: '482 Maple Grove Lane, Springfield, IL',
+    property_address_line1: '482 Maple Grove Lane',
+    property_city: 'Springfield',
+    property_state: 'IL',
+    property_zipcode: '62704',
   };
 }
 
 function defaultCompanyOverride(): CompanyInfoOverride {
-  return { name: '', address: '', phone: '', email: '' };
+  return { name: '', address_line1: '', city: '', state: '', zipcode: '', phone: '', email: '' };
 }
 
 function buildFixtureRoom(fixture: Awaited<ReturnType<typeof fetchDemoFixtures>>[number]): PhotoRoom {
@@ -332,7 +335,7 @@ const PackingDemoPage: React.FC = () => {
                 >
                   {clientInfo.name}
                 </Text>
-                {clientInfo.property_address && (
+                {clientInfo.property_address_line1 && (
                   <Text
                     style={{
                       fontSize: 12,
@@ -344,7 +347,7 @@ const PackingDemoPage: React.FC = () => {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {clientInfo.property_address}
+                    {[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}
                   </Text>
                 )}
               </div>

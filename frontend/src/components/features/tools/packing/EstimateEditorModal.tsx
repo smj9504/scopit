@@ -571,7 +571,11 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     name: clientInfo.name,
     email: clientInfo.email || undefined,
     phone: clientInfo.phone || undefined,
-    address: clientInfo.property_address || undefined,
+    addressLine1: clientInfo.property_address_line1 || undefined,
+    addressLine2: clientInfo.property_address_line2 || undefined,
+    city: clientInfo.property_city || undefined,
+    state: clientInfo.property_state || undefined,
+    zipcode: clientInfo.property_zipcode || undefined,
   };
   const handleCustomerChange = useCallback(
     (data: CustomerData) => {
@@ -581,7 +585,11 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         name: data.name || '',
         email: data.email || '',
         phone: data.phone || '',
-        property_address: data.address || '',
+        property_address_line1: data.addressLine1 || '',
+        property_address_line2: data.addressLine2 || '',
+        property_city: data.city || '',
+        property_state: data.state || '',
+        property_zipcode: data.zipcode || '',
       }));
     },
     [setClientInfo],
@@ -1060,7 +1068,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       // Save latest edits to session before exporting
       if (onSaveSession) await onSaveSession();
       const blob = await packingApi.exportPdf(activeSessionId, companyOverride, taxRate, showBreakdown);
-      const addr = clientInfo.property_address?.trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
+      const addr = [clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ').trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
       const pdfName = addr ? `Pack_in_out Estimate - ${addr}.pdf` : `Pack_in_out Estimate-${activeSessionId}.pdf`;
       triggerDownload(blob, pdfName);
       message.success('PDF downloaded');
@@ -1080,7 +1088,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     try {
       if (onSaveSession) await onSaveSession();
       const blob = await packingApi.exportExcel(activeSessionId, companyOverride, taxRate, showBreakdown);
-      const addr = clientInfo.property_address?.trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
+      const addr = [clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ').trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
       const xlsName = addr ? `Pack_in_out Estimate - ${addr}.xlsx` : `Pack_in_out Estimate-${activeSessionId}.xlsx`;
       triggerDownload(blob, xlsName);
       message.success('Excel downloaded');
@@ -1103,8 +1111,8 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       if (onSaveSession) await onSaveSession();
       const res = await toolService.createInvoiceFromSession(activeSessionId, {
         customer_name: clientInfo.name || undefined,
-        title: clientInfo.property_address
-          ? `Packing & Moving - ${clientInfo.property_address}`
+        title: clientInfo.property_address_line1
+          ? `Packing & Moving - ${[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}`
           : 'Packing & Moving Invoice',
       });
       message.success(`Invoice ${res.invoiceNumber} created`);
@@ -1942,12 +1950,48 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                     />
                     <Input
                       size="small"
-                      placeholder="Address"
-                      value={companyOverride.address ?? ''}
+                      placeholder="Street Address"
+                      value={companyOverride.address_line1 ?? ''}
                       onChange={(e) =>
-                        setCompanyOverride((co) => ({ ...co, address: e.target.value }))
+                        setCompanyOverride((co) => ({ ...co, address_line1: e.target.value }))
                       }
                     />
+                    <Input
+                      size="small"
+                      placeholder="Apt/Suite/Unit (optional)"
+                      value={companyOverride.address_line2 ?? ''}
+                      onChange={(e) =>
+                        setCompanyOverride((co) => ({ ...co, address_line2: e.target.value }))
+                      }
+                    />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Input
+                        size="small"
+                        placeholder="City"
+                        value={companyOverride.city ?? ''}
+                        onChange={(e) =>
+                          setCompanyOverride((co) => ({ ...co, city: e.target.value }))
+                        }
+                      />
+                      <Input
+                        size="small"
+                        placeholder="State"
+                        style={{ width: 80 }}
+                        value={companyOverride.state ?? ''}
+                        onChange={(e) =>
+                          setCompanyOverride((co) => ({ ...co, state: e.target.value }))
+                        }
+                      />
+                      <Input
+                        size="small"
+                        placeholder="Zip"
+                        style={{ width: 90 }}
+                        value={companyOverride.zipcode ?? ''}
+                        onChange={(e) =>
+                          setCompanyOverride((co) => ({ ...co, zipcode: e.target.value }))
+                        }
+                      />
+                    </div>
                     <Input
                       size="small"
                       placeholder="Phone"
@@ -2116,7 +2160,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             {savedSessions.map((session) => {
               const d = session.data as any;
               const mode: string = d?.mode ?? 'quick';
-              const address: string = d?.client_info?.property_address ?? '';
+              const address: string = [d?.client_info?.property_address_line1, d?.client_info?.property_city].filter(Boolean).join(', ');
               const updatedAt = new Date(session.updatedAt || session.createdAt).toLocaleDateString('en-US', {
                 month: 'short', day: 'numeric', year: 'numeric',
               });

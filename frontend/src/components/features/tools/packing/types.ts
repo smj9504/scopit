@@ -295,7 +295,11 @@ export interface CorrectionsRequest {
 
 export interface CompanyInfoOverride {
   name?: string;
-  address?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  zipcode?: string;
   phone?: string;
   email?: string;
   license?: string;
@@ -414,7 +418,11 @@ export interface ClientInfo {
   name: string;
   phone: string;
   email: string;
-  property_address: string;
+  property_address_line1: string;
+  property_address_line2?: string;
+  property_city: string;
+  property_state: string;
+  property_zipcode: string;
   /** Linked Customer record id, when this client info was loaded from (or saved to) the customer list */
   customer_id?: string;
 }

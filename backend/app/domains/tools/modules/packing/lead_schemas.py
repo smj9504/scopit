@@ -27,8 +27,16 @@ class LeadSubmitPayload(BaseModel):
     # (the individual) and property_address (the job site being estimated).
     company_name: Optional[str] = None
     company_phone: Optional[str] = None
-    company_address: Optional[str] = None
-    property_address: Optional[str] = None
+    company_address_line1: Optional[str] = None
+    company_address_line2: Optional[str] = None
+    company_city: Optional[str] = None
+    company_state: Optional[str] = None
+    company_zipcode: Optional[str] = None
+    property_address_line1: Optional[str] = None
+    property_address_line2: Optional[str] = None
+    property_city: Optional[str] = None
+    property_state: Optional[str] = None
+    property_zipcode: Optional[str] = None
     idempotency_key: str
     rooms: List[LeadRoomInput]
 

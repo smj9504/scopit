@@ -79,7 +79,11 @@ class InvoiceCreate(BaseModel):
     customer_id: Optional[str] = Field(default=None, alias="customerId")
     customer_name: Optional[str] = Field(default=None, alias="customerName")
     customer_email: Optional[str] = Field(default=None, alias="customerEmail")
-    customer_address: Optional[str] = Field(default=None, alias="customerAddress")
+    customer_address_line1: Optional[str] = Field(default=None, alias="customerAddressLine1")
+    customer_address_line2: Optional[str] = Field(default=None, alias="customerAddressLine2")
+    customer_city: Optional[str] = Field(default=None, alias="customerCity")
+    customer_state: Optional[str] = Field(default=None, alias="customerState")
+    customer_zipcode: Optional[str] = Field(default=None, alias="customerZipcode")
     estimate_id: Optional[str] = Field(default=None, alias="estimateId")
     invoice_date: Optional[date] = Field(default=None, alias="invoiceDate")
     due_date: Optional[date] = Field(default=None, alias="dueDate")
@@ -170,7 +174,11 @@ class InvoiceResponse(BaseModel):
     customerId: Optional[str] = None
     customerName: Optional[str] = None
     customerEmail: Optional[str] = None
-    customerAddress: Optional[str] = None
+    customerAddressLine1: Optional[str] = None
+    customerAddressLine2: Optional[str] = None
+    customerCity: Optional[str] = None
+    customerState: Optional[str] = None
+    customerZipcode: Optional[str] = None
     estimateId: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
@@ -250,7 +258,11 @@ def serialize_invoice(invoice: Invoice) -> dict:
         "customerId": str(invoice.customer_id) if invoice.customer_id else None,
         "customerName": invoice.customer_name,
         "customerEmail": invoice.customer_email,
-        "customerAddress": invoice.customer_address,
+        "customerAddressLine1": invoice.customer_address_line1,
+        "customerAddressLine2": invoice.customer_address_line2,
+        "customerCity": invoice.customer_city,
+        "customerState": invoice.customer_state,
+        "customerZipcode": invoice.customer_zipcode,
         "estimateId": str(invoice.estimate_id) if invoice.estimate_id else None,
         "title": invoice.title,
         "description": invoice.description,
@@ -580,14 +592,22 @@ async def create_invoice(
     # Get customer info - prefer database lookup if customer_id provided, else use provided values
     customer_name = data.customer_name
     customer_email = data.customer_email
-    customer_address = data.customer_address
+    customer_address_line1 = data.customer_address_line1
+    customer_address_line2 = data.customer_address_line2
+    customer_city = data.customer_city
+    customer_state = data.customer_state
+    customer_zipcode = data.customer_zipcode
 
     if data.customer_id:
         customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
         if customer:
             customer_name = customer.name
             customer_email = customer.email
-            customer_address = customer.full_address
+            customer_address_line1 = customer.address_line1
+            customer_address_line2 = customer.address_line2
+            customer_city = customer.city
+            customer_state = customer.state
+            customer_zipcode = customer.zipcode
 
     # Default due date is 30 days from invoice date
     invoice_date = data.invoice_date or date.today()
@@ -607,7 +627,11 @@ async def create_invoice(
         customer_id=data.customer_id,
         customer_name=customer_name,
         customer_email=customer_email,
-        customer_address=customer_address,
+        customer_address_line1=customer_address_line1,
+        customer_address_line2=customer_address_line2,
+        customer_city=customer_city,
+        customer_state=customer_state,
+        customer_zipcode=customer_zipcode,
         estimate_id=data.estimate_id,
         title=data.title,
         description=data.description,
@@ -682,17 +706,29 @@ async def update_invoice(
     # Update customer info - prefer database lookup if customer_id provided
     customer_name = data.customer_name
     customer_email = data.customer_email
-    customer_address = data.customer_address
+    customer_address_line1 = data.customer_address_line1
+    customer_address_line2 = data.customer_address_line2
+    customer_city = data.customer_city
+    customer_state = data.customer_state
+    customer_zipcode = data.customer_zipcode
 
     if data.customer_id:
         customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
         if customer:
             customer_name = customer.name
             customer_email = customer.email
-            customer_address = customer.full_address
+            customer_address_line1 = customer.address_line1
+            customer_address_line2 = customer.address_line2
+            customer_city = customer.city
+            customer_state = customer.state
+            customer_zipcode = customer.zipcode
 
     # Update invoice fields (exclude customer snapshot fields - handled separately below)
-    customer_fields = {'sections', 'customer_name', 'customer_email', 'customer_address'}
+    customer_fields = {
+        'sections', 'customer_name', 'customer_email',
+        'customer_address_line1', 'customer_address_line2',
+        'customer_city', 'customer_state', 'customer_zipcode',
+    }
     for field, value in data.model_dump(exclude_unset=True, exclude=customer_fields).items():
         if hasattr(invoice, field):
             setattr(invoice, field, value)
@@ -700,7 +736,11 @@ async def update_invoice(
     # Set customer snapshot fields explicitly
     invoice.customer_name = customer_name
     invoice.customer_email = customer_email
-    invoice.customer_address = customer_address
+    invoice.customer_address_line1 = customer_address_line1
+    invoice.customer_address_line2 = customer_address_line2
+    invoice.customer_city = customer_city
+    invoice.customer_state = customer_state
+    invoice.customer_zipcode = customer_zipcode
 
     # Delete existing sections and items
     db.query(InvoiceSection).filter(InvoiceSection.invoice_id == invoice_id).delete()
@@ -1183,11 +1223,11 @@ def _prepare_invoice_pdf_data(invoice: Invoice, company: Company, db: Session) -
     # Build customer info dict - use snapshot fields as fallback when customer relationship is None
     customer_info = {
         "name": (customer.name if customer else (invoice.customer_name or "")) or "",
-        "address": (customer.address_line1 if customer else (invoice.customer_address or "")) or "",
-        "address_line2": (customer.address_line2 if customer else "") or "",
-        "city": (customer.city if customer else "") or "",
-        "state": (customer.state if customer else "") or "",
-        "zipcode": (customer.zipcode if customer else "") or "",
+        "address": (customer.address_line1 if customer else (invoice.customer_address_line1 or "")) or "",
+        "address_line2": (customer.address_line2 if customer else (invoice.customer_address_line2 or "")) or "",
+        "city": (customer.city if customer else (invoice.customer_city or "")) or "",
+        "state": (customer.state if customer else (invoice.customer_state or "")) or "",
+        "zipcode": (customer.zipcode if customer else (invoice.customer_zipcode or "")) or "",
         "phone": (customer.phone if customer else "") or "",
         "email": (customer.email if customer else (invoice.customer_email or "")) or "",
     }
@@ -1337,8 +1377,9 @@ async def get_invoice_pdf(
     if invoice.customer:
         addr_parts = [invoice.customer.address_line1, invoice.customer.city, invoice.customer.state]
         customer_addr = " ".join(p for p in addr_parts if p)
-    elif invoice.customer_address:
-        customer_addr = invoice.customer_address
+    elif invoice.customer_address_line1:
+        addr_parts = [invoice.customer_address_line1, invoice.customer_city, invoice.customer_state]
+        customer_addr = " ".join(p for p in addr_parts if p)
     filename = f"{customer_name} - {customer_addr} - Invoice {invoice.invoice_number}" if customer_addr else f"{customer_name} - Invoice {invoice.invoice_number}"
     if invoice.balance_due and float(invoice.balance_due) <= 0.01:
         filename += " PAID"
@@ -1394,11 +1435,11 @@ def _prepare_receipt_pdf_data(
     # Build customer info dict
     customer_info = {
         "name": (customer.name if customer else (invoice.customer_name or "")) or "",
-        "address": (customer.address_line1 if customer else (invoice.customer_address or "")) or "",
-        "address_line2": (customer.address_line2 if customer else "") or "",
-        "city": (customer.city if customer else "") or "",
-        "state": (customer.state if customer else "") or "",
-        "zipcode": (customer.zipcode if customer else "") or "",
+        "address": (customer.address_line1 if customer else (invoice.customer_address_line1 or "")) or "",
+        "address_line2": (customer.address_line2 if customer else (invoice.customer_address_line2 or "")) or "",
+        "city": (customer.city if customer else (invoice.customer_city or "")) or "",
+        "state": (customer.state if customer else (invoice.customer_state or "")) or "",
+        "zipcode": (customer.zipcode if customer else (invoice.customer_zipcode or "")) or "",
         "phone": (customer.phone if customer else "") or "",
         "email": (customer.email if customer else (invoice.customer_email or "")) or "",
     }

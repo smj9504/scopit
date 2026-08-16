@@ -648,13 +648,11 @@ export default function CustomerDetailPage() {
     name: customer.name,
     email: customer.email,
     phone: customer.phone,
-    address: [
-      customer.address_line1,
-      customer.address_line2,
-      customer.city,
-      customer.state,
-      customer.zipcode,
-    ].filter(Boolean).join(', '),
+    addressLine1: customer.address_line1,
+    addressLine2: customer.address_line2,
+    city: customer.city,
+    state: customer.state,
+    zipcode: customer.zipcode,
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -851,12 +849,12 @@ export default function CustomerDetailPage() {
                   name="address_line2"
                   label={
                     <span style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textSecondary }}>
-                      Address Line 2
+                      Apt/Suite/Unit
                     </span>
                   }
                   style={{ marginBottom: 12 }}
                 >
-                  <Input placeholder="Suite 100 (optional)" style={{ borderRadius: borderRadius.base }} />
+                  <Input placeholder="Apt 4B (optional)" style={{ borderRadius: borderRadius.base }} />
                 </Form.Item>
 
                 <div style={{ display: 'flex', gap: 10 }}>

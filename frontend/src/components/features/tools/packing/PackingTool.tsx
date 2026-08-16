@@ -60,11 +60,15 @@ const { Text, Title } = Typography;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function defaultClientInfo(): ClientInfo {
-  return { name: '', phone: '', email: '', property_address: '' };
+  return {
+    name: '', phone: '', email: '',
+    property_address_line1: '', property_address_line2: '',
+    property_city: '', property_state: '', property_zipcode: '',
+  };
 }
 
 function defaultCompanyOverride(): CompanyInfoOverride {
-  return { name: '', address: '', phone: '', email: '' };
+  return { name: '', address_line1: '', city: '', state: '', zipcode: '', phone: '', email: '' };
 }
 
 type ViewState = 'list' | 'editor';
@@ -495,8 +499,8 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     try {
       const res = await toolService.createEstimateFromSession(activeSessionId, {
         customer_name: clientInfo.name || undefined,
-        title: clientInfo.property_address
-          ? `Packing & Moving - ${clientInfo.property_address}`
+        title: clientInfo.property_address_line1
+          ? `Packing & Moving - ${[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}`
           : 'Packing & Moving Estimate',
       });
       message.success(`Estimate ${res.estimateNumber} created`);
@@ -1097,7 +1101,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
             >
               {clientInfo.name}
             </Text>
-            {clientInfo.property_address && (
+            {clientInfo.property_address_line1 && (
               <Text
                 style={{
                   fontSize: 12,
@@ -1109,7 +1113,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
                   whiteSpace: 'nowrap',
                 }}
               >
-                {clientInfo.property_address}
+                {[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}
               </Text>
             )}
           </div>

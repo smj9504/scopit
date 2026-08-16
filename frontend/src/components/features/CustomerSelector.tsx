@@ -48,8 +48,23 @@ export interface CustomerData {
   name: string;
   email?: string;
   phone?: string;
-  address?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  zipcode?: string;
 }
+
+const EMPTY_CUSTOMER_DATA: CustomerData = {
+  name: '',
+  email: '',
+  phone: '',
+  addressLine1: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  zipcode: '',
+};
 
 interface CustomerSelectorProps {
   value?: CustomerData;
@@ -84,15 +99,19 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
     name: value?.name || '',
     email: value?.email || '',
     phone: value?.phone || '',
-    address: value?.address || '',
+    addressLine1: value?.addressLine1 || '',
+    addressLine2: value?.addressLine2 || '',
+    city: value?.city || '',
+    state: value?.state || '',
+    zipcode: value?.zipcode || '',
   });
 
-  // Address autocomplete
-  const [addressOptions, setAddressOptions] = useState<{ value: string; label: React.ReactNode }[]>([]);
+  // Address autocomplete (Street Address field only)
+  const [addressOptions, setAddressOptions] = useState<{ value: string; label: React.ReactNode; result: { street: string; city: string; state: string; zip: string } }[]>([]);
   const addressTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const handleAddressSearch = useCallback((text: string) => {
-    handleDirectInputChange('address', text);
+    handleDirectInputChange('addressLine1', text);
     clearTimeout(addressTimerRef.current);
     if (text.trim().length < 3) {
       setAddressOptions([]);
@@ -103,6 +122,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
         setAddressOptions(
           results.map((r) => ({
             value: r.address,
+            result: r,
             label: (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                 <EnvironmentOutlined style={{ color: '#999', flexShrink: 0 }} />
@@ -115,8 +135,15 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
     }, 300);
   }, []);
 
-  const handleAddressSelect = useCallback((address: string) => {
-    handleDirectInputChange('address', address);
+  const handleAddressSelect = useCallback((_value: string, option: { result: { street: string; city: string; state: string; zip: string } }) => {
+    const { street, city, state, zip } = option.result;
+    setDirectInput((prev) => ({
+      ...prev,
+      addressLine1: street || prev.addressLine1,
+      city: city || prev.city,
+      state: state || prev.state,
+      zipcode: zip || prev.zipcode,
+    }));
     setAddressOptions([]);
   }, []);
 
@@ -128,7 +155,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
     if (!value) return;
     // Normalize undefined and '' to the same value so fingerprints match
     const norm = (v: string | undefined) => v || '';
-    const fingerprint = `${norm(value.customerId)}|${norm(value.name)}|${norm(value.email)}|${norm(value.phone)}|${norm(value.address)}`;
+    const fingerprint = `${norm(value.customerId)}|${norm(value.name)}|${norm(value.email)}|${norm(value.phone)}|${norm(value.addressLine1)}|${norm(value.addressLine2)}|${norm(value.city)}|${norm(value.state)}|${norm(value.zipcode)}`;
     if (fingerprint === lastPushedRef.current) return; // skip — we caused this change
     setSelectedCustomerId(value.customerId);
     // Only switch away from manual mode if this is an external change (e.g. loading a saved session),
@@ -141,9 +168,13 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
       name: value.name || '',
       email: value.email || '',
       phone: value.phone || '',
-      address: value.address || '',
+      addressLine1: value.addressLine1 || '',
+      addressLine2: value.addressLine2 || '',
+      city: value.city || '',
+      state: value.state || '',
+      zipcode: value.zipcode || '',
     });
-  }, [value?.customerId, value?.name, value?.email, value?.phone, value?.address]);
+  }, [value?.customerId, value?.name, value?.email, value?.phone, value?.addressLine1, value?.addressLine2, value?.city, value?.state, value?.zipcode]);
 
   // Query for searching customers
   const {
@@ -174,24 +205,19 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
       setIsManualEntry(false);
 
       // Clear direct input
-      setDirectInput({ name: '', email: '', phone: '', address: '' });
+      setDirectInput(EMPTY_CUSTOMER_DATA);
 
       // Notify parent
-      const fullAddress = [
-        newCustomer.addressLine1,
-        newCustomer.city,
-        newCustomer.state,
-        newCustomer.zipcode,
-      ]
-        .filter(Boolean)
-        .join(', ');
-
       onChange?.({
         customerId: newCustomer.id,
         name: newCustomer.name,
         email: newCustomer.email,
         phone: newCustomer.phone,
-        address: fullAddress,
+        addressLine1: newCustomer.addressLine1,
+        addressLine2: newCustomer.addressLine2,
+        city: newCustomer.city,
+        state: newCustomer.state,
+        zipcode: newCustomer.zipcode,
       });
 
       onCustomerCreated?.(newCustomer);
@@ -213,23 +239,18 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
 
       setSelectedCustomerId(updatedCustomer.id);
       setIsManualEntry(false);
-      setDirectInput({ name: '', email: '', phone: '', address: '' });
-
-      const fullAddress = [
-        updatedCustomer.addressLine1,
-        updatedCustomer.city,
-        updatedCustomer.state,
-        updatedCustomer.zipcode,
-      ]
-        .filter(Boolean)
-        .join(', ');
+      setDirectInput(EMPTY_CUSTOMER_DATA);
 
       onChange?.({
         customerId: updatedCustomer.id,
         name: updatedCustomer.name,
         email: updatedCustomer.email,
         phone: updatedCustomer.phone,
-        address: fullAddress,
+        addressLine1: updatedCustomer.addressLine1,
+        addressLine2: updatedCustomer.addressLine2,
+        city: updatedCustomer.city,
+        state: updatedCustomer.state,
+        zipcode: updatedCustomer.zipcode,
       });
 
       setSaveModalOpen(false);
@@ -242,28 +263,22 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
   // Normalize undefined and '' for consistent fingerprint comparison
   const pushFingerprint = (data: CustomerData) => {
     const norm = (v: string | undefined) => v || '';
-    lastPushedRef.current = `${norm(data.customerId)}|${norm(data.name)}|${norm(data.email)}|${norm(data.phone)}|${norm(data.address)}`;
+    lastPushedRef.current = `${norm(data.customerId)}|${norm(data.name)}|${norm(data.email)}|${norm(data.phone)}|${norm(data.addressLine1)}|${norm(data.addressLine2)}|${norm(data.city)}|${norm(data.state)}|${norm(data.zipcode)}`;
   };
 
   // Update parent when selection changes
   useEffect(() => {
     if (!isManualEntry && selectedCustomer) {
-      const fullAddress = [
-        selectedCustomer.addressLine1,
-        selectedCustomer.addressLine2,
-        selectedCustomer.city,
-        selectedCustomer.state,
-        selectedCustomer.zipcode,
-      ]
-        .filter(Boolean)
-        .join(', ');
-
       const data: CustomerData = {
         customerId: selectedCustomer.id,
         name: selectedCustomer.name,
         email: selectedCustomer.email,
         phone: selectedCustomer.phone,
-        address: fullAddress,
+        addressLine1: selectedCustomer.addressLine1,
+        addressLine2: selectedCustomer.addressLine2,
+        city: selectedCustomer.city,
+        state: selectedCustomer.state,
+        zipcode: selectedCustomer.zipcode,
       };
       pushFingerprint(data);
       onChange?.(data);
@@ -286,27 +301,22 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
       // Carry the currently selected customer's data (and id) into the editable form,
       // so editing an existing customer's details updates that record instead of creating a duplicate.
       if (selectedCustomer) {
-        const fullAddress = [
-          selectedCustomer.addressLine1,
-          selectedCustomer.addressLine2,
-          selectedCustomer.city,
-          selectedCustomer.state,
-          selectedCustomer.zipcode,
-        ]
-          .filter(Boolean)
-          .join(', ');
         setDirectInput({
           customerId: selectedCustomer.id,
           name: selectedCustomer.name,
           email: selectedCustomer.email,
           phone: selectedCustomer.phone,
-          address: fullAddress,
+          addressLine1: selectedCustomer.addressLine1,
+          addressLine2: selectedCustomer.addressLine2,
+          city: selectedCustomer.city,
+          state: selectedCustomer.state,
+          zipcode: selectedCustomer.zipcode,
         });
       }
       setSelectedCustomerId(undefined);
       setSearchInput('');
     } else {
-      setDirectInput({ name: '', email: '', phone: '', address: '' });
+      setDirectInput(EMPTY_CUSTOMER_DATA);
     }
   };
 
@@ -320,10 +330,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
     setSelectedCustomerId(undefined);
     onChange?.({
       customerId: undefined,
-      name: '',
-      email: '',
-      phone: '',
-      address: '',
+      ...EMPTY_CUSTOMER_DATA,
     });
   };
 
@@ -345,17 +352,15 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
       return;
     }
 
-    // Parse address into components (simple approach)
-    const addressParts = directInput.address?.split(',').map(s => s.trim()) || [];
-
     const customerData: CustomerCreate = {
       name: directInput.name.trim(),
       email: directInput.email?.trim() || undefined,
       phone: directInput.phone?.trim() || undefined,
-      addressLine1: addressParts[0] || undefined,
-      city: addressParts[1] || undefined,
-      state: addressParts[2] || undefined,
-      zipcode: addressParts[3] || undefined,
+      addressLine1: directInput.addressLine1?.trim() || undefined,
+      addressLine2: directInput.addressLine2?.trim() || undefined,
+      city: directInput.city?.trim() || undefined,
+      state: directInput.state?.trim() || undefined,
+      zipcode: directInput.zipcode?.trim() || undefined,
     };
 
     if (directInput.customerId) {
@@ -498,6 +503,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
                   >
                     {[
                       selectedCustomer.addressLine1,
+                      selectedCustomer.addressLine2,
                       selectedCustomer.city,
                       selectedCustomer.state,
                       selectedCustomer.zipcode,
@@ -599,7 +605,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
             </div>
 
             <AutoComplete
-              value={directInput.address}
+              value={directInput.addressLine1}
               options={addressOptions}
               onSearch={handleAddressSearch}
               onSelect={handleAddressSelect}
@@ -609,7 +615,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
             >
               <Input
                 size="large"
-                placeholder="Address (start typing to search...)"
+                placeholder="Street Address (start typing to search...)"
                 suffix={<EnvironmentOutlined style={{ color: '#bbb', flexShrink: 0 }} />}
                 style={{
                   fontFamily: fonts.body,
@@ -617,6 +623,54 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
                 }}
               />
             </AutoComplete>
+
+            <Input
+              value={directInput.addressLine2}
+              onChange={(e) => handleDirectInputChange('addressLine2', e.target.value)}
+              placeholder="Apt/Suite/Unit (optional)"
+              disabled={disabled}
+              size="large"
+              style={{
+                fontFamily: fonts.body,
+                fontSize: 15,
+              }}
+            />
+
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 100px 100px', gap: 12 }}>
+              <Input
+                value={directInput.city}
+                onChange={(e) => handleDirectInputChange('city', e.target.value)}
+                placeholder="City"
+                disabled={disabled}
+                size="large"
+                style={{
+                  fontFamily: fonts.body,
+                  fontSize: 15,
+                }}
+              />
+              <Input
+                value={directInput.state}
+                onChange={(e) => handleDirectInputChange('state', e.target.value)}
+                placeholder="State"
+                disabled={disabled}
+                size="large"
+                style={{
+                  fontFamily: fonts.body,
+                  fontSize: 15,
+                }}
+              />
+              <Input
+                value={directInput.zipcode}
+                onChange={(e) => handleDirectInputChange('zipcode', e.target.value)}
+                placeholder="Zip"
+                disabled={disabled}
+                size="large"
+                style={{
+                  fontFamily: fonts.body,
+                  fontSize: 15,
+                }}
+              />
+            </div>
 
             {/* Save/Update Customer Button */}
             {directInput.name.trim() && (
@@ -714,7 +768,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
                 {directInput.phone}
               </Text>
             )}
-            {directInput.address && (
+            {(directInput.addressLine1 || directInput.city) && (
               <Text
                 style={{
                   display: 'block',
@@ -723,7 +777,15 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
                   marginTop: 4,
                 }}
               >
-                {directInput.address}
+                {[
+                  directInput.addressLine1,
+                  directInput.addressLine2,
+                  directInput.city,
+                  directInput.state,
+                  directInput.zipcode,
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
               </Text>
             )}
           </div>

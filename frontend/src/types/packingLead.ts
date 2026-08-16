@@ -31,8 +31,16 @@ export interface PackingLeadSubmitData {
   contactPhone: string | null;
   companyName: string | null;
   companyPhone: string | null;
-  companyAddress: string | null;
-  propertyAddress: string | null;
+  companyAddressLine1: string | null;
+  companyAddressLine2: string | null;
+  companyCity: string | null;
+  companyState: string | null;
+  companyZipcode: string | null;
+  propertyAddressLine1: string | null;
+  propertyAddressLine2: string | null;
+  propertyCity: string | null;
+  propertyState: string | null;
+  propertyZipcode: string | null;
   idempotencyKey: string;
   rooms: Array<{
     roomName: string;

@@ -77,7 +77,7 @@ function joinFullAddress(parts: {
 
 /** Resolves a "customer" registry field (field_registry.py) client-side.
  * Prefers the full Customer record; falls back to the flattened CustomerData
- * summary (name/email/phone/one-line address only) while it's still loading
+ * summary (name/email/phone/structured address) while it's still loading
  * or for a manually-entered, unsaved customer with no customerId to fetch. */
 function resolveCustomerField(
   sourceField: string | null | undefined,
@@ -106,9 +106,13 @@ function resolveCustomerField(
     case 'name': return fallback.name;
     case 'email': return fallback.email;
     case 'phone': return fallback.phone;
+    case 'address_line1': return fallback.addressLine1;
+    case 'address_line2': return fallback.addressLine2;
+    case 'city': return fallback.city;
+    case 'state': return fallback.state;
+    case 'zipcode': return fallback.zipcode;
     case 'full_address':
-    case 'address_line1':
-      return fallback.address;
+      return joinFullAddress({ line1: fallback.addressLine1, line2: fallback.addressLine2, city: fallback.city, state: fallback.state, zip: fallback.zipcode });
     default: return undefined;
   }
 }

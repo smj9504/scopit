@@ -228,6 +228,15 @@ def _send_lead_verification_email(to_email: str, code: str) -> bool:
     )
 
 
+def _join_address(line1, line2, city, state, zipcode) -> str:
+    """Join structured address parts into a single display line for
+    notification emails (which render one row/line per field, not a
+    multi-line address block)."""
+    csz = ", ".join(filter(None, [city, " ".join(filter(None, [state, zipcode]))]))
+    parts = [p for p in [line1, line2, csz] if p]
+    return ", ".join(parts)
+
+
 def _esc(value: Optional[str]) -> str:
     """Minimal HTML escaping for user-supplied text dropped into the admin
     notification email (contact/company/property fields are free-form)."""
@@ -256,8 +265,14 @@ def _build_lead_notification_email_html(lead: PackingLead, room_count: int, phot
         row("Phone", _esc(lead.contact_phone)),
         row("Company", _esc(lead.company_name)),
         row("Company phone", _esc(lead.company_phone)),
-        row("Company address", _esc(lead.company_address)),
-        row("Property address", _esc(lead.property_address)),
+        row("Company address", _esc(_join_address(
+            lead.company_address_line1, lead.company_address_line2,
+            lead.company_city, lead.company_state, lead.company_zipcode,
+        ))),
+        row("Property address", _esc(_join_address(
+            lead.property_address_line1, lead.property_address_line2,
+            lead.property_city, lead.property_state, lead.property_zipcode,
+        ))),
         row("Rooms", str(room_count)),
         row("Photos", str(photo_count)),
     ])
@@ -322,8 +337,8 @@ def _send_lead_notification_email(lead: PackingLead, room_count: int, photo_coun
         f"Phone:            {lead.contact_phone or '-'}\n"
         f"Company:          {lead.company_name or '-'}\n"
         f"Company phone:    {lead.company_phone or '-'}\n"
-        f"Company address:  {lead.company_address or '-'}\n"
-        f"Property address: {lead.property_address or '-'}\n"
+        f"Company address:  {_join_address(lead.company_address_line1, lead.company_address_line2, lead.company_city, lead.company_state, lead.company_zipcode) or '-'}\n"
+        f"Property address: {_join_address(lead.property_address_line1, lead.property_address_line2, lead.property_city, lead.property_state, lead.property_zipcode) or '-'}\n"
         f"Rooms:            {room_count}\n"
         f"Photos:           {photo_count}\n"
     )
@@ -668,8 +683,16 @@ async def submit_lead(
         contact_phone=data.contact_phone,
         company_name=data.company_name,
         company_phone=data.company_phone,
-        company_address=data.company_address,
-        property_address=data.property_address,
+        company_address_line1=data.company_address_line1,
+        company_address_line2=data.company_address_line2,
+        company_city=data.company_city,
+        company_state=data.company_state,
+        company_zipcode=data.company_zipcode,
+        property_address_line1=data.property_address_line1,
+        property_address_line2=data.property_address_line2,
+        property_city=data.property_city,
+        property_state=data.property_state,
+        property_zipcode=data.property_zipcode,
         rooms_input=rooms_input,
         status=PackingLeadStatus.PENDING_VERIFICATION.value,
         verification_code_hash=hash_code(code),
@@ -981,12 +1004,20 @@ async def claim_lead(
                 "name": None,
                 "phone": lead.contact_phone,
                 "email": lead.contact_email,
-                "property_address": lead.property_address,
+                "property_address_line1": lead.property_address_line1,
+                "property_address_line2": lead.property_address_line2,
+                "property_city": lead.property_city,
+                "property_state": lead.property_state,
+                "property_zipcode": lead.property_zipcode,
             },
             "company_override": {
                 "name": lead.company_name,
                 "phone": lead.company_phone,
-                "address": lead.company_address,
+                "address_line1": lead.company_address_line1,
+                "address_line2": lead.company_address_line2,
+                "city": lead.company_city,
+                "state": lead.company_state,
+                "zipcode": lead.company_zipcode,
                 "email": lead.contact_email,
             },
             "photo_rooms": photo_rooms,

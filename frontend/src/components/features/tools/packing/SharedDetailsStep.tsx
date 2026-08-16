@@ -51,7 +51,7 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
   compact = false,
 }) => {
   const [showCompanyOverride, setShowCompanyOverride] = useState(
-    !!(companyOverride.name || companyOverride.address || companyOverride.phone || companyOverride.email),
+    !!(companyOverride.name || companyOverride.address_line1 || companyOverride.phone || companyOverride.email),
   );
 
   // Session data (including an active company override) often arrives after
@@ -60,10 +60,10 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
   // of silently staying collapsed. Never auto-collapses, so a manual toggle
   // off sticks until the override data itself changes again.
   useEffect(() => {
-    if (companyOverride.name || companyOverride.address || companyOverride.phone || companyOverride.email) {
+    if (companyOverride.name || companyOverride.address_line1 || companyOverride.phone || companyOverride.email) {
       setShowCompanyOverride(true);
     }
-  }, [companyOverride.name, companyOverride.address, companyOverride.phone, companyOverride.email]);
+  }, [companyOverride.name, companyOverride.address_line1, companyOverride.phone, companyOverride.email]);
   const [profiles, setProfiles] = useState<SavedCompanyProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(undefined);
@@ -134,7 +134,11 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
     name: clientInfo.name,
     email: clientInfo.email || undefined,
     phone: clientInfo.phone || undefined,
-    address: clientInfo.property_address || undefined,
+    addressLine1: clientInfo.property_address_line1 || undefined,
+    addressLine2: clientInfo.property_address_line2 || undefined,
+    city: clientInfo.property_city || undefined,
+    state: clientInfo.property_state || undefined,
+    zipcode: clientInfo.property_zipcode || undefined,
   };
 
   const handleCustomerChange = useCallback(
@@ -144,7 +148,11 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
         name: data.name || '',
         email: data.email || '',
         phone: data.phone || '',
-        property_address: data.address || '',
+        property_address_line1: data.addressLine1 || '',
+        property_address_line2: data.addressLine2 || '',
+        property_city: data.city || '',
+        property_state: data.state || '',
+        property_zipcode: data.zipcode || '',
       });
     },
     [setClientInfo],
@@ -486,12 +494,48 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
               />
             </Col>
             <Col xs={24} sm={12}>
-              {fieldLabel('Address')}
+              {fieldLabel('Street Address')}
               <Input
                 placeholder="456 Business Ave"
-                value={companyOverride.address ?? ''}
-                onChange={(e) => patchCompany({ address: e.target.value })}
-                aria-label="Company address override"
+                value={companyOverride.address_line1 ?? ''}
+                onChange={(e) => patchCompany({ address_line1: e.target.value })}
+                aria-label="Company street address override"
+              />
+            </Col>
+            <Col xs={24} sm={12}>
+              {fieldLabel('Apt/Suite/Unit')}
+              <Input
+                placeholder="Suite 200 (optional)"
+                value={companyOverride.address_line2 ?? ''}
+                onChange={(e) => patchCompany({ address_line2: e.target.value })}
+                aria-label="Company address line 2 override"
+              />
+            </Col>
+            <Col xs={24} sm={8}>
+              {fieldLabel('City')}
+              <Input
+                placeholder="Dallas"
+                value={companyOverride.city ?? ''}
+                onChange={(e) => patchCompany({ city: e.target.value })}
+                aria-label="Company city override"
+              />
+            </Col>
+            <Col xs={12} sm={8}>
+              {fieldLabel('State')}
+              <Input
+                placeholder="TX"
+                value={companyOverride.state ?? ''}
+                onChange={(e) => patchCompany({ state: e.target.value })}
+                aria-label="Company state override"
+              />
+            </Col>
+            <Col xs={12} sm={8}>
+              {fieldLabel('Zip')}
+              <Input
+                placeholder="75201"
+                value={companyOverride.zipcode ?? ''}
+                onChange={(e) => patchCompany({ zipcode: e.target.value })}
+                aria-label="Company zip override"
               />
             </Col>
             <Col xs={24} sm={12}>

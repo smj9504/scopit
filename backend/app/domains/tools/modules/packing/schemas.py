@@ -418,7 +418,11 @@ class MasterContentResponse(BaseModel):
 
 class CompanyInfoOverride(BaseModel):
     name: Optional[str] = None
-    address: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zipcode: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     license: Optional[str] = None

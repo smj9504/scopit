@@ -1982,6 +1982,7 @@ const CompanySettings: React.FC = () => {
         email: company.email,
         phone: company.phone,
         addressLine1: company.addressLine1,
+        addressLine2: company.addressLine2,
         city: company.city,
         state: company.state,
         zipcode: company.zipcode,
@@ -2036,6 +2037,10 @@ const CompanySettings: React.FC = () => {
 
         <Form.Item name="addressLine1" label="Address">
           <Input placeholder="123 Main St" />
+        </Form.Item>
+
+        <Form.Item name="addressLine2" label="Apt/Suite/Unit">
+          <Input placeholder="Suite 100 (optional)" />
         </Form.Item>
 
         <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 12 }}>

@@ -254,14 +254,22 @@ async def create_estimate_from_tool(
 
     customer_name = payload.get("customer_name") or req.customer_name
     customer_email = payload.get("customer_email")
-    customer_address = payload.get("customer_address")
+    customer_address_line1 = payload.get("customer_address_line1")
+    customer_address_line2 = payload.get("customer_address_line2")
+    customer_city = payload.get("customer_city")
+    customer_state = payload.get("customer_state")
+    customer_zipcode = payload.get("customer_zipcode")
 
     if req.customer_id:
         customer = db.query(Customer).filter(Customer.id == req.customer_id).first()
         if customer:
             customer_name = customer.name
             customer_email = customer.email
-            customer_address = customer.full_address
+            customer_address_line1 = customer.address_line1
+            customer_address_line2 = customer.address_line2
+            customer_city = customer.city
+            customer_state = customer.state
+            customer_zipcode = customer.zipcode
 
     default_status = (
         db.query(EstimateStatusConfig)
@@ -282,7 +290,11 @@ async def create_estimate_from_tool(
         customer_id=req.customer_id,
         customer_name=customer_name,
         customer_email=customer_email,
-        customer_address=customer_address,
+        customer_address_line1=customer_address_line1,
+        customer_address_line2=customer_address_line2,
+        customer_city=customer_city,
+        customer_state=customer_state,
+        customer_zipcode=customer_zipcode,
         title=payload.get("title") or req.title,
         description=payload.get("description"),
         tax_rate=payload.get("tax_rate") or company.default_tax_rate,
@@ -397,14 +409,22 @@ async def create_invoice_from_tool(
 
     customer_name = payload.get("customer_name") or req.customer_name
     customer_email = payload.get("customer_email")
-    customer_address = payload.get("customer_address")
+    customer_address_line1 = payload.get("customer_address_line1")
+    customer_address_line2 = payload.get("customer_address_line2")
+    customer_city = payload.get("customer_city")
+    customer_state = payload.get("customer_state")
+    customer_zipcode = payload.get("customer_zipcode")
 
     if req.customer_id:
         customer = db.query(Customer).filter(Customer.id == req.customer_id).first()
         if customer:
             customer_name = customer.name
             customer_email = customer.email
-            customer_address = customer.full_address
+            customer_address_line1 = customer.address_line1
+            customer_address_line2 = customer.address_line2
+            customer_city = customer.city
+            customer_state = customer.state
+            customer_zipcode = customer.zipcode
 
     default_status = get_default_invoice_status(db, current_user.company_id)
     invoice_date = date.today()
@@ -412,7 +432,7 @@ async def create_invoice_from_tool(
     # Store company override from tool session (e.g. moving estimate)
     co = payload.get("company_override")
     company_override_data = None
-    if co and any(co.get(k) for k in ("name", "address", "phone", "email")):
+    if co and any(co.get(k) for k in ("name", "address_line1", "phone", "email")):
         company_override_data = co
 
     invoice = Invoice(
@@ -425,7 +445,11 @@ async def create_invoice_from_tool(
         customer_id=req.customer_id,
         customer_name=customer_name,
         customer_email=customer_email,
-        customer_address=customer_address,
+        customer_address_line1=customer_address_line1,
+        customer_address_line2=customer_address_line2,
+        customer_city=customer_city,
+        customer_state=customer_state,
+        customer_zipcode=customer_zipcode,
         title=payload.get("title") or req.title,
         description=payload.get("description"),
         tax_rate=payload.get("tax_rate") or company.default_tax_rate,

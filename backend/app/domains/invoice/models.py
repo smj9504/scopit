@@ -91,7 +91,11 @@ class Invoice(Base):
     # Customer Info Snapshot
     customer_name = Column(String(255))
     customer_email = Column(String(255))
-    customer_address = Column(Text)
+    customer_address_line1 = Column(Text)
+    customer_address_line2 = Column(String(255))
+    customer_city = Column(String(100))
+    customer_state = Column(String(50))
+    customer_zipcode = Column(String(20))
     
     # Audit
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))

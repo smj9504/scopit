@@ -495,8 +495,18 @@ const EstimateDetailPage: React.FC = () => {
                   {estimate.customerEmail && (
                     <div style={{ color: colors.textSecondary, fontSize: 13 }}>{estimate.customerEmail}</div>
                   )}
-                  {estimate.customerAddress && (
-                    <div style={{ color: colors.textSecondary, fontSize: 13 }}>{estimate.customerAddress}</div>
+                  {estimate.customerAddressLine1 && (
+                    <div style={{ color: colors.textSecondary, fontSize: 13 }}>{estimate.customerAddressLine1}</div>
+                  )}
+                  {estimate.customerAddressLine2 && (
+                    <div style={{ color: colors.textSecondary, fontSize: 13 }}>{estimate.customerAddressLine2}</div>
+                  )}
+                  {(estimate.customerCity || estimate.customerState || estimate.customerZipcode) && (
+                    <div style={{ color: colors.textSecondary, fontSize: 13 }}>
+                      {[estimate.customerCity, [estimate.customerState, estimate.customerZipcode].filter(Boolean).join(' ')]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </div>
                   )}
                 </div>
               </Descriptions.Item>

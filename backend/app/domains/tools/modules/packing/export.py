@@ -43,14 +43,30 @@ from reportlab.platypus import (
 # SCOPIT COMPANY INFO HELPER
 # ============================================
 
+def _join_address_lines(line1, line2, city, state, zipcode) -> str:
+    """Join structured address parts into a '\\n'-joined multi-line string."""
+    lines = [line1] if line1 else []
+    if line2:
+        lines.append(line2)
+    csz = ", ".join(filter(None, [city, " ".join(filter(None, [state, zipcode]))]))
+    if csz:
+        lines.append(csz)
+    return "\n".join(lines)
+
+
 def build_company_info(company, override=None) -> dict:
     """Build company info dict from Scopit Company model with optional overrides.
 
     ``override`` may be a dict or a Pydantic model instance.
     """
+    address_line1 = company.address_line1 if company else ""
+    address_line2 = company.address_line2 if company else ""
+    city = company.city if company else ""
+    state = company.state if company else ""
+    zipcode = company.zipcode if company else ""
+
     info = {
         "name": company.name if company else "",
-        "address": f"{company.address_line1 or ''}, {company.city or ''}, {company.state or ''} {company.zipcode or ''}".strip(", ") if company else "",
         "phone": company.phone if company else "",
         "email": company.email if company else "",
     }
@@ -60,10 +76,17 @@ def build_company_info(company, override=None) -> dict:
             override = override.model_dump()
         elif not isinstance(override, dict):
             override = dict(override)
-        for key in ("name", "address", "phone", "email", "license"):
+        address_line1 = override.get("address_line1") or address_line1
+        address_line2 = override.get("address_line2") or address_line2
+        city = override.get("city") or city
+        state = override.get("state") or state
+        zipcode = override.get("zipcode") or zipcode
+        for key in ("name", "phone", "email", "license"):
             val = override.get(key)
             if val:
                 info[key] = val
+
+    info["address"] = _join_address_lines(address_line1, address_line2, city, state, zipcode)
     return info
 
 

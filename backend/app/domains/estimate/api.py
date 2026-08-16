@@ -73,7 +73,11 @@ class EstimateCreate(BaseModel):
     customer_id: Optional[str] = None
     customer_name: Optional[str] = None
     customer_email: Optional[str] = None
-    customer_address: Optional[str] = None
+    customer_address_line1: Optional[str] = None
+    customer_address_line2: Optional[str] = None
+    customer_city: Optional[str] = None
+    customer_state: Optional[str] = None
+    customer_zipcode: Optional[str] = None
     estimate_date: Optional[date] = None
     valid_until: Optional[date] = None
     title: Optional[str] = None
@@ -191,7 +195,11 @@ class EstimateResponse(BaseModel):
     customer_id: Optional[str]
     customer_name: Optional[str]
     customer_email: Optional[str]
-    customer_address: Optional[str]
+    customer_address_line1: Optional[str]
+    customer_address_line2: Optional[str]
+    customer_city: Optional[str]
+    customer_state: Optional[str]
+    customer_zipcode: Optional[str]
     title: Optional[str]
     description: Optional[str]
     subtotal: Decimal
@@ -268,7 +276,11 @@ def serialize_estimate(estimate: Estimate) -> dict:
         "customer_id": str(estimate.customer_id) if estimate.customer_id else None,
         "customer_name": estimate.customer_name,
         "customer_email": estimate.customer_email,
-        "customer_address": estimate.customer_address,
+        "customer_address_line1": estimate.customer_address_line1,
+        "customer_address_line2": estimate.customer_address_line2,
+        "customer_city": estimate.customer_city,
+        "customer_state": estimate.customer_state,
+        "customer_zipcode": estimate.customer_zipcode,
         "title": estimate.title,
         "description": estimate.description,
         "subtotal": estimate.subtotal,
@@ -669,14 +681,22 @@ async def create_estimate(
     # Get customer info - prefer database lookup if customer_id provided, else use provided values
     customer_name = data.customer_name
     customer_email = data.customer_email
-    customer_address = data.customer_address
+    customer_address_line1 = data.customer_address_line1
+    customer_address_line2 = data.customer_address_line2
+    customer_city = data.customer_city
+    customer_state = data.customer_state
+    customer_zipcode = data.customer_zipcode
 
     if data.customer_id:
         customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
         if customer:
             customer_name = customer.name
             customer_email = customer.email
-            customer_address = customer.full_address
+            customer_address_line1 = customer.address_line1
+            customer_address_line2 = customer.address_line2
+            customer_city = customer.city
+            customer_state = customer.state
+            customer_zipcode = customer.zipcode
 
     # Get default status
     default_status = get_default_estimate_status(db, current_user.company_id)
@@ -692,7 +712,11 @@ async def create_estimate(
         customer_id=data.customer_id,
         customer_name=customer_name,
         customer_email=customer_email,
-        customer_address=customer_address,
+        customer_address_line1=customer_address_line1,
+        customer_address_line2=customer_address_line2,
+        customer_city=customer_city,
+        customer_state=customer_state,
+        customer_zipcode=customer_zipcode,
         title=data.title,
         description=data.description,
         tax_rate=data.tax_rate or company.default_tax_rate,
@@ -765,17 +789,29 @@ async def update_estimate(
     # Update customer info - prefer database lookup if customer_id provided
     customer_name = data.customer_name
     customer_email = data.customer_email
-    customer_address = data.customer_address
+    customer_address_line1 = data.customer_address_line1
+    customer_address_line2 = data.customer_address_line2
+    customer_city = data.customer_city
+    customer_state = data.customer_state
+    customer_zipcode = data.customer_zipcode
 
     if data.customer_id:
         customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
         if customer:
             customer_name = customer.name
             customer_email = customer.email
-            customer_address = customer.full_address
+            customer_address_line1 = customer.address_line1
+            customer_address_line2 = customer.address_line2
+            customer_city = customer.city
+            customer_state = customer.state
+            customer_zipcode = customer.zipcode
 
     # Update estimate fields (exclude customer snapshot fields - handled separately below)
-    customer_fields = {'sections', 'customer_name', 'customer_email', 'customer_address'}
+    customer_fields = {
+        'sections', 'customer_name', 'customer_email',
+        'customer_address_line1', 'customer_address_line2',
+        'customer_city', 'customer_state', 'customer_zipcode',
+    }
     for field, value in data.model_dump(exclude_unset=True, exclude=customer_fields).items():
         if hasattr(estimate, field):
             setattr(estimate, field, value)
@@ -783,7 +819,11 @@ async def update_estimate(
     # Set customer snapshot fields explicitly
     estimate.customer_name = customer_name
     estimate.customer_email = customer_email
-    estimate.customer_address = customer_address
+    estimate.customer_address_line1 = customer_address_line1
+    estimate.customer_address_line2 = customer_address_line2
+    estimate.customer_city = customer_city
+    estimate.customer_state = customer_state
+    estimate.customer_zipcode = customer_zipcode
 
     # Delete existing items and sections (items first to avoid FK constraint issues)
     db.query(EstimateItem).filter(EstimateItem.estimate_id == estimate_id).delete(synchronize_session=False)
@@ -1222,7 +1262,11 @@ async def convert_to_invoice(
         customer_id=estimate.customer_id,
         customer_name=estimate.customer_name,
         customer_email=estimate.customer_email,
-        customer_address=estimate.customer_address,
+        customer_address_line1=estimate.customer_address_line1,
+        customer_address_line2=estimate.customer_address_line2,
+        customer_city=estimate.customer_city,
+        customer_state=estimate.customer_state,
+        customer_zipcode=estimate.customer_zipcode,
         estimate_id=estimate.id,
         title=estimate.title,
         description=estimate.description,
@@ -1327,11 +1371,11 @@ def _prepare_estimate_pdf_data(estimate: Estimate, company: Company, db: Session
     # Build customer info dict - use snapshot fields as fallback when customer relationship is None
     customer_info = {
         "name": (customer.name if customer else (estimate.customer_name or "")) or "",
-        "address": (customer.address_line1 if customer else (estimate.customer_address or "")) or "",
-        "address_line2": (customer.address_line2 if customer else "") or "",
-        "city": (customer.city if customer else "") or "",
-        "state": (customer.state if customer else "") or "",
-        "zipcode": (customer.zipcode if customer else "") or "",
+        "address": (customer.address_line1 if customer else (estimate.customer_address_line1 or "")) or "",
+        "address_line2": (customer.address_line2 if customer else (estimate.customer_address_line2 or "")) or "",
+        "city": (customer.city if customer else (estimate.customer_city or "")) or "",
+        "state": (customer.state if customer else (estimate.customer_state or "")) or "",
+        "zipcode": (customer.zipcode if customer else (estimate.customer_zipcode or "")) or "",
         "phone": (customer.phone if customer else "") or "",
         "email": (customer.email if customer else (estimate.customer_email or "")) or "",
     }
@@ -1466,8 +1510,9 @@ async def get_pdf(
     if estimate.customer:
         addr_parts = [estimate.customer.address_line1, estimate.customer.city, estimate.customer.state]
         customer_addr = " ".join(p for p in addr_parts if p)
-    elif estimate.customer_address:
-        customer_addr = estimate.customer_address
+    elif estimate.customer_address_line1:
+        addr_parts = [estimate.customer_address_line1, estimate.customer_city, estimate.customer_state]
+        customer_addr = " ".join(p for p in addr_parts if p)
     filename = f"{customer_name} - {customer_addr} - Estimate {estimate.estimate_number}.pdf" if customer_addr else f"{customer_name} - Estimate {estimate.estimate_number}.pdf"
     # Clean filename
     filename = "".join(c for c in filename if c.isalnum() or c in (' ', '-', '_', '.', ',')).strip()

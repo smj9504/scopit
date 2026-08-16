@@ -56,9 +56,17 @@ class PackingLead(Base):
     # are branded correctly from the moment the lead is claimed.
     company_name = Column(String(255), nullable=True)
     company_phone = Column(String(50), nullable=True)
-    company_address = Column(Text, nullable=True)
+    company_address_line1 = Column(Text, nullable=True)
+    company_address_line2 = Column(String(255), nullable=True)
+    company_city = Column(String(100), nullable=True)
+    company_state = Column(String(50), nullable=True)
+    company_zipcode = Column(String(20), nullable=True)
 
-    property_address = Column(Text, nullable=True)
+    property_address_line1 = Column(Text, nullable=True)
+    property_address_line2 = Column(String(255), nullable=True)
+    property_city = Column(String(100), nullable=True)
+    property_state = Column(String(50), nullable=True)
+    property_zipcode = Column(String(20), nullable=True)
 
     # [{"room_name": str, "photo_keys": [str, ...]}, ...]
     rooms_input = Column(JSONB, nullable=False, server_default="[]")

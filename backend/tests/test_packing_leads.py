@@ -107,7 +107,8 @@ def _submit_lead(rooms=None, contact_email=None, idempotency_key=None):
     payload = {
         "contact_email": contact_email or f"lead_{uuid.uuid4().hex[:10]}@example.com",
         "contact_phone": None,
-        "property_address": "123 Main St, Springfield",
+        "property_address_line1": "123 Main St",
+        "property_city": "Springfield",
         "idempotency_key": idempotency_key or uuid.uuid4().hex,
         "rooms": rooms,
     }

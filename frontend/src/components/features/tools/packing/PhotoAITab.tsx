@@ -2306,8 +2306,8 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             >
               <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 8 }}>CLIENT</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: colors.textPrimary }}>{clientInfo.name}</div>
-              {clientInfo.property_address && (
-                <div style={{ fontSize: 13, color: colors.textSecondary }}>{clientInfo.property_address}</div>
+              {clientInfo.property_address_line1 && (
+                <div style={{ fontSize: 13, color: colors.textSecondary }}>{[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}</div>
               )}
               {clientInfo.phone && (
                 <div style={{ fontSize: 13, color: colors.textSecondary }}>{clientInfo.phone}</div>

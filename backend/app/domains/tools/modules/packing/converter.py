@@ -30,7 +30,11 @@ Session data shape (ToolSession.data JSONB):
     "client_info": {                    # Optional customer fields
         "name": "John Smith",
         "email": "john@example.com",
-        "property_address": "123 Main St, Springfield, IL"
+        "property_address_line1": "123 Main St",
+        "property_address_line2": None,
+        "property_city": "Springfield",
+        "property_state": "IL",
+        "property_zipcode": "62704"
     },
     "settings": {                       # O&P / contingency flags and rates
         "include_op": true,
@@ -80,7 +84,9 @@ class PackingEstimateConverter(ToolEstimateConverter):
             A dict whose top-level keys are compatible with the inline estimate
             creation logic in ``tools/api.py::create_estimate_from_tool``:
             ``title``, ``customer_id``, ``customer_name``, ``customer_email``,
-            ``customer_address``, ``sections``, and optionally ``adjustments``.
+            ``customer_address_line1``, ``customer_address_line2``,
+            ``customer_city``, ``customer_state``, ``customer_zipcode``,
+            ``sections``, and optionally ``adjustments``.
         """
         result = session_data.get("result", {})
         client_info = session_data.get("client_info", {})
@@ -243,9 +249,11 @@ class PackingEstimateConverter(ToolEstimateConverter):
                 or client_info.get("name")
             ),
             "customer_email": client_info.get("email"),
-            "customer_address": (
-                client_info.get("property_address")
-            ),
+            "customer_address_line1": client_info.get("property_address_line1"),
+            "customer_address_line2": client_info.get("property_address_line2"),
+            "customer_city": client_info.get("property_city"),
+            "customer_state": client_info.get("property_state"),
+            "customer_zipcode": client_info.get("property_zipcode"),
             "sections": sections,
             "company_override": company_override or None,
         }

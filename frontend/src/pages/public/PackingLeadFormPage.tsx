@@ -51,18 +51,26 @@ const PackingLeadFormPage: React.FC = () => {
   const [contactPhone, setContactPhone] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [companyPhone, setCompanyPhone] = useState('');
-  const [companyAddress, setCompanyAddress] = useState('');
-  const [propertyAddress, setPropertyAddress] = useState('');
+  const [companyAddressLine1, setCompanyAddressLine1] = useState('');
+  const [companyAddressLine2, setCompanyAddressLine2] = useState('');
+  const [companyCity, setCompanyCity] = useState('');
+  const [companyState, setCompanyState] = useState('');
+  const [companyZipcode, setCompanyZipcode] = useState('');
+  const [propertyAddressLine1, setPropertyAddressLine1] = useState('');
+  const [propertyAddressLine2, setPropertyAddressLine2] = useState('');
+  const [propertyCity, setPropertyCity] = useState('');
+  const [propertyState, setPropertyState] = useState('');
+  const [propertyZipcode, setPropertyZipcode] = useState('');
   const [rooms, setRooms] = useState<RoomEntry[]>([newRoom(0)]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Property-address autocomplete (public Geoapify proxy, debounced).
-  const [addressOptions, setAddressOptions] = useState<{ value: string; label: React.ReactNode }[]>([]);
+  // Property street-address autocomplete (public Geoapify proxy, debounced).
+  const [addressOptions, setAddressOptions] = useState<{ value: string; label: React.ReactNode; result: { street: string; city: string; state: string; zip: string } }[]>([]);
   const addressTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const handleAddressSearch = useCallback((text: string) => {
-    setPropertyAddress(text);
+    setPropertyAddressLine1(text);
     clearTimeout(addressTimerRef.current);
     if (text.trim().length < 3) {
       setAddressOptions([]);
@@ -75,6 +83,7 @@ const PackingLeadFormPage: React.FC = () => {
           setAddressOptions(
             results.map((r) => ({
               value: r.address,
+              result: r,
               label: (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                   <EnvironmentOutlined style={{ color: '#999', flexShrink: 0 }} />
@@ -88,8 +97,12 @@ const PackingLeadFormPage: React.FC = () => {
     }, 300);
   }, []);
 
-  const handleAddressSelect = useCallback((address: string) => {
-    setPropertyAddress(address);
+  const handleAddressSelect = useCallback((_value: string, option: { result: { street: string; city: string; state: string; zip: string } }) => {
+    const { street, city, state, zip } = option.result;
+    if (street) setPropertyAddressLine1(street);
+    if (city) setPropertyCity(city);
+    if (state) setPropertyState(state);
+    if (zip) setPropertyZipcode(zip);
     setAddressOptions([]);
   }, []);
 
@@ -114,7 +127,7 @@ const PackingLeadFormPage: React.FC = () => {
     if (!contactEmail.trim()) return 'Please enter your email.';
     if (!contactPhone.trim()) return 'Please enter your phone number.';
     if (!companyName.trim()) return 'Please enter your company name.';
-    if (!propertyAddress.trim()) return 'Please enter the property address.';
+    if (!propertyAddressLine1.trim()) return 'Please enter the property address.';
     const hasAnyPhoto = rooms.some((r) => r.files.length > 0);
     if (!hasAnyPhoto) return 'Please add at least one room photo.';
     const unnamed = rooms.find((r) => r.files.length > 0 && !r.name.trim());
@@ -138,8 +151,16 @@ const PackingLeadFormPage: React.FC = () => {
         contactPhone: contactPhone.trim() || null,
         companyName: companyName.trim() || null,
         companyPhone: companyPhone.trim() || null,
-        companyAddress: companyAddress.trim() || null,
-        propertyAddress: propertyAddress.trim() || null,
+        companyAddressLine1: companyAddressLine1.trim() || null,
+        companyAddressLine2: companyAddressLine2.trim() || null,
+        companyCity: companyCity.trim() || null,
+        companyState: companyState.trim() || null,
+        companyZipcode: companyZipcode.trim() || null,
+        propertyAddressLine1: propertyAddressLine1.trim() || null,
+        propertyAddressLine2: propertyAddressLine2.trim() || null,
+        propertyCity: propertyCity.trim() || null,
+        propertyState: propertyState.trim() || null,
+        propertyZipcode: propertyZipcode.trim() || null,
         idempotencyKey,
         rooms: roomsWithPhotos.map((r) => ({ roomName: r.name.trim(), photos: r.files })),
       });
@@ -274,13 +295,48 @@ const PackingLeadFormPage: React.FC = () => {
                   autoComplete="tel"
                 />
               </Form.Item>
-              <Form.Item label="Company address (optional)" style={{ marginBottom: 8, gridColumn: isMobile ? undefined : '1 / -1' }}>
+              <Form.Item label="Company street address (optional)" style={{ marginBottom: 8, gridColumn: isMobile ? undefined : '1 / -1' }}>
                 <Input
-                  value={companyAddress}
-                  onChange={(e) => setCompanyAddress(e.target.value)}
-                  placeholder="456 Business Ave, Springfield, IL"
+                  value={companyAddressLine1}
+                  onChange={(e) => setCompanyAddressLine1(e.target.value)}
+                  placeholder="456 Business Ave"
                   size="large"
                   autoComplete="street-address"
+                />
+              </Form.Item>
+              <Form.Item label="Apt/Suite/Unit (optional)" style={{ marginBottom: 8 }}>
+                <Input
+                  value={companyAddressLine2}
+                  onChange={(e) => setCompanyAddressLine2(e.target.value)}
+                  placeholder="Suite 200"
+                  size="large"
+                />
+              </Form.Item>
+              <Form.Item label="City (optional)" style={{ marginBottom: 8 }}>
+                <Input
+                  value={companyCity}
+                  onChange={(e) => setCompanyCity(e.target.value)}
+                  placeholder="Springfield"
+                  size="large"
+                  autoComplete="address-level2"
+                />
+              </Form.Item>
+              <Form.Item label="State (optional)" style={{ marginBottom: 8 }}>
+                <Input
+                  value={companyState}
+                  onChange={(e) => setCompanyState(e.target.value)}
+                  placeholder="IL"
+                  size="large"
+                  autoComplete="address-level1"
+                />
+              </Form.Item>
+              <Form.Item label="Zip (optional)" style={{ marginBottom: 8 }}>
+                <Input
+                  value={companyZipcode}
+                  onChange={(e) => setCompanyZipcode(e.target.value)}
+                  placeholder="62704"
+                  size="large"
+                  autoComplete="postal-code"
                 />
               </Form.Item>
             </div>
@@ -290,13 +346,13 @@ const PackingLeadFormPage: React.FC = () => {
             <h3 style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 700, color: colors.textPrimary, margin: '0 0 12px' }}>
               Property
             </h3>
-            <Form.Item label="Property address" required style={{ marginBottom: 8 }}>
+            <Form.Item label="Street address" required style={{ marginBottom: 8 }}>
               <AutoComplete
-                value={propertyAddress}
+                value={propertyAddressLine1}
                 options={addressOptions}
                 onSearch={handleAddressSearch}
                 onSelect={handleAddressSelect}
-                onChange={(val) => setPropertyAddress(val)}
+                onChange={(val) => setPropertyAddressLine1(val)}
                 style={{ width: '100%' }}
                 size="large"
                 popupMatchSelectWidth
@@ -309,6 +365,50 @@ const PackingLeadFormPage: React.FC = () => {
                 />
               </AutoComplete>
             </Form.Item>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: 16,
+                marginBottom: 8,
+              }}
+            >
+              <Form.Item label="Apt/Suite/Unit (optional)" style={{ marginBottom: 8 }}>
+                <Input
+                  value={propertyAddressLine2}
+                  onChange={(e) => setPropertyAddressLine2(e.target.value)}
+                  placeholder="Apt 4B"
+                  size="large"
+                />
+              </Form.Item>
+              <Form.Item label="City" style={{ marginBottom: 8 }}>
+                <Input
+                  value={propertyCity}
+                  onChange={(e) => setPropertyCity(e.target.value)}
+                  placeholder="Springfield"
+                  size="large"
+                  autoComplete="address-level2"
+                />
+              </Form.Item>
+              <Form.Item label="State" style={{ marginBottom: 8 }}>
+                <Input
+                  value={propertyState}
+                  onChange={(e) => setPropertyState(e.target.value)}
+                  placeholder="IL"
+                  size="large"
+                  autoComplete="address-level1"
+                />
+              </Form.Item>
+              <Form.Item label="Zip" style={{ marginBottom: 8 }}>
+                <Input
+                  value={propertyZipcode}
+                  onChange={(e) => setPropertyZipcode(e.target.value)}
+                  placeholder="62704"
+                  size="large"
+                  autoComplete="postal-code"
+                />
+              </Form.Item>
+            </div>
           </Form>
 
           <div style={{ height: 1, background: colors.border, margin: '20px 0' }} />

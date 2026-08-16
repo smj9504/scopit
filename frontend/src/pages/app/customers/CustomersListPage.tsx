@@ -451,8 +451,8 @@ const CustomersListPage: React.FC = () => {
           <Form.Item name="addressLine1" label="Address">
             <Input placeholder="123 Main St" />
           </Form.Item>
-          <Form.Item name="addressLine2">
-            <Input placeholder="Suite 100 (optional)" />
+          <Form.Item name="addressLine2" label="Apt/Suite/Unit">
+            <Input placeholder="Apt 4B (optional)" />
           </Form.Item>
           {/* City / State / ZIP: stack vertically on mobile */}
           <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : 12 }}>

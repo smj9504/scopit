@@ -263,7 +263,11 @@ const InvoiceDetailPage: React.FC = () => {
   const invoiceNumber = invoice.invoiceNumber || '';
   const customerName = invoice.customerName || '';
   const customerEmail = invoice.customerEmail || '';
-  const customerAddress = invoice.customerAddress || '';
+  const customerAddressLine1 = invoice.customerAddressLine1 || '';
+  const customerAddressLine2 = invoice.customerAddressLine2 || '';
+  const customerCity = invoice.customerCity || '';
+  const customerState = invoice.customerState || '';
+  const customerZipcode = invoice.customerZipcode || '';
   const invoiceDate = invoice.invoiceDate;
   const dueDate = invoice.dueDate;
   const subtotal = Number(invoice.subtotal || 0);
@@ -614,8 +618,18 @@ const InvoiceDetailPage: React.FC = () => {
                   {customerEmail && (
                     <div style={{ color: colors.textSecondary, fontSize: 13 }}>{customerEmail}</div>
                   )}
-                  {customerAddress && (
-                    <div style={{ color: colors.textSecondary, fontSize: 13 }}>{customerAddress}</div>
+                  {customerAddressLine1 && (
+                    <div style={{ color: colors.textSecondary, fontSize: 13 }}>{customerAddressLine1}</div>
+                  )}
+                  {customerAddressLine2 && (
+                    <div style={{ color: colors.textSecondary, fontSize: 13 }}>{customerAddressLine2}</div>
+                  )}
+                  {(customerCity || customerState || customerZipcode) && (
+                    <div style={{ color: colors.textSecondary, fontSize: 13 }}>
+                      {[customerCity, [customerState, customerZipcode].filter(Boolean).join(' ')]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </div>
                   )}
                 </div>
               </Descriptions.Item>

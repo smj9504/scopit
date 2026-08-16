@@ -461,7 +461,7 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
         photos_per_page: photosPerPage,
       });
 
-      const addr = clientInfo.property_address?.trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
+      const addr = [clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ').trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
       const hasPackback = result.include_packback ?? false;
       const reportLabel = hasPackback ? 'Content Pack-Out Pack-Back Report' : 'Content Pack-Out Report';
       const filename = addr
