@@ -55,6 +55,12 @@ const routes = [
       'Generate a professional packing report from room photos — a branded PDF or Excel with the room-by-room inventory and full cost breakdown for clients and carriers.',
   },
   {
+    path: '/xactimate-packing-estimate',
+    title: 'Xactimate Packing Estimate Alternative | Scopit',
+    description:
+      'Price restoration packing & contents fast with photo-based estimates — an itemized breakdown to run alongside Xactimate. ESX export is on our roadmap.',
+  },
+  {
     path: '/demo/packing',
     title: 'Free Packing Estimate Demo | Scopit',
     description:

@@ -25,6 +25,10 @@
       "destination": "/packing-report/index.html"
     },
     {
+      "source": "/xactimate-packing-estimate",
+      "destination": "/xactimate-packing-estimate/index.html"
+    },
+    {
       "source": "/packing-estimate",
       "destination": "/packing-estimate/index.html"
     },
