@@ -128,13 +128,14 @@ export const invoiceService = {
   },
 
   /**
-   * Send invoice by email
+   * Email the invoice PDF to the customer
    */
   send: async (
     id: string,
-    data: { to: string; subject: string; message: string }
-  ): Promise<void> => {
-    await api.post(`/invoices/${id}/send`, data);
+    data: { toEmail?: string; ccEmails?: string[]; message?: string; template?: PdfTemplateId }
+  ): Promise<Invoice> => {
+    const response = await api.post<Invoice>(`/invoices/${id}/send`, data);
+    return response.data;
   },
 
   /**

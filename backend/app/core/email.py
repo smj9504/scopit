@@ -406,6 +406,131 @@ The {settings.APP_NAME} Team
             text_content=text_content,
         )
 
+    def send_document_email(
+        self,
+        to_email: str,
+        document_type: str,
+        document_number: str,
+        company_name: str,
+        customer_name: str,
+        total: str,
+        pdf_data: bytes,
+        pdf_filename: str,
+        sender_name: Optional[str] = None,
+        sender_email: Optional[str] = None,
+        message: Optional[str] = None,
+        subject: Optional[str] = None,
+        cc_emails: Optional[list[str]] = None,
+    ) -> bool:
+        """
+        Email an estimate or invoice PDF to a customer.
+
+        Args:
+            to_email: Customer's email address
+            document_type: "estimate" or "invoice" (controls wording only)
+            document_number: e.g. "EST-0001" or "INV-0042"
+            company_name: Sending company's display name
+            customer_name: Customer's display name
+            total: Pre-formatted total amount (e.g. "$1,234.56")
+            pdf_data: Rendered PDF bytes to attach
+            pdf_filename: Attachment filename
+            sender_name: The user who triggered the send (for From/reply context)
+            sender_email: Reply-To address so customer replies reach the sender
+            message: Optional custom note from the sender, shown above the summary
+            subject: Optional subject override
+            cc_emails: Additional recipients to Cc
+
+        Returns:
+            True if sent successfully
+        """
+        label = "Estimate" if document_type == "estimate" else "Invoice"
+        subject = subject or f"{label} {document_number} from {company_name}"
+
+        message_block = ""
+        if message:
+            message_block = f"""
+      <p style="margin:0 0 20px 0; padding:16px 18px; background-color:{COLOR_BG}; border:1px solid {COLOR_BORDER}; border-radius:8px; color:{COLOR_TEXT}; font-size:14px; line-height:1.6; font-family:{FONT_STACK_BODY}; white-space:pre-wrap;">{message}</p>"""
+
+        body_html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  <tr>
+    <td>
+      <h1 style="margin:0 0 14px 0; font-family:{FONT_STACK_HEADING}; font-size:23px; font-weight:800; color:{COLOR_PRIMARY}; letter-spacing:-0.3px;">
+        {label} {document_number}
+      </h1>
+      <p style="margin:0 0 18px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
+        Hi {customer_name}, {company_name} has sent you {'an' if document_type == 'estimate' else 'an'} {document_type} for your review. The full details are in the attached PDF.
+      </p>
+      {message_block}
+    </td>
+  </tr>
+  <tr>
+    <td style="padding-bottom:24px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{COLOR_BG}; border:1px solid {COLOR_BORDER}; border-radius:10px;">
+        <tr>
+          <td style="padding:18px 22px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="color:{COLOR_MUTED}; font-size:13px; font-family:{FONT_STACK_BODY};">{label} Number</td>
+                <td align="right" style="color:{COLOR_PRIMARY}; font-size:13px; font-weight:600; font-family:{FONT_STACK_BODY};">{document_number}</td>
+              </tr>
+              <tr>
+                <td style="padding-top:8px; color:{COLOR_MUTED}; font-size:13px; font-family:{FONT_STACK_BODY};">Total</td>
+                <td align="right" style="padding-top:8px; color:{COLOR_PRIMARY}; font-size:15px; font-weight:700; font-family:{FONT_STACK_BODY};">{total}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="border-top:1px solid {COLOR_BORDER}; padding-top:20px;">
+      <p style="margin:0; color:{COLOR_FAINT}; font-size:13px; line-height:1.6; font-family:{FONT_STACK_BODY};">
+        A copy of this {document_type} is attached as a PDF. Questions? Just reply to this email.
+      </p>
+    </td>
+  </tr>
+</table>
+"""
+
+        html_content = self._base_template(
+            title=subject,
+            preheader=f"{label} {document_number} — {total}",
+            body_html=body_html,
+        )
+
+        text_lines = [
+            f"{label} {document_number}",
+            "",
+            f"Hi {customer_name}, {company_name} has sent you {'an' if document_type == 'estimate' else 'an'} {document_type} for your review. The full details are in the attached PDF.",
+        ]
+        if message:
+            text_lines += ["", message]
+        text_lines += [
+            "",
+            f"{label} Number: {document_number}",
+            f"Total: {total}",
+            "",
+            f"A copy of this {document_type} is attached as a PDF. Questions? Just reply to this email.",
+        ]
+        text_content = "\n".join(text_lines)
+
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content,
+            reply_to=sender_email,
+            from_display_name=f"{sender_name} via {settings.APP_NAME}" if sender_name else None,
+            attachments=[{
+                "data": pdf_data,
+                "filename": pdf_filename,
+                "mime_type": "application/pdf",
+            }],
+            cc_emails=cc_emails or [],
+        )
+
 
 # Singleton instance
 email_service = EmailService()

@@ -17,8 +17,10 @@ CURRENCY_PRECISION = Decimal('0.01')
 from app.common.responses import BulkOperationResponse, MessageResponse
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.email import email_service
 from app.core.pdf_generator import (
     DEFAULT_TEMPLATE,
+    format_currency,
     generate_estimate_html,
     generate_estimate_pdf,
     get_available_templates,
@@ -47,6 +49,13 @@ router = APIRouter()
 
 class StatusUpdateRequest(BaseModel):
     status_id: str
+
+
+class SendEstimateRequest(BaseModel):
+    to_email: Optional[str] = None  # Defaults to the customer's email on file
+    cc_emails: List[str] = Field(default_factory=list)
+    message: Optional[str] = None
+    template: Optional[str] = None
 
 
 class EstimateItemCreate(BaseModel):
@@ -1095,19 +1104,70 @@ async def reorder_item(
 @router.post("/{estimate_id}/send")
 async def send_estimate(
     estimate_id: str,
+    data: SendEstimateRequest = SendEstimateRequest(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send estimate via email"""
+    """Email the estimate PDF to the customer, then mark it as sent"""
     estimate = db.query(Estimate).filter(
         and_(
             Estimate.id == estimate_id,
             Estimate.company_id == current_user.company_id,
         )
     ).first()
-    
+
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
+
+    company = db.query(Company).filter(Company.id == current_user.company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Resolve recipient: explicit override, then customer relationship, then snapshot field
+    to_email = (
+        data.to_email
+        or (estimate.customer.email if estimate.customer else None)
+        or estimate.customer_email
+    )
+    if not to_email:
+        raise HTTPException(
+            status_code=400,
+            detail="No customer email on file. Add an email address before sending.",
+        )
+
+    if not email_service.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Email sending is not configured. Contact support.",
+        )
+
+    # Generate the PDF exactly as the download endpoint does
+    template_name = data.template or current_user.default_pdf_template or DEFAULT_TEMPLATE
+    pdf_data = _prepare_estimate_pdf_data(estimate, company, db)
+    pdf_bytes = generate_estimate_pdf(pdf_data, template_name)
+
+    customer_name = estimate.customer.name if estimate.customer else (estimate.customer_name or "Customer")
+
+    sent = email_service.send_document_email(
+        to_email=to_email,
+        document_type="estimate",
+        document_number=estimate.estimate_number or "",
+        company_name=company.name or "",
+        customer_name=customer_name,
+        total=format_currency(estimate.total),
+        pdf_data=pdf_bytes.read(),
+        pdf_filename=f"Estimate {estimate.estimate_number}.pdf",
+        sender_name=current_user.full_name,
+        sender_email=current_user.email,
+        message=data.message,
+        cc_emails=data.cc_emails,
+    )
+
+    if not sent:
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to send email. Please try again or contact support.",
+        )
 
     # Get "sent" status config
     sent_status = db.query(EstimateStatusConfig).filter(
@@ -1123,9 +1183,7 @@ async def send_estimate(
     estimate.sent_at = datetime.utcnow()
     db.commit()
 
-    # TODO: Send email
-
-    return MessageResponse(message="Estimate sent")
+    return MessageResponse(message=f"Estimate sent to {to_email}")
 
 
 @router.patch("/{estimate_id}/status", response_model=EstimateResponse)

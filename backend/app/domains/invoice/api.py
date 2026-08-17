@@ -16,8 +16,10 @@ CURRENCY_PRECISION = Decimal('0.01')
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.email import email_service
 from app.core.pdf_generator import (
     DEFAULT_TEMPLATE,
+    format_currency,
     generate_invoice_html,
     generate_invoice_pdf,
     generate_receipt_html,
@@ -47,6 +49,15 @@ router = APIRouter()
 
 class StatusUpdateRequest(BaseModel):
     status_id: str = Field(alias="statusId")
+
+    model_config = {"populate_by_name": True}
+
+
+class SendInvoiceRequest(BaseModel):
+    to_email: Optional[str] = Field(default=None, alias="toEmail")
+    cc_emails: List[str] = Field(default_factory=list, alias="ccEmails")
+    message: Optional[str] = None
+    template: Optional[str] = None
 
     model_config = {"populate_by_name": True}
 
@@ -988,6 +999,87 @@ async def delete_payment(
 # ===================
 # Actions
 # ===================
+
+@router.post("/{invoice_id}/send", response_model=InvoiceResponse)
+async def send_invoice(
+    invoice_id: str,
+    data: SendInvoiceRequest = SendInvoiceRequest(),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Email the invoice PDF to the customer, then mark it as sent"""
+    invoice = db.query(Invoice).filter(
+        and_(
+            Invoice.id == invoice_id,
+            Invoice.company_id == current_user.company_id,
+        )
+    ).first()
+
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    company = db.query(Company).filter(Company.id == current_user.company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Resolve recipient: explicit override, then customer relationship, then snapshot field
+    to_email = (
+        data.to_email
+        or (invoice.customer.email if invoice.customer else None)
+        or invoice.customer_email
+    )
+    if not to_email:
+        raise HTTPException(
+            status_code=400,
+            detail="No customer email on file. Add an email address before sending.",
+        )
+
+    if not email_service.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Email sending is not configured. Contact support.",
+        )
+
+    # Generate the PDF exactly as the download endpoint does
+    template_name = data.template or current_user.default_pdf_template or DEFAULT_TEMPLATE
+    pdf_data = _prepare_invoice_pdf_data(invoice, company, db)
+    pdf_bytes = generate_invoice_pdf(pdf_data, template_name)
+
+    customer_name = invoice.customer.name if invoice.customer else (invoice.customer_name or "Customer")
+
+    sent = email_service.send_document_email(
+        to_email=to_email,
+        document_type="invoice",
+        document_number=invoice.invoice_number or "",
+        company_name=company.name or "",
+        customer_name=customer_name,
+        total=format_currency(invoice.balance_due if invoice.balance_due else invoice.total),
+        pdf_data=pdf_bytes.read(),
+        pdf_filename=f"Invoice {invoice.invoice_number}.pdf",
+        sender_name=current_user.full_name,
+        sender_email=current_user.email,
+        message=data.message,
+        cc_emails=data.cc_emails,
+    )
+
+    if not sent:
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to send email. Please try again or contact support.",
+        )
+
+    # Get "sent" status config
+    sent_status = get_invoice_status_by_name(db, current_user.company_id, "sent")
+
+    invoice.status = InvoiceStatus.SENT
+    if sent_status:
+        invoice.status_id = sent_status.id
+    invoice.sent_at = datetime.utcnow()
+    db.commit()
+    db.refresh(invoice)
+
+    return InvoiceResponse(**serialize_invoice(invoice))
+
 
 @router.post("/{invoice_id}/mark-sent", response_model=InvoiceResponse)
 async def mark_as_sent(

@@ -29,6 +29,7 @@ import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { useEstimateStatuses, getStatusDisplay } from '@/hooks/useSettings';
 import { estimateService } from '@/services/estimateService';
+import { getErrorMessage } from '@/services/api';
 import { useIsMobile, useIsNarrow } from '@/hooks/useIsMobile';
 import { useBackNav } from '@/hooks/useHeaderNav';
 import type { EstimateStatus, Adjustment, EstimatePayment } from '@/types/entities';
@@ -44,6 +45,8 @@ const EstimateDetailPage: React.FC = () => {
   const [adjustmentForm] = Form.useForm();
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendForm] = Form.useForm();
 
   useBackNav('Back to Estimates', '/app/estimates');
 
@@ -161,6 +164,22 @@ const EstimateDetailPage: React.FC = () => {
     },
     onError: () => {
       message.error('Failed to add adjustment');
+    },
+  });
+
+  // Send estimate mutation
+  const sendMutation = useMutation({
+    mutationFn: (data: { toEmail: string; ccEmails?: string[]; message?: string }) =>
+      estimateService.send(id!, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['estimates'] });
+      queryClient.invalidateQueries({ queryKey: ['estimate', id] });
+      message.success(result.message || 'Estimate sent');
+      setSendModalOpen(false);
+      sendForm.resetFields();
+    },
+    onError: (err) => {
+      message.error(getErrorMessage(err));
     },
   });
 
@@ -347,13 +366,30 @@ const EstimateDetailPage: React.FC = () => {
     }
   };
 
+  const handleOpenSendModal = () => {
+    sendForm.setFieldsValue({
+      toEmail: estimate?.customerEmail || '',
+    });
+    setSendModalOpen(true);
+  };
+
+  const handleSendEstimate = (values: { toEmail: string; ccEmails?: string; message?: string }) => {
+    sendMutation.mutate({
+      toEmail: values.toEmail,
+      ccEmails: values.ccEmails
+        ? values.ccEmails.split(',').map((e) => e.trim()).filter(Boolean)
+        : undefined,
+      message: values.message,
+    });
+  };
+
   const handleMenuClick = ({ key }: { key: string }) => {
     switch (key) {
       case 'download':
         handleDownloadPdf();
         break;
       case 'send':
-        message.info('Send feature coming soon');
+        handleOpenSendModal();
         break;
       case 'edit':
         navigate(`/app/estimates/${id}/edit`);
@@ -463,7 +499,7 @@ const EstimateDetailPage: React.FC = () => {
             /* Desktop: All buttons visible */
             <Space>
               <Button icon={<DownloadOutlined />} onClick={handleDownloadPdf}>Download PDF</Button>
-              <Button icon={<SendOutlined />}>Send</Button>
+              <Button icon={<SendOutlined />} onClick={handleOpenSendModal}>Send</Button>
               <Button
                 icon={<DollarOutlined />}
                 type="primary"
@@ -488,7 +524,18 @@ const EstimateDetailPage: React.FC = () => {
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Customer & Dates */}
           <Card style={{ borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: shadows.card }}>
-            <Descriptions column={{ xs: 1, sm: 1, md: 1, lg: 2, xl: 3 }}>
+            <style>{`
+              .estimate-header-descriptions .ant-descriptions-item-container {
+                align-items: center !important;
+              }
+              .estimate-header-descriptions .ant-descriptions-item-content .ant-picker {
+                padding: 0 !important;
+              }
+              .estimate-header-descriptions .ant-descriptions-item-content .ant-picker-input > input {
+                line-height: 22px;
+              }
+            `}</style>
+            <Descriptions className="estimate-header-descriptions" column={{ xs: 1, sm: 1, md: 1, lg: 2, xl: 3 }}>
               <Descriptions.Item label="Customer">
                 <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                   <div style={{ fontWeight: 600 }}>{estimate.customerName || '—'}</div>
@@ -845,6 +892,42 @@ const EstimateDetailPage: React.FC = () => {
               precision={2}
               placeholder="10.00"
             />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Send Modal */}
+      <Modal
+        title="Send Estimate"
+        open={sendModalOpen}
+        onCancel={() => {
+          setSendModalOpen(false);
+          sendForm.resetFields();
+        }}
+        onOk={() => sendForm.submit()}
+        okText="Send"
+        confirmLoading={sendMutation.isPending}
+      >
+        <Form form={sendForm} layout="vertical" onFinish={handleSendEstimate}>
+          <Form.Item
+            name="toEmail"
+            label="Customer Email"
+            rules={[
+              { required: true, message: 'Please enter the customer email' },
+              { type: 'email', message: 'Please enter a valid email address' },
+            ]}
+          >
+            <Input placeholder="customer@example.com" />
+          </Form.Item>
+          <Form.Item
+            name="ccEmails"
+            label="Cc (optional)"
+            tooltip="Separate multiple addresses with commas"
+          >
+            <Input placeholder="you@example.com, another@example.com" />
+          </Form.Item>
+          <Form.Item name="message" label="Message (optional)">
+            <Input.TextArea rows={3} placeholder="Add a note for the customer..." />
           </Form.Item>
         </Form>
       </Modal>

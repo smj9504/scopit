@@ -248,13 +248,19 @@ export const estimateService = {
   },
 
   /**
-   * Send estimate by email
+   * Email the estimate PDF to the customer
    */
   send: async (
     id: string,
-    data: { to: string; subject: string; message: string }
-  ): Promise<void> => {
-    await api.post(`/estimates/${id}/send`, data);
+    data: { toEmail?: string; ccEmails?: string[]; message?: string; template?: PdfTemplateId }
+  ): Promise<{ message: string }> => {
+    const response = await api.post<{ message: string }>(`/estimates/${id}/send`, {
+      to_email: data.toEmail,
+      cc_emails: data.ccEmails,
+      message: data.message,
+      template: data.template,
+    });
+    return response.data;
   },
 
   /**

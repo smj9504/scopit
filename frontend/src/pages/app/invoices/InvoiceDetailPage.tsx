@@ -27,6 +27,7 @@ import dayjs from 'dayjs';
 import { colors, fonts, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import { invoiceService } from '@/services/invoiceService';
+import { getErrorMessage } from '@/services/api';
 import { useInvoiceStatuses, getStatusDisplay } from '@/hooks/useSettings';
 import { useIsMobile, useIsNarrow } from '@/hooks/useIsMobile';
 import { useBackNav } from '@/hooks/useHeaderNav';
@@ -51,6 +52,8 @@ const InvoiceDetailPage: React.FC = () => {
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendForm] = Form.useForm();
 
   useBackNav('Back to Invoices', '/app/invoices');
   const [receiptPreviewPayment, setReceiptPreviewPayment] = useState<Payment | null>(null);
@@ -115,6 +118,22 @@ const InvoiceDetailPage: React.FC = () => {
     },
   });
 
+  // Send invoice mutation
+  const sendMutation = useMutation({
+    mutationFn: (data: { toEmail: string; ccEmails?: string[]; message?: string }) =>
+      invoiceService.send(id!, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['invoice', id] });
+      message.success('Invoice sent');
+      setSendModalOpen(false);
+      sendForm.resetFields();
+    },
+    onError: (err) => {
+      message.error(getErrorMessage(err));
+    },
+  });
+
   // Handlers
   const handleDownloadPdf = async () => {
     try {
@@ -134,9 +153,21 @@ const InvoiceDetailPage: React.FC = () => {
     }
   };
 
-  const handleSend = async () => {
-    // TODO: Implement send email modal
-    message.info('Send email feature coming soon');
+  const handleSend = () => {
+    sendForm.setFieldsValue({
+      toEmail: customerEmail,
+    });
+    setSendModalOpen(true);
+  };
+
+  const handleSendInvoice = (values: { toEmail: string; ccEmails?: string; message?: string }) => {
+    sendMutation.mutate({
+      toEmail: values.toEmail,
+      ccEmails: values.ccEmails
+        ? values.ccEmails.split(',').map((e) => e.trim()).filter(Boolean)
+        : undefined,
+      message: values.message,
+    });
   };
 
   const handleRecordPayment = async (values: any) => {
@@ -611,7 +642,18 @@ const InvoiceDetailPage: React.FC = () => {
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Customer & Dates */}
           <Card style={{ borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: shadows.card }}>
-            <Descriptions column={{ xs: 1, sm: 1, md: 1, lg: 2, xl: 3 }}>
+            <style>{`
+              .invoice-header-descriptions .ant-descriptions-item-container {
+                align-items: center !important;
+              }
+              .invoice-header-descriptions .ant-descriptions-item-content .ant-picker {
+                padding: 0 !important;
+              }
+              .invoice-header-descriptions .ant-descriptions-item-content .ant-picker-input > input {
+                line-height: 22px;
+              }
+            `}</style>
+            <Descriptions className="invoice-header-descriptions" column={{ xs: 1, sm: 1, md: 1, lg: 2, xl: 3 }}>
               <Descriptions.Item label="Customer">
                 <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                   <div style={{ fontWeight: 600 }}>{customerName || '—'}</div>
@@ -1083,6 +1125,42 @@ const InvoiceDetailPage: React.FC = () => {
               precision={2}
               placeholder="10.00"
             />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Send Modal */}
+      <Modal
+        title="Send Invoice"
+        open={sendModalOpen}
+        onCancel={() => {
+          setSendModalOpen(false);
+          sendForm.resetFields();
+        }}
+        onOk={() => sendForm.submit()}
+        okText="Send"
+        confirmLoading={sendMutation.isPending}
+      >
+        <Form form={sendForm} layout="vertical" onFinish={handleSendInvoice}>
+          <Form.Item
+            name="toEmail"
+            label="Customer Email"
+            rules={[
+              { required: true, message: 'Please enter the customer email' },
+              { type: 'email', message: 'Please enter a valid email address' },
+            ]}
+          >
+            <Input placeholder="customer@example.com" />
+          </Form.Item>
+          <Form.Item
+            name="ccEmails"
+            label="Cc (optional)"
+            tooltip="Separate multiple addresses with commas"
+          >
+            <Input placeholder="you@example.com, another@example.com" />
+          </Form.Item>
+          <Form.Item name="message" label="Message (optional)">
+            <Input.TextArea rows={3} placeholder="Add a note for the customer..." />
           </Form.Item>
         </Form>
       </Modal>
