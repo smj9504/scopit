@@ -19,8 +19,28 @@ import { formatCurrency } from '@/utils/formatters';
 import { useInvoiceStatuses, getStatusDisplay } from '@/hooks/useSettings';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { ImportExcelModal } from '@/components/common/ImportExcelModal';
+import { ColumnVisibilityControl } from '@/components/common/ColumnVisibilityControl';
 import type { Invoice, InvoiceStatus, ExcelParsedSection } from '@/types/entities';
 import type { ColumnsType } from 'antd/es/table';
+
+const HIDDEN_COLUMNS_KEY = 'invoices_hidden_columns';
+const COLUMN_OPTIONS = [
+  { key: 'customerName', label: 'Customer' },
+  { key: 'address', label: 'Address' },
+  { key: 'invoiceDate', label: 'Date' },
+  { key: 'dueDate', label: 'Due Date' },
+  { key: 'status', label: 'Status' },
+  { key: 'total', label: 'Total' },
+  { key: 'balanceDue', label: 'Balance' },
+];
+
+const formatAddress = (record: Invoice) => {
+  const line1 = record.customerAddressLine1;
+  const cityState = [record.customerCity, [record.customerState, record.customerZipcode].filter(Boolean).join(' ')]
+    .filter(Boolean)
+    .join(', ');
+  return [line1, cityState].filter(Boolean).join(', ');
+};
 
 const InvoicesListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -29,7 +49,19 @@ const InvoicesListPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(HIDDEN_COLUMNS_KEY) || '[]');
+    } catch {
+      return [];
+    }
+  });
   const isMobile = useIsMobile();
+
+  const handleHiddenColumnsChange = (keys: string[]) => {
+    setHiddenColumns(keys);
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify(keys));
+  };
 
   // Fetch invoice statuses
   const { data: statusConfigs } = useInvoiceStatuses();
@@ -60,7 +92,7 @@ const InvoicesListPage: React.FC = () => {
       }),
   });
 
-  const columns: ColumnsType<Invoice> = [
+  const allColumns: ColumnsType<Invoice> = [
     {
       title: 'Number',
       dataIndex: 'invoiceNumber',
@@ -80,6 +112,17 @@ const InvoicesListPage: React.FC = () => {
       width: 140,
       ellipsis: true,
       render: (text) => text || <span style={{ color: colors.textMuted }}>-</span>,
+    },
+    {
+      title: 'Address',
+      key: 'address',
+      width: 200,
+      ellipsis: true,
+      responsive: ['md'] as const,
+      render: (_, record) => {
+        const address = formatAddress(record);
+        return <span style={{ color: address ? undefined : colors.textMuted }}>{address || '—'}</span>;
+      },
     },
     {
       title: 'Date',
@@ -133,6 +176,8 @@ const InvoicesListPage: React.FC = () => {
       ),
     },
   ];
+
+  const columns = allColumns.filter((col) => !hiddenColumns.includes(col.key as string));
 
   const invoices = data?.items || [];
 
@@ -217,6 +262,13 @@ const InvoicesListPage: React.FC = () => {
             label: status.name.charAt(0).toUpperCase() + status.name.slice(1),
           }))}
         />
+        {!isMobile && (
+          <ColumnVisibilityControl
+            options={COLUMN_OPTIONS}
+            hiddenKeys={hiddenColumns}
+            onChange={handleHiddenColumnsChange}
+          />
+        )}
       </div>
 
       {/* Mobile card view */}

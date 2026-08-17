@@ -28,8 +28,27 @@ import { formatCurrency } from '@/utils/formatters';
 import { useEstimateStatuses, getStatusDisplay } from '@/hooks/useSettings';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { ImportExcelModal } from '@/components/common/ImportExcelModal';
+import { ColumnVisibilityControl } from '@/components/common/ColumnVisibilityControl';
 import type { Estimate, EstimateStatus, ExcelParsedSection } from '@/types/entities';
 import type { ColumnsType } from 'antd/es/table';
+
+const HIDDEN_COLUMNS_KEY = 'estimates_hidden_columns';
+const COLUMN_OPTIONS = [
+  { key: 'customerName', label: 'Customer' },
+  { key: 'address', label: 'Address' },
+  { key: 'title', label: 'Title' },
+  { key: 'estimateDate', label: 'Date' },
+  { key: 'status', label: 'Status' },
+  { key: 'total', label: 'Total' },
+];
+
+const formatAddress = (record: Estimate) => {
+  const line1 = record.customerAddressLine1;
+  const cityState = [record.customerCity, [record.customerState, record.customerZipcode].filter(Boolean).join(' ')]
+    .filter(Boolean)
+    .join(', ');
+  return [line1, cityState].filter(Boolean).join(', ');
+};
 
 const EstimatesListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -37,7 +56,19 @@ const EstimatesListPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(HIDDEN_COLUMNS_KEY) || '[]');
+    } catch {
+      return [];
+    }
+  });
   const isMobile = useIsMobile();
+
+  const handleHiddenColumnsChange = (keys: string[]) => {
+    setHiddenColumns(keys);
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify(keys));
+  };
 
   // Fetch estimate statuses
   const { data: statusConfigs } = useEstimateStatuses();
@@ -68,7 +99,7 @@ const EstimatesListPage: React.FC = () => {
       }),
   });
 
-  const columns: ColumnsType<Estimate> = [
+  const allColumns: ColumnsType<Estimate> = [
     {
       title: 'Number',
       dataIndex: 'estimateNumber',
@@ -94,6 +125,21 @@ const EstimatesListPage: React.FC = () => {
           {text || '\u2014'}
         </span>
       ),
+    },
+    {
+      title: 'Address',
+      key: 'address',
+      width: 200,
+      ellipsis: true,
+      responsive: ['md'] as const,
+      render: (_, record) => {
+        const address = formatAddress(record);
+        return (
+          <span style={{ color: address ? colors.textSecondary : colors.textMuted, fontSize: 14 }}>
+            {address || '—'}
+          </span>
+        );
+      },
     },
     {
       title: 'Title',
@@ -155,6 +201,8 @@ const EstimatesListPage: React.FC = () => {
       ),
     },
   ];
+
+  const columns = allColumns.filter((col) => !hiddenColumns.includes(col.key as string));
 
   const estimates = data?.items || [];
 
@@ -252,6 +300,13 @@ const EstimatesListPage: React.FC = () => {
             label: status.name.charAt(0).toUpperCase() + status.name.slice(1),
           }))}
         />
+        {!isMobile && (
+          <ColumnVisibilityControl
+            options={COLUMN_OPTIONS}
+            hiddenKeys={hiddenColumns}
+            onChange={handleHiddenColumnsChange}
+          />
+        )}
       </div>
 
       {/* Mobile card view */}
