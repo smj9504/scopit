@@ -35,5 +35,5 @@ include both the moisture barrier and the pad.
 - Manufacturer / cushion spec (moisture barrier under pad over concrete)
 
 ## Related
-- [[Underlayment Notes (MOC)]]
+- [[Underlayment (MOC)]]
 - [[Carpet (Wood Subfloor)]]

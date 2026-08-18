@@ -36,5 +36,5 @@ required system is dictated by the measured slab RH — test first, then spec.
 - Manufacturer moisture-mitigating adhesive / membrane spec rated to slab RH
 
 ## Related
-- [[Underlayment Notes (MOC)]]
+- [[Underlayment (MOC)]]
 - [[Engineered Wood - Floating (Concrete Slab)]]

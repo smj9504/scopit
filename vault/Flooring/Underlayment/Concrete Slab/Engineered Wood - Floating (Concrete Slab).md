@@ -37,6 +37,7 @@ underlayment line with the floating engineered wood.
 - Manufacturer installation specification (vapor retarder + acoustic pad)
 
 ## Related
-- [[Underlayment Notes (MOC)]]
+- [[Underlayment (MOC)]]
+- [[Vapor barrier vs retarder (felt vs poly)]] — 슬래브엔 poly(차단재)를 쓰는 이유
 - [[Engineered Wood - Floating (Wood Subfloor)]]
 - [[Engineered Wood - Glue-Down (Concrete Slab)]]

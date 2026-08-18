@@ -37,5 +37,5 @@ voids warranty coverage.
 - Manufacturer installation specification (pad + vapor barrier, or attached-pad note)
 
 ## Related
-- [[Underlayment Notes (MOC)]]
+- [[Underlayment (MOC)]]
 - [[LVP-LVT - Floating (Wood Subfloor)]]

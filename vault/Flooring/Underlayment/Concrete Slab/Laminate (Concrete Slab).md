@@ -35,5 +35,5 @@ the vapor barrier and the foam underlayment.
 - Manufacturer installation specification (6-mil vapor barrier + foam underlayment)
 
 ## Related
-- [[Underlayment Notes (MOC)]]
+- [[Underlayment (MOC)]]
 - [[Laminate (Wood Subfloor)]]

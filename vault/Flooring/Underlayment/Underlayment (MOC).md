@@ -22,6 +22,9 @@ covers **one situation** = *substrate × flooring type × install method*.
 > linking it into the matrix below. The tags keep everything queryable even if
 > you forget to add a link.
 
+## Concepts
+- [[Vapor barrier vs retarder (felt vs poly)]] — 15# felt(지연재) vs 6-mil poly(차단재), 언제 무엇을 쓰나
+
 ## Matrix
 
 | Substrate | Flooring / Install | Note |

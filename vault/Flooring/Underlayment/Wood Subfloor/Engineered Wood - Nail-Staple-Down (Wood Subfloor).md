@@ -39,6 +39,7 @@ line.
 - Manufacturer installation specification (15 lb felt / building paper)
 
 ## Related
-- [[Underlayment Notes (MOC)]]
+- [[Underlayment (MOC)]]
+- [[Vapor barrier vs retarder (felt vs poly)]] — 목재 위엔 felt(지연재), poly 금지 이유
 - [[Solid Hardwood - Nail-Down (Wood Subfloor)]]
 - [[Engineered Wood - Floating (Wood Subfloor)]]
