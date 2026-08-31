@@ -139,6 +139,13 @@ class Settings(BaseSettings):
     # the public /packing-estimate form. Empty string disables the notification.
     PACKING_LEAD_NOTIFY_EMAIL: str = "mjbuildworks@gmail.com"
 
+    # ===================
+    # Signup notifications
+    # ===================
+    # Internal address notified whenever a new account finishes signup (email
+    # verified, or a first Google sign-in). Empty string disables the notice.
+    SIGNUP_NOTIFY_EMAIL: str = "mjbuildworks@gmail.com"
+
     class Config:
         env_file = ".env.local"
         case_sensitive = True
