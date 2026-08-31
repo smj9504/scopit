@@ -13,7 +13,6 @@ from app.core.config import settings
 from app.core.email import EmailService
 from app.domains.auth.api import _notify_admin_of_signup
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
 def make_user(**overrides):
