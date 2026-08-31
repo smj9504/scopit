@@ -732,7 +732,6 @@ async def _analyze_room_with_claude(
     pass1_msg = await client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
-        temperature=0,
         tools=[PASS1_TOOL],
         tool_choice={"type": "tool", "name": "report_room_contents"},
         messages=[{"role": "user", "content": content}],
