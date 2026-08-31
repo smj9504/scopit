@@ -514,11 +514,21 @@ async def export_report(
     client_info = session_data.get("client_info", {})
 
     # Helper: load photos from storage keys for report embedding
+    #
+    # Photos are compressed to the report's target size immediately after
+    # each storage read, before the next one is fetched — not after all of
+    # them have been pulled into memory as full-resolution originals. A
+    # report with several rooms of multi-MB photos was previously holding
+    # every original (plus its ~33% larger base64 encoding) in memory at
+    # once, which was enough to OOM the backend's free-tier instance; that
+    # crash surfaces to the browser as a CORS error since the killed
+    # connection never gets a response with CORS headers attached.
     def _load_photos_from_keys(photo_keys: list, room_name: str) -> list:
-        """Read photo_keys from storage and return base64 report photo dicts."""
+        """Read photo_keys from storage and return compressed report photo dicts."""
         import base64 as b64mod
 
         from app.core.storage import get_storage
+        from app.domains.tools.modules.packing.export import _compress_image_bytes
         if not photo_keys:
             return []
         storage = get_storage()
@@ -526,11 +536,15 @@ async def export_report(
         for idx, key in enumerate(photo_keys):
             try:
                 data = storage.read(key)
-                ext = key.rsplit(".", 1)[-1].lower() if "." in key else "jpg"
-                mime = {"png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
-                encoded = b64mod.b64encode(data).decode("ascii")
+                compressed = _compress_image_bytes(
+                    data,
+                    max_width=request.max_image_width,
+                    max_height=request.max_image_width,
+                    quality=request.image_quality,
+                )
+                encoded = b64mod.b64encode(compressed).decode("ascii")
                 photos.append({
-                    "image": f"data:{mime};base64,{encoded}",
+                    "image": f"data:image/jpeg;base64,{encoded}",
                     "caption": f"{room_name} - Photo {idx + 1}",
                     "is_damage": False,
                 })
@@ -686,24 +700,40 @@ async def export_report(
         client_info.get("property_state"),
         client_info.get("property_zipcode"),
     )
-    pdf_bytes = await asyncio.to_thread(
-        generate_report_pdf,
-        session_data=session_data,
-        rooms_data=rooms_data,
-        sections_config=sections_cfg,
-        client_name=client_info.get("name"),
-        client_phone=client_info.get("phone"),
-        client_email=client_info.get("email"),
-        property_address=property_address,
-        company_info=company_info,
-        tax_rate=request.tax_rate,
-        notes=request.notes,
-        include_signature_page=request.include_signature_page,
-        include_field_notes=request.include_field_notes,
-        image_quality=request.image_quality,
-        max_image_width=request.max_image_width,
-        photos_per_page=request.photos_per_page,
-    )
+    try:
+        pdf_bytes = await asyncio.to_thread(
+            generate_report_pdf,
+            session_data=session_data,
+            rooms_data=rooms_data,
+            sections_config=sections_cfg,
+            client_name=client_info.get("name"),
+            client_phone=client_info.get("phone"),
+            client_email=client_info.get("email"),
+            property_address=property_address,
+            company_info=company_info,
+            tax_rate=request.tax_rate,
+            notes=request.notes,
+            include_signature_page=request.include_signature_page,
+            include_field_notes=request.include_field_notes,
+            image_quality=request.image_quality,
+            max_image_width=request.max_image_width,
+            photos_per_page=request.photos_per_page,
+        )
+    except Exception:
+        # Surface as a normal JSON 500 (which carries CORS headers via
+        # CORSMiddleware) instead of letting the exception propagate and
+        # risk an unhandled crash whose response never reaches the client
+        # with CORS headers attached — that shows up in the browser as an
+        # opaque CORS error instead of the real failure.
+        logger.exception(
+            "Packing report PDF generation failed for session %s",
+            request.session_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate report PDF. Please try again, or "
+                   "reduce photo count/quality if the report is very large.",
+        )
 
     addr_slug = _build_address_slug(
         client_info.get("property_address_line1"),
