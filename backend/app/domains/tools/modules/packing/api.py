@@ -552,6 +552,41 @@ async def export_report(
                 continue
         return photos
 
+    # Any photo dict list that did NOT come through _load_photos_from_keys
+    # above still needs to be resized before it reaches generate_report_pdf:
+    # - Photos the frontend sends inline in the request body (ReportExportModal
+    #   fetches originals via /photos/{key} and re-encodes them full-size).
+    # - Old inline base64 photos stored directly in session data (pre-photo_keys
+    #   sessions), read as-is with no size limit.
+    # Without this, a report with several full-resolution photos can hold many
+    # originals in memory at once and exceed the backend's memory limit.
+    def _recompress_photo_dicts(photos: list) -> list:
+        from app.domains.tools.modules.packing.export import _compress_image_bytes
+        out = []
+        for p in photos:
+            if not isinstance(p, dict):
+                continue
+            b64 = p.get("image", "")
+            if not b64 or len(b64) < 100:
+                continue
+            try:
+                raw_b64 = b64.split(",", 1)[1] if "," in b64 else b64
+                raw = base64.b64decode(raw_b64)
+                compressed = _compress_image_bytes(
+                    raw,
+                    max_width=request.max_image_width,
+                    max_height=request.max_image_width,
+                    quality=request.image_quality,
+                )
+                encoded = base64.b64encode(compressed).decode("ascii")
+                out.append({
+                    **p,
+                    "image": f"data:image/jpeg;base64,{encoded}",
+                })
+            except Exception:
+                continue
+        return out
+
     # Build rooms data from request or fall back to session
     rooms_data = []
     session_photo_rooms = session_data.get("photo_rooms", [])
@@ -579,7 +614,14 @@ async def export_report(
                 isinstance(p, dict) and isinstance(p.get("image"), str) and len(p["image"]) > 200
                 for p in existing_photos
             )
-            if not has_real_photos:
+            if has_real_photos:
+                # The frontend fetches these full-resolution (ReportExportModal
+                # re-encodes originals from /photos/{key}) — resize/compress
+                # them the same way _load_photos_from_keys does, or a report
+                # with several full-size photos can exceed the backend's
+                # memory limit.
+                rd["photos"] = _recompress_photo_dicts(existing_photos)
+            else:
                 room_name = rd.get("room_name", "")
                 # Try exact match first, then normalized match (ignore case/whitespace)
                 matching = next(
@@ -601,15 +643,16 @@ async def export_report(
                     if keys:
                         rd["photos"] = _load_photos_from_keys(keys, room_name)
                     elif matching.get("photos"):
-                        # Fallback: inline base64 photos from session
+                        # Fallback: inline base64 photos from session (no
+                        # size limit at capture time) — compress before use.
                         raw = matching["photos"]
-                        rd["photos"] = [
+                        rd["photos"] = _recompress_photo_dicts([
                             {"image": p if p.startswith("data:") else f"data:image/jpeg;base64,{p}",
                              "caption": f"{room_name} - Photo {idx + 1}",
                              "is_damage": False}
                             for idx, p in enumerate(raw)
                             if isinstance(p, str) and len(p) > 100
-                        ]
+                        ])
             # Compute per-room labor if not already provided
             if rd.get("labor_hours") is None:
                 room_labor, room_labor_notes = _compute_room_labor(
@@ -631,12 +674,14 @@ async def export_report(
                 if photo_keys:
                     report_photos = _load_photos_from_keys(photo_keys, room_name)
                 else:
+                    # Inline base64 photos with no size limit at capture
+                    # time — compress before use (see _recompress_photo_dicts).
                     raw_photos = pr.get("photos", [])
-                    report_photos = [
+                    report_photos = _recompress_photo_dicts([
                         {"image": p, "caption": "", "is_damage": False}
                         for p in raw_photos
                         if isinstance(p, str) and len(p) > 100
-                    ]
+                    ])
                 room_items = pr.get("items", [])
                 room_labor, room_labor_notes = _compute_room_labor(room_items, room_name)
                 rooms_data.append({
