@@ -15,6 +15,7 @@ import {
   Switch,
   App,
   Tabs,
+  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -87,6 +88,8 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
 
   // View state: list (default) or editor (wizard)
   const [view, setView] = useState<ViewState>(sessionId ? 'editor' : 'list');
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const [editorMode, setEditorMode] = useState<PackingMode>('quick');
 
   // Mode picker modal
@@ -188,9 +191,34 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     }).finally(() => setPresetsLoading(false));
   }, []);
 
-  // ── Restore session (when opened from outside with sessionId) ──────────
+  // Set right before we backfill the URL after creating a session for an
+  // estimate the user is already mid-editing (ensureSessionId) — tells the
+  // restore effect below to skip its fetch+reset for that one transition,
+  // since there's nothing to restore and doing so would wipe the user's
+  // in-progress unsaved edits.
+  const skipNextRestoreRef = useRef(false);
+
+  // ── Restore session (URL is the source of truth for which session is open) ──
+  // Fires on mount and whenever the `sessionId` prop changes — i.e. every
+  // in-app navigation to /app/tools/packing/:sessionId (from the list, from
+  // an external deep-link, or via browser back/forward) as well as a hard
+  // refresh. Always resets first so switching directly between two sessions
+  // never merges stale fields from the previous one.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      if (viewRef.current === 'editor') setHistoryKey((k) => k + 1); // force list refresh
+      setView('list');
+      return;
+    }
+    if (skipNextRestoreRef.current) {
+      skipNextRestoreRef.current = false;
+      setActiveSessionId(sessionId);
+      setView('editor');
+      return;
+    }
+    resetState();
+    setActiveSessionId(sessionId);
+    setView('editor');
     toolService.getSession(sessionId).then((session) => {
       const d = session.data as any;
       if (d?.rooms) setRooms(d.rooms);
@@ -215,23 +243,30 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         }));
         setPhotoRooms(restored);
       }
+      if (d?.packout_rooms) setPackoutRooms(d.packout_rooms);
+      if (d?.packout_settings) setPackoutSettings(d.packout_settings);
       if (d?.settings) setSettings(d.settings);
       if (d?.client_info) setClientInfo(d.client_info);
       if (d?.company_override) setCompanyOverride(d.company_override);
       if (d?.result) {
         setResult(d.result);
         setMaterialsMode(d.result.materials_mode === 'itemized' ? 'itemized' : 'pct_of_labor');
+        setEditorOpen(true);
       }
       setManuallyCompleted(!!d?.manually_completed);
       setLinkedEstimate(d?.linked_estimate_id ? { id: d.linked_estimate_id, number: d.linked_estimate_number ?? '' } : null);
       setLinkedInvoice(d?.linked_invoice_id ? { id: d.linked_invoice_id, number: d.linked_invoice_number ?? '' } : null);
-      if (d?.mode) {
-        setEditorMode(d.mode);
-        setEstimateMode(d.mode);
-      }
-      setView('editor');
+      const mode = d?.mode === 'content' ? 'content' : d?.mode === 'packout' ? 'packout' : 'quick';
+      setEditorMode(mode);
+      setEstimateMode(mode);
+      // Re-set in case the session was created after this effect started
+      // (ensureSessionId races) so the id stays correct.
+      setActiveSessionId(sessionId);
       pendingBaselineSyncRef.current = true;
-    }).catch(() => {});
+    }).catch(() => {
+      message.error('Failed to load estimate.');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   // ── Session creation (shared by both save paths below) ──────────────────
@@ -247,13 +282,21 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       data: { mode },
     }).then((session) => {
       setActiveSessionId(session.id);
+      // Backfill the URL now that this new estimate has an id, so refresh
+      // and browser back/forward work from this point on. `replace: true`
+      // avoids leaving a dangling history entry for the brief "new estimate,
+      // no id yet" moment. The restore effect would otherwise treat this
+      // sessionId change as "load session X" and wipe the in-progress edits
+      // the user just made — skip it for this one self-inflicted transition.
+      skipNextRestoreRef.current = true;
+      navigate(`/app/tools/packing/${session.id}`, { replace: true });
       return session.id;
     }).finally(() => {
       sessionCreationRef.current = null;
     });
     sessionCreationRef.current = promise;
     return promise;
-  }, [activeSessionId, clientInfo.name]);
+  }, [activeSessionId, clientInfo.name, navigate]);
 
   // ── Save: AI photo analysis results (Photo AI tab) ──────────────────────
   // Explicit only — lets users delete photos or re-run analysis freely
@@ -505,13 +548,22 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   }, [editorMode, photoRooms, rooms, settings, materialsMode]);
 
   // ── Create Scopit Estimate ────────────────────────────────────────────
+  // Ref (not just the `creatingEstimate` state) guards re-entrancy: a fast
+  // double-click can fire a second call before React re-renders the button
+  // into its disabled/loading state, so the state alone isn't enough.
+  const [creatingEstimate, setCreatingEstimate] = useState(false);
+  const creatingEstimateRef = useRef(false);
+
   const runCreateEstimate = useCallback(async (updateExisting: boolean) => {
     if (!activeSessionId) {
       message.warning('Calculate estimate first');
       return;
     }
-    await saveEstimate(estimateMode);
+    if (creatingEstimateRef.current) return;
+    creatingEstimateRef.current = true;
+    setCreatingEstimate(true);
     try {
+      await saveEstimate(estimateMode);
       const res = await toolService.createEstimateFromSession(activeSessionId, {
         customer_name: clientInfo.name || undefined,
         title: clientInfo.property_address_line1
@@ -527,6 +579,9 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       navigate(`/app/estimates/${res.estimateId}`);
     } catch {
       message.error(updateExisting ? 'Failed to update estimate' : 'Failed to create estimate');
+    } finally {
+      creatingEstimateRef.current = false;
+      setCreatingEstimate(false);
     }
   }, [activeSessionId, estimateMode, saveEstimate, onCreateEstimate, clientInfo, navigate]);
 
@@ -535,6 +590,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       message.warning('Calculate estimate first');
       return;
     }
+    if (creatingEstimateRef.current) return;
     if (linkedEstimate) {
       Modal.confirm({
         title: 'Estimate already created',
@@ -596,43 +652,17 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   };
 
   // ── Load session from list ─────────────────────────────────────────────
-  const handleLoadEstimate = useCallback(async (session: any) => {
-    resetState();
-    // Fetch full session data (list endpoint strips heavy photo data for performance)
-    let d = session.data;
-    try {
-      const fullSession = await toolService.getSession(session.id);
-      d = fullSession.data as any;
-    } catch {
-      // Fall back to list data if fetch fails
-    }
-    if (d?.rooms) setRooms(d.rooms);
-    if (d?.photo_rooms) setPhotoRooms(d.photo_rooms);
-    if (d?.packout_rooms) setPackoutRooms(d.packout_rooms);
-    if (d?.packout_settings) setPackoutSettings(d.packout_settings);
-    if (d?.settings) setSettings(d.settings);
-    if (d?.client_info) setClientInfo(d.client_info);
-    if (d?.company_override) setCompanyOverride(d.company_override);
-    if (d?.result) {
-      setResult(d.result);
-      setEstimateMode(d.mode || 'quick');
-      setMaterialsMode(d.result.materials_mode === 'itemized' ? 'itemized' : 'pct_of_labor');
-      setEditorOpen(true);
-    }
-    setManuallyCompleted(!!d?.manually_completed);
-    setLinkedEstimate(d?.linked_estimate_id ? { id: d.linked_estimate_id, number: d.linked_estimate_number ?? '' } : null);
-    setLinkedInvoice(d?.linked_invoice_id ? { id: d.linked_invoice_id, number: d.linked_invoice_number ?? '' } : null);
-    setActiveSessionId(session.id);
-    setEditorMode(d?.mode === 'content' ? 'content' : d?.mode === 'packout' ? 'packout' : 'quick');
-    setView('editor');
-    pendingBaselineSyncRef.current = true;
-  }, [resetState]);
+  // Just navigates — the restore effect (keyed on the `sessionId` prop) does
+  // the actual fetch-and-populate, so there's a single load path whether the
+  // session was opened from the list, a deep-link, or browser back/forward.
+  const handleLoadEstimate = useCallback((session: any) => {
+    navigate(`/app/tools/packing/${session.id}`);
+  }, [navigate]);
 
   // ── Back to list ───────────────────────────────────────────────────────
   const handleBackToList = useCallback(() => {
-    setView('list');
-    setHistoryKey((k) => k + 1); // force refresh
-  }, []);
+    navigate('/app/tools/packing');
+  }, [navigate]);
 
   // ── Unsaved-changes exit guard ───────────────────────────────────────────
   // Applies to: browser tab close/refresh, in-app navigation to another page
@@ -640,13 +670,22 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   const [navConfirmOpen, setNavConfirmOpen] = useState(false);
   const navProceedRef = useRef<(() => void) | null>(null);
   const navCancelRef = useRef<(() => void) | null>(null);
+  // requestNav's own confirmation (used by the Back button) already asked
+  // the user once — set right before its proceed() calls navigate() so the
+  // router blocker below (which would otherwise see the same dirty pathname
+  // change and prompt a second time) skips that one navigation.
+  const bypassBlockerRef = useRef(false);
 
   const requestNav = useCallback((proceed: () => void, cancel?: () => void) => {
     if (!isDirty) {
       proceed();
       return;
     }
-    navProceedRef.current = proceed;
+    const wrappedProceed = () => {
+      bypassBlockerRef.current = true;
+      proceed();
+    };
+    navProceedRef.current = wrappedProceed;
     navCancelRef.current = cancel ?? null;
     setNavConfirmOpen(true);
   }, [isDirty]);
@@ -657,7 +696,13 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
 
   const blocker = useBlocker(
     useCallback<BlockerFunction>(
-      ({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname,
+      ({ currentLocation, nextLocation }) => {
+        if (bypassBlockerRef.current) {
+          bypassBlockerRef.current = false;
+          return false;
+        }
+        return isDirty && currentLocation.pathname !== nextLocation.pathname;
+      },
       [isDirty],
     ),
   );
@@ -1140,21 +1185,23 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
               </Space>
             )
           )}
-          <Button
-            type={estimateDirty ? 'primary' : 'default'}
-            icon={<SaveOutlined />}
-            loading={savingEstimate}
-            disabled={!estimateDirty}
-            onClick={() => saveEstimate(estimateMode)}
-            style={{
-              borderRadius: borderRadius.base,
-              height: 40,
-              fontSize: 14,
-              ...(estimateDirty ? { background: colors.primary, borderColor: colors.primary } : {}),
-            }}
-          >
-            {!isMobile && (estimateDirty ? 'Save' : 'Saved')}
-          </Button>
+          <Tooltip title={estimateDirty ? 'Save estimate changes (rooms, pricing, settings)' : 'No unsaved estimate changes'}>
+            <Button
+              type={estimateDirty ? 'primary' : 'default'}
+              icon={<SaveOutlined />}
+              loading={savingEstimate}
+              disabled={!estimateDirty}
+              onClick={() => saveEstimate(estimateMode)}
+              style={{
+                borderRadius: borderRadius.base,
+                height: 40,
+                fontSize: 14,
+                ...(estimateDirty ? { background: colors.primary, borderColor: colors.primary } : {}),
+              }}
+            >
+              {!isMobile && (estimateDirty ? 'Save Estimate' : 'Estimate Saved')}
+            </Button>
+          </Tooltip>
           {activeSessionId && (
             <Button
               icon={<SettingOutlined />}
@@ -1248,6 +1295,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
           setCompanyOverride={setCompanyOverride}
           activeSessionId={activeSessionId}
           onCreateEstimate={handleCreateEstimate}
+          creatingEstimate={creatingEstimate}
           onInvoiceCreated={handleInvoiceCreated}
           onSaveSession={async () => { await saveEstimate(estimateMode); }}
           onCalculate={handleCalculateFromEditor}

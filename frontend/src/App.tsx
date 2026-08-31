@@ -216,6 +216,7 @@ const router = createBrowserRouter(
 
         {/* Tools */}
         <Route path="tools" element={<ToolsPage />} />
+        <Route path="tools/packing/:sessionId" element={<ToolWrapper />} />
         <Route path="tools/:toolId" element={<ToolWrapper />} />
 
         {/* Settings */}

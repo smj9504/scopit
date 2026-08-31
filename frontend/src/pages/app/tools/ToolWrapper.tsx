@@ -12,13 +12,17 @@ import { useBackNav } from '@/hooks/useHeaderNav';
 import { fonts } from '@/styles/theme';
 
 const ToolWrapper: React.FC = () => {
-  const { toolId } = useParams<{ toolId: string }>();
+  const params = useParams<{ toolId?: string; sessionId?: string }>();
+  // The `tools/packing/:sessionId` route matches toolId-less — resolve it here.
+  const toolId = params.toolId ?? (params.sessionId ? 'packing' : undefined);
   const navigate = useNavigate();
   const { data: tools } = useTools();
   // Optional ?sessionId= query param — lets external flows (e.g. a claimed
   // anonymous packing lead) deep-link straight into an existing tool session.
+  // The `:sessionId` path param (from `tools/packing/:sessionId`) takes
+  // precedence once a session has its own URL.
   const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get('sessionId') ?? undefined;
+  const sessionId = params.sessionId ?? searchParams.get('sessionId') ?? undefined;
 
   const tool = tools?.find(t => t.id === toolId);
   const ToolComponent = toolId ? getToolComponent(toolId) : null;
