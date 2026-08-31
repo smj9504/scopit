@@ -1,6 +1,7 @@
 """
 Scopit - Email Service
 """
+import html
 import logging
 import smtplib
 import ssl
@@ -398,6 +399,114 @@ Questions? Just reply to this email — our team is happy to help.
 Best regards,
 The {settings.APP_NAME} Team
 """
+
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content,
+        )
+
+    def send_signup_notification_email(
+        self,
+        *,
+        to_email: str,
+        user_email: str,
+        user_name: str,
+        company_name: Optional[str] = None,
+        occupation: Optional[str] = None,
+        location: Optional[str] = None,
+        signup_method: str = "email",
+        signup_number: Optional[int] = None,
+    ) -> bool:
+        """
+        Notify the internal team that a new account finished signup.
+
+        Sent once per account, at the point it becomes a real user (email
+        verified, or a first Google sign-in) rather than at /register, so
+        abandoned half-signups don't generate noise.
+
+        Args:
+            to_email: Internal address to notify
+            user_email: The new user's email
+            user_name: The new user's display name
+            company_name: Company created for/with the account
+            occupation: Self-reported occupation, when collected
+            location: "City, ST" resolved from the signup IP, when available
+            signup_method: "email" or "google"
+            signup_number: Total user count including this one (so the
+                subject line alone answers "how many signups do we have?")
+
+        Returns:
+            True if sent successfully
+        """
+        if not to_email:
+            return False
+
+        method_label = "Google" if signup_method == "google" else "Email"
+        count_suffix = f" (#{signup_number})" if signup_number else ""
+        subject = f"[{settings.APP_NAME}] New signup{count_suffix}: {user_email}"
+
+        # Every value below is user-controlled, so escape before interpolating.
+        fields = [
+            ("Name", user_name),
+            ("Email", user_email),
+            ("Company", company_name),
+            ("Occupation", occupation),
+            ("Location", location),
+            ("Signed up via", method_label),
+        ]
+        rows = "\n".join(
+            f"""
+        <tr>
+          <td style="padding:7px 0; color:{COLOR_MUTED}; font-size:13px; line-height:1.6; font-family:{FONT_STACK_BODY}; white-space:nowrap;" valign="top">{html.escape(label)}</td>
+          <td style="padding:7px 0 7px 20px; color:{COLOR_PRIMARY}; font-size:14px; line-height:1.6; font-family:{FONT_STACK_BODY}; word-break:break-word;" valign="top">{html.escape(str(value))}</td>
+        </tr>"""
+            for label, value in fields
+            if value
+        )
+
+        body_html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  <tr>
+    <td>
+      <h1 style="margin:0 0 14px 0; font-family:{FONT_STACK_HEADING}; font-size:23px; font-weight:800; color:{COLOR_PRIMARY}; letter-spacing:-0.3px;">
+        New signup{html.escape(count_suffix)}
+      </h1>
+      <p style="margin:0 0 24px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
+        Someone just finished creating a {settings.APP_NAME} account.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding-bottom:8px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+             style="background-color:{COLOR_BG}; border:1px solid {COLOR_BORDER}; border-radius:10px; padding:8px 20px;">
+        {rows}
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding:28px 0 24px 0;">
+      <a href="{settings.FRONTEND_URL}/admin/users"
+         style="display:inline-block; background-color:{COLOR_PRIMARY}; color:#ffffff; text-decoration:none; padding:14px 34px; border-radius:8px; font-family:{FONT_STACK_HEADING}; font-size:15px; font-weight:700;">
+        View in admin &rarr;
+      </a>
+    </td>
+  </tr>
+</table>
+"""
+
+        html_content = self._base_template(
+            title=subject,
+            preheader=f"{user_email} signed up via {method_label}.",
+            body_html=body_html,
+        )
+
+        text_lines = [f"New signup{count_suffix}", ""]
+        text_lines += [f"{label}: {value}" for label, value in fields if value]
+        text_lines += ["", f"Admin: {settings.FRONTEND_URL}/admin/users"]
+        text_content = "\n".join(text_lines)
 
         return self.send_email(
             to_email=to_email,

@@ -9,6 +9,7 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,38 @@ class SetPasswordRequest(BaseModel):
     new_password: str
 
 
+def _notify_admin_of_signup(db: Session, user: User, signup_method: str) -> None:
+    """Tell the internal team a new account finished signup.
+
+    Fires once the account is real -- email verified, or a first Google
+    sign-in -- so abandoned half-signups don't generate noise. Best-effort:
+    a notification failure must never break the user's signup.
+    """
+    to_email = (settings.SIGNUP_NOTIFY_EMAIL or "").strip()
+    if not to_email:
+        return
+
+    try:
+        occupation = user.occupation
+        if occupation == "other" and user.occupation_other:
+            occupation = f"other ({user.occupation_other})"
+
+        location = ", ".join(p for p in (user.signup_city, user.signup_state) if p)
+
+        email_service.send_signup_notification_email(
+            to_email=to_email,
+            user_email=user.email,
+            user_name=user.full_name or "-",
+            company_name=user.company.name if user.company else None,
+            occupation=occupation,
+            location=location or None,
+            signup_method=signup_method,
+            signup_number=db.query(func.count(User.id)).scalar(),
+        )
+    except Exception:
+        logger.exception("Failed to send signup notification for %s", user.email)
+
+
 # ===================
 # Endpoints
 # ===================
@@ -304,6 +337,7 @@ async def verify_email(
         to_email=user.email,
         user_name=user.full_name or "there",
     )
+    _notify_admin_of_signup(db, user, signup_method="email")
 
     client_ip = request.headers.get("X-Forwarded-For", request.client.host)
     user_agent = request.headers.get("User-Agent")
@@ -663,6 +697,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
                 to_email=user.email,
                 user_name=user.full_name or "there",
             )
+            _notify_admin_of_signup(db, user, signup_method="google")
 
         # Track login (for both new and existing users)
         client_ip = request.headers.get("X-Forwarded-For", request.client.host)

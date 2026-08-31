@@ -17,6 +17,7 @@ import {
   CloseOutlined,
   AppstoreOutlined,
   ArrowLeftOutlined,
+  DashboardOutlined,
   LeftOutlined,
   RightOutlined,
 } from '@ant-design/icons';
@@ -114,6 +115,18 @@ const AppLayout: React.FC = () => {
       label: 'Settings',
       onClick: () => navigate('/app/settings'),
     },
+    // Entrance to the admin console. Superusers only -- the /admin route is
+    // guarded by <AdminRoute> either way, this just saves typing the URL.
+    ...(user?.isSuperuser
+      ? [
+          {
+            key: 'admin',
+            icon: <DashboardOutlined />,
+            label: 'Admin',
+            onClick: () => navigate('/admin/dashboard'),
+          },
+        ]
+      : []),
     {
       type: 'divider' as const,
     },
