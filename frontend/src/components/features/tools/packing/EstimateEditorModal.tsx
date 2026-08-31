@@ -214,6 +214,7 @@ interface EstimateEditorModalProps {
   setCompanyOverride: React.Dispatch<React.SetStateAction<CompanyInfoOverride>>;
   activeSessionId?: string;
   onCreateEstimate?: () => void;
+  creatingEstimate?: boolean;
   /** Called after a real Invoice is created from this session (marks the session as actually converted). */
   onInvoiceCreated?: (invoiceId: string, invoiceNumber: string) => void;
   onSaveSession?: () => Promise<void>;
@@ -270,8 +271,179 @@ const SectionLineTable: React.FC<SectionLineTableProps> = ({
   onDeleteLine,
   crewSize,
 }) => {
+  const isMobile = useIsMobile();
   const isRowEditing = (record: { _index: number }) =>
     editing?.sectionName === sectionName && editing?.lineIndex === record._index;
+
+  if (isMobile) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 12px' }}>
+        {lines.map((line, i) => {
+          const record = { ...line, _index: i };
+          const ed = isRowEditing(record);
+          const isCrew = /crew/i.test(line.detail || '');
+          const amount = ed ? editing!.qty * editing!.rate : line.amount;
+
+          if (ed) {
+            return (
+              <div
+                key={i}
+                style={{
+                  border: `1.5px solid ${colors.primary}`,
+                  borderRadius: borderRadius.md,
+                  padding: 12,
+                  background: '#eff6ff',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <Input
+                  size="middle"
+                  placeholder="Name"
+                  value={editing!.name}
+                  onChange={(e) => onEditField('name', e.target.value)}
+                  style={{ fontFamily: fonts.body, fontSize: 14 }}
+                />
+                <Input
+                  size="middle"
+                  placeholder="Detail"
+                  value={editing!.detail}
+                  onChange={(e) => onEditField('detail', e.target.value)}
+                  style={{ fontFamily: fonts.body, fontSize: 14 }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: '1 1 0' }}>
+                    <label style={{ fontSize: 11, color: colors.textMuted, display: 'block', marginBottom: 2 }}>Qty</label>
+                    <InputNumber
+                      size="middle"
+                      min={0}
+                      step={0.5}
+                      value={editing!.qty}
+                      onChange={(v) => onEditField('qty', v ?? 0)}
+                      style={{ width: '100%' }}
+                      suffix={isCrew ? <Text style={{ fontSize: 11, color: colors.textMuted }}>hr</Text> : undefined}
+                    />
+                  </div>
+                  <div style={{ width: 72 }}>
+                    <label style={{ fontSize: 11, color: colors.textMuted, display: 'block', marginBottom: 2 }}>Unit</label>
+                    <Input
+                      size="middle"
+                      value={editing!.unit}
+                      onChange={(e) => onEditField('unit', e.target.value)}
+                    />
+                  </div>
+                  <div style={{ flex: '1 1 0' }}>
+                    <label style={{ fontSize: 11, color: colors.textMuted, display: 'block', marginBottom: 2 }}>Rate</label>
+                    <InputNumber
+                      size="middle"
+                      min={0}
+                      step={1}
+                      value={editing!.rate}
+                      onChange={(v) => onEditField('rate', v ?? 0)}
+                      prefix="$"
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                  <span
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: colors.info,
+                      background: colors.infoBg,
+                      borderRadius: borderRadius.sm,
+                      padding: '4px 10px',
+                    }}
+                  >
+                    {fmt(amount)}
+                  </span>
+                  <Space size={4}>
+                    <Button
+                      type="primary"
+                      size="middle"
+                      icon={<CheckOutlined />}
+                      onClick={onSaveEdit}
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      size="middle"
+                      icon={<CloseCircleOutlined />}
+                      onClick={onCancelEdit}
+                    />
+                  </Space>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={i}
+              role="button"
+              tabIndex={0}
+              onClick={() => onStartEdit(sectionName, i, line)}
+              onKeyDown={(e) => e.key === 'Enter' && onStartEdit(sectionName, i, line)}
+              style={{
+                border: `1px solid ${colors.border}`,
+                borderRadius: borderRadius.md,
+                padding: '10px 12px',
+                background: colors.bgWhite,
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: 10,
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <Text style={{ fontSize: 14, fontFamily: fonts.body, fontWeight: 600, color: colors.textPrimary, display: 'block' }}>
+                  {line.name}
+                </Text>
+                {line.detail && (
+                  <Text style={{ fontSize: 12, color: colors.textSecondary, fontFamily: fonts.body, display: 'block', marginTop: 2 }}>
+                    {line.detail}
+                  </Text>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                  <Text style={{ fontSize: 12, color: colors.textMuted }}>
+                    {isCrew ? `${line.qty} hr` : `${line.qty} ${line.unit}`}
+                    {isCrew && (
+                      <span style={{
+                        marginLeft: 4, fontSize: 10, fontWeight: 600, color: colors.textMuted,
+                        background: colors.bgLight, border: `1px solid ${colors.border}`,
+                        borderRadius: 4, padding: '0 5px', lineHeight: '16px',
+                      }}>
+                        ×{crewSize}
+                      </span>
+                    )}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: colors.textMuted }}>· {fmt(line.rate)}/{line.unit}</Text>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+                <Text strong style={{ fontSize: 14, color: colors.textPrimary }}>
+                  {fmt(amount)}
+                </Text>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined style={{ color: colors.textMuted, fontSize: 12 }} />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteLine(sectionName, i);
+                  }}
+                  aria-label={`Remove ${line.name}`}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   const columns: ColumnsType<SectionDetailLine & { _index: number }> = [
     {
@@ -529,6 +701,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   setCompanyOverride,
   activeSessionId,
   onCreateEstimate,
+  creatingEstimate,
   onInvoiceCreated,
   onSaveSession,
   onCalculate,
@@ -1258,60 +1431,65 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           <div
             style={{
               display: 'flex',
-              gap: 6,
-              padding: '8px 12px',
+              flexDirection: isMobile ? 'column' : 'row',
+              gap: isMobile ? 8 : 6,
+              padding: isMobile ? 12 : '8px 12px',
               background: '#f0f9ff',
               borderTop: `1px solid ${colors.border}`,
-              alignItems: 'center',
+              alignItems: isMobile ? 'stretch' : 'center',
               flexWrap: 'wrap',
             }}
           >
             <Input
-              size="small"
+              size={isMobile ? 'middle' : 'small'}
               placeholder="Name"
               value={newLine.name}
               onChange={(e) => setNewLine((n) => n && { ...n, name: e.target.value })}
               autoFocus
-              style={{ flex: '1 1 120px', minWidth: 100 }}
+              style={isMobile ? undefined : { flex: '1 1 120px', minWidth: 100 }}
             />
             <Input
-              size="small"
+              size={isMobile ? 'middle' : 'small'}
               placeholder="Detail"
               value={newLine.detail}
               onChange={(e) => setNewLine((n) => n && { ...n, detail: e.target.value })}
-              style={{ flex: '2 1 160px', minWidth: 100 }}
+              style={isMobile ? undefined : { flex: '2 1 160px', minWidth: 100 }}
             />
-            <InputNumber
-              size="small"
-              min={0}
-              value={newLine.qty}
-              onChange={(v) => setNewLine((n) => n && { ...n, qty: v ?? 1 })}
-              style={{ width: 70 }}
-            />
-            <Input
-              size="small"
-              placeholder="Unit"
-              value={newLine.unit}
-              onChange={(e) => setNewLine((n) => n && { ...n, unit: e.target.value })}
-              style={{ width: 60 }}
-            />
-            <InputNumber
-              size="small"
-              min={0}
-              value={newLine.rate}
-              onChange={(v) => setNewLine((n) => n && { ...n, rate: v ?? 0 })}
-              prefix="$"
-              style={{ width: 90 }}
-            />
-            <Space size={4}>
+            <div style={{ display: 'flex', gap: isMobile ? 8 : 6 }}>
+              <InputNumber
+                size={isMobile ? 'middle' : 'small'}
+                min={0}
+                value={newLine.qty}
+                onChange={(v) => setNewLine((n) => n && { ...n, qty: v ?? 1 })}
+                style={{ width: isMobile ? '30%' : 70 }}
+              />
+              <Input
+                size={isMobile ? 'middle' : 'small'}
+                placeholder="Unit"
+                value={newLine.unit}
+                onChange={(e) => setNewLine((n) => n && { ...n, unit: e.target.value })}
+                style={{ width: isMobile ? '25%' : 60 }}
+              />
+              <InputNumber
+                size={isMobile ? 'middle' : 'small'}
+                min={0}
+                value={newLine.rate}
+                onChange={(v) => setNewLine((n) => n && { ...n, rate: v ?? 0 })}
+                prefix="$"
+                style={{ width: isMobile ? '45%' : 90 }}
+              />
+            </div>
+            <Space size={isMobile ? 8 : 4} style={isMobile ? { justifyContent: 'flex-end' } : undefined}>
               <Button
                 type="primary"
-                size="small"
+                size={isMobile ? 'middle' : 'small'}
                 icon={<CheckOutlined />}
                 onClick={handleCommitNewLine}
-              />
+              >
+                {isMobile ? 'Add' : undefined}
+              </Button>
               <Button
-                size="small"
+                size={isMobile ? 'middle' : 'small'}
                 icon={<CloseOutlined />}
                 onClick={() => setNewLine(null)}
               />
@@ -2153,8 +2331,9 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           {onCreateEstimate && (
             <Button
               type="primary"
+              loading={creatingEstimate}
               onClick={onCreateEstimate}
-              disabled={!result}
+              disabled={!result || creatingEstimate}
               size={isMobile ? 'small' : 'middle'}
               style={{ background: colors.primary, borderColor: colors.primary }}
             >
