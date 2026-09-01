@@ -531,6 +531,14 @@ async def export_report(
         consumes these bytes directly, so each photo is decoded/resized
         exactly once (here) instead of twice, and rooms_data no longer holds
         the ~33% larger base64 text for every photo for the whole request.
+
+        Each original photo has a pre-compressed "report variant" companion
+        written at upload time (see upload_photos / _report_variant_key).
+        Reading that companion directly avoids decoding the full-resolution
+        original at all — a full-res decode is itself the dominant memory
+        cost, independent of the requested output size. If the companion
+        doesn't exist (e.g. uploaded before this change), fall back to
+        reading + compressing the original exactly as before.
         """
         from app.core.storage import get_storage
         from app.domains.tools.modules.packing.export import _compress_image_bytes
@@ -540,14 +548,17 @@ async def export_report(
         photos = []
         for idx, key in enumerate(photo_keys):
             try:
-                data = storage.read(key)
-                compressed = _compress_image_bytes(
-                    data,
-                    max_width=request.max_image_width,
-                    max_height=request.max_image_width,
-                    quality=request.image_quality,
-                )
-                del data
+                try:
+                    compressed = storage.read(_report_variant_key(key))
+                except Exception:
+                    data = storage.read(key)
+                    compressed = _compress_image_bytes(
+                        data,
+                        max_width=request.max_image_width,
+                        max_height=request.max_image_width,
+                        quality=request.image_quality,
+                    )
+                    del data
                 photos.append({
                     "image_bytes": compressed,
                     "caption": f"{room_name} - Photo {idx + 1}",
@@ -1039,13 +1050,33 @@ class PhotoUploadResponse(BaseModel):
     photo_keys: List[str]  # storage keys for uploaded photos
 
 
+def _report_variant_key(original_key: str) -> str:
+    """Derive the storage key for a photo's report-sized companion.
+
+    Deterministic from the original key so callers never need to persist a
+    second key anywhere — just derive it on read.
+    """
+    return f"{original_key}.report.jpg"
+
+
 @router.post("/photos/upload", response_model=PhotoUploadResponse)
 async def upload_photos(
     request: PhotoUploadRequest,
     current_user: User = Depends(_gate),
 ):
-    """Upload base64 photos to storage. Returns storage keys for later retrieval."""
+    """Upload base64 photos to storage. Returns storage keys for later retrieval.
+
+    Alongside the full-resolution original (needed for accurate re-analysis —
+    Photo AI re-fetches by these keys and sends the images to Claude Vision),
+    also writes a report-sized companion (see _report_variant_key). Report
+    export reads the companion instead of the original, so a report with many
+    photos never has to decode full-resolution phone-camera originals — that
+    was the dominant cost behind repeated OOMs on the export endpoint, since
+    the original's actual pixel size only gets reduced at export time,
+    per-photo, which still spikes memory decoding each one.
+    """
     from app.core.storage import get_storage
+    from app.domains.tools.modules.packing.export import _compress_image_bytes
 
     storage = get_storage()
     photo_keys: list[str] = []
@@ -1069,6 +1100,20 @@ async def upload_photos(
         key = f"{current_user.company_id}/packing/photos/{file_id}{ext}"
         storage.write(key, img_bytes, content_type=media_type)
         photo_keys.append(key)
+
+        try:
+            report_bytes = _compress_image_bytes(
+                img_bytes, max_width=1000, max_height=1000, quality=70,
+            )
+            storage.write(
+                _report_variant_key(key), report_bytes,
+                content_type="image/jpeg",
+            )
+        except Exception:
+            # Non-fatal — report export falls back to compressing the
+            # original on the fly if no companion exists (see
+            # _load_photos_from_keys).
+            pass
 
     return PhotoUploadResponse(photo_keys=photo_keys)
 
