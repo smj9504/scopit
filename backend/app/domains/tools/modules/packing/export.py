@@ -1844,9 +1844,28 @@ def _compress_image_bytes(
     max_height: int = 800,
     quality: int = 60,
 ) -> bytes:
-    """Compress an image to JPEG with size limits for small PDF output."""
+    """Compress an image to JPEG with size limits for small PDF output.
+
+    Uses Image.draft() to tell the JPEG decoder to decode straight to
+    roughly the target size, instead of decoding the full original
+    resolution into memory and only downscaling afterward. draft() is a
+    hint (JPEG's DCT structure only supports 1/2, 1/4, 1/8 scaling, so the
+    actual decode size may still be somewhat larger than max_width/height —
+    the resize step below still runs to hit the exact target), but it caps
+    the peak memory of decoding a large phone-camera original from being
+    proportional to *its* resolution rather than the output size. This
+    matters because this function runs per-photo on any path that doesn't
+    already have a pre-sized companion (see _report_variant_key in api.py) —
+    e.g. reports built from photos uploaded before that companion existed —
+    so a handful of full-resolution iPhone originals here was enough to OOM
+    a 512MB instance even though the final output is tiny.
+    """
     from PIL import Image, ImageOps
     img = Image.open(io.BytesIO(img_data))
+    try:
+        img.draft("RGB", (max_width, max_height))
+    except Exception:
+        pass  # Not all formats support draft (e.g. PNG) — decode at full res
 
     # Fix EXIF orientation (iPhone photos are often rotated in EXIF metadata)
     try:
