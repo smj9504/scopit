@@ -524,9 +524,14 @@ async def export_report(
     # crash surfaces to the browser as a CORS error since the killed
     # connection never gets a response with CORS headers attached.
     def _load_photos_from_keys(photo_keys: list, room_name: str) -> list:
-        """Read photo_keys from storage and return compressed report photo dicts."""
-        import base64 as b64mod
+        """Read photo_keys from storage and return compressed report photo dicts.
 
+        The compressed JPEG is kept as raw ``bytes`` under ``image_bytes``
+        rather than being re-encoded to a base64 data URI. The exporter
+        consumes these bytes directly, so each photo is decoded/resized
+        exactly once (here) instead of twice, and rooms_data no longer holds
+        the ~33% larger base64 text for every photo for the whole request.
+        """
         from app.core.storage import get_storage
         from app.domains.tools.modules.packing.export import _compress_image_bytes
         if not photo_keys:
@@ -542,9 +547,9 @@ async def export_report(
                     max_height=request.max_image_width,
                     quality=request.image_quality,
                 )
-                encoded = b64mod.b64encode(compressed).decode("ascii")
+                del data
                 photos.append({
-                    "image": f"data:image/jpeg;base64,{encoded}",
+                    "image_bytes": compressed,
                     "caption": f"{room_name} - Photo {idx + 1}",
                     "is_damage": False,
                 })
@@ -560,6 +565,9 @@ async def export_report(
     #   sessions), read as-is with no size limit.
     # Without this, a report with several full-resolution photos can hold many
     # originals in memory at once and exceed the backend's memory limit.
+    # Like _load_photos_from_keys, this emits raw compressed JPEG bytes under
+    # ``image_bytes`` and drops the base64 ``image`` string, so the photo is
+    # compressed exactly once and rooms_data never carries the base64 text.
     def _recompress_photo_dicts(photos: list) -> list:
         from app.domains.tools.modules.packing.export import _compress_image_bytes
         out = []
@@ -578,11 +586,10 @@ async def export_report(
                     max_height=request.max_image_width,
                     quality=request.image_quality,
                 )
-                encoded = base64.b64encode(compressed).decode("ascii")
-                out.append({
-                    **p,
-                    "image": f"data:image/jpeg;base64,{encoded}",
-                })
+                del raw
+                meta = {k: v for k, v in p.items() if k != "image"}
+                meta["image_bytes"] = compressed
+                out.append(meta)
             except Exception:
                 continue
         return out
@@ -621,6 +628,15 @@ async def export_report(
                 # with several full-size photos can exceed the backend's
                 # memory limit.
                 rd["photos"] = _recompress_photo_dicts(existing_photos)
+                # model_dump() above copied every base64 string out of the
+                # request model, so the originals are now held twice. Release
+                # this room's copies as soon as they've been compressed
+                # instead of pinning all rooms' originals for the whole
+                # request.
+                del existing_photos
+                for _p in (request.rooms[i].photos or []):
+                    if getattr(_p, "image", None):
+                        _p.image = ""
             else:
                 room_name = rd.get("room_name", "")
                 # Try exact match first, then normalized match (ignore case/whitespace)

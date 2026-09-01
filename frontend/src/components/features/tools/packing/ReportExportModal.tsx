@@ -68,6 +68,51 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// Report photos never need to be larger than what the PDF will actually
+// embed them at (see backend max_image_width/image_quality defaults) — so
+// every photo that enters this modal's state is downsized to roughly that
+// size up front. Without this, adding several full-resolution photos (or
+// re-fetching existing ones) bloats the export request body and this
+// component's in-memory state with data nothing downstream needs at full
+// size; the backend re-compresses anyway, so this only needs to be "small
+// enough," not exact.
+const REPORT_PHOTO_MAX_DIMENSION = 1000;
+const REPORT_PHOTO_JPEG_QUALITY = 0.7;
+
+function resizeDataUrl(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(
+        1,
+        REPORT_PHOTO_MAX_DIMENSION / Math.max(img.width, img.height),
+      );
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl); // canvas unsupported — fall back to original
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', REPORT_PHOTO_JPEG_QUALITY));
+    };
+    img.onerror = () => resolve(dataUrl); // decode failed — fall back to original
+    img.src = dataUrl;
+  });
+}
+
+function fileToResizedBase64(file: File): Promise<string> {
+  return fileToBase64(file).then(resizeDataUrl);
+}
+
+function base64PayloadToResizedDataUrl(rawBase64: string): Promise<string> {
+  return resizeDataUrl(`data:image/jpeg;base64,${rawBase64}`);
+}
+
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
 interface ReportExportModalProps {
@@ -222,6 +267,10 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
   const laborWasEdited = useMemo(() => detectLaborEdited(result), [result]);
 
   // Per-room photo attachments — pre-populate with photos + labor data
+  // NOTE: `existingPhotos` here are full-resolution (whatever PhotoAITab last
+  // held in memory before session save strips them to photo_keys) — a
+  // useMemo can't resize them (async), so a follow-up effect below shrinks
+  // any oversized ones in place shortly after mount.
   const initialRoomPhotos = useMemo((): RoomPhotoState[] => {
     if (mode === 'content' && photoRooms?.length) {
       // Photo AI mode: items have per-item labor data
@@ -307,13 +356,16 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
           const base64List = await Promise.all(
             keys.map((key) => packingApi.fetchPhotoBase64(key)),
           );
-          const photos: ReportRoomPhoto[] = base64List
-            .filter((b64) => b64 && b64.length > 100)
-            .map((b64, idx) => ({
-              image: `data:image/jpeg;base64,${b64}`,
-              caption: `${pr.room_name} - Photo ${idx + 1}`,
-              is_damage: false,
-            }));
+          const resized = await Promise.all(
+            base64List
+              .filter((b64) => b64 && b64.length > 100)
+              .map((b64) => base64PayloadToResizedDataUrl(b64)),
+          );
+          const photos: ReportRoomPhoto[] = resized.map((image, idx) => ({
+            image,
+            caption: `${pr.room_name} - Photo ${idx + 1}`,
+            is_damage: false,
+          }));
           if (photos.length > 0) {
             updates.push({ index: i, photos });
           }
@@ -339,6 +391,38 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
     return () => { cancelled = true; };
   }, [mode, photoRooms]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Shrink any photos initialRoomPhotos seeded directly from in-memory
+  // PhotoAITab state (full-resolution, since that data was never sized for
+  // a report) — runs once on mount; resizing an already-small photo is a
+  // cheap no-op canvas redraw, so no need to detect which ones need it.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const resizedByRoom = await Promise.all(
+        initialRoomPhotos.map((r) =>
+          Promise.all(r.photos.map((p) => resizeDataUrl(p.image))),
+        ),
+      );
+      if (cancelled) return;
+      setRoomPhotos((prev) =>
+        prev.map((r, ri) => ({
+          ...r,
+          photos: r.photos.map((p, pi) => ({
+            ...p,
+            image: resizedByRoom[ri]?.[pi] ?? p.image,
+          })),
+        })),
+      );
+    })();
+    return () => { cancelled = true; };
+    // Intentionally mount-only — initialRoomPhotos would otherwise re-run
+    // this on every keystroke elsewhere in the modal (it's a fresh array
+    // each render since it's not memoized against a stable identity beyond
+    // its own deps); subsequent photo edits go through handleAddPhotos
+    // (already resized) or the loadMissing effect above (already resized).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Additional options
   const [notes, setNotes] = useState('');
   const [includeSignature, setIncludeSignature] = useState(false);
@@ -354,7 +438,7 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
     const newPhotos: ReportRoomPhoto[] = [];
     for (const file of files) {
       try {
-        const b64 = await fileToBase64(file);
+        const b64 = await fileToResizedBase64(file);
         newPhotos.push({
           image: b64,
           caption: '',
