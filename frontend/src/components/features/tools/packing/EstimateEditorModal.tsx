@@ -830,6 +830,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   const [exportOptionsFormat, setExportOptionsFormat] = useState<'pdf' | 'excel' | null>(null);
   const [showCompanyOverride, setShowCompanyOverride] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [preparingReport, setPreparingReport] = useState(false);
 
   // New line draft state
   const [newLine, setNewLine] = useState<NewLineState | null>(null);
@@ -2303,10 +2304,17 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                 if (key === 'pdf') setExportOptionsFormat('pdf');
                 else if (key === 'excel') setExportOptionsFormat('excel');
                 else if (key === 'report') {
-                  // Save latest edits (customer info, etc.) to the session first —
-                  // the report is built server-side from the saved session, not live state.
-                  if (onSaveSession) await onSaveSession();
+                  // Open the modal first: the save below can take a few seconds,
+                  // and until it finishes the click would otherwise look ignored.
+                  setPreparingReport(true);
                   setShowReportModal(true);
+                  try {
+                    // Save latest edits (customer info, etc.) to the session first —
+                    // the report is built server-side from the saved session, not live state.
+                    if (onSaveSession) await onSaveSession();
+                  } finally {
+                    setPreparingReport(false);
+                  }
                 }
               },
             }}
@@ -2466,6 +2474,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       <ReportExportModal
         open={showReportModal}
         onClose={() => setShowReportModal(false)}
+        preparing={preparingReport}
         result={result}
         mode={mode}
         clientInfo={clientInfo}

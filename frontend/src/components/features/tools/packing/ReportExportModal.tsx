@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   Modal,
   Button,
@@ -17,6 +17,7 @@ import {
   Tooltip,
   Switch,
   Radio,
+  Spin,
 } from 'antd';
 import {
   CloseOutlined,
@@ -27,6 +28,7 @@ import {
   SendOutlined,
   WarningOutlined,
   EditOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { packingApi } from './packingApi';
@@ -118,6 +120,12 @@ function base64PayloadToResizedDataUrl(rawBase64: string): Promise<string> {
 interface ReportExportModalProps {
   open: boolean;
   onClose: () => void;
+  /**
+   * The session is still being saved server-side. The modal opens right away
+   * so the click gets feedback, and shows a loading placeholder until this
+   * clears.
+   */
+  preparing?: boolean;
   result: EstimateResponse;
   mode: 'quick' | 'content' | 'packout';
   clientInfo: ClientInfo;
@@ -245,6 +253,7 @@ function buildLaborNotesFromSections(result: EstimateResponse): string {
 const ReportExportModal: React.FC<ReportExportModalProps> = ({
   open,
   onClose,
+  preparing = false,
   result,
   mode,
   clientInfo,
@@ -336,13 +345,31 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
 
   const [roomPhotos, setRoomPhotos] = useState<RoomPhotoState[]>(initialRoomPhotos);
 
+  // True while stored photos are being pulled back in — one request per photo,
+  // so on a photo-heavy session the rooms would otherwise sit there looking empty.
+  const [photosLoading, setPhotosLoading] = useState(false);
+  // Only the newest load owns the flag, so a superseded run can't clear it early
+  // or leave it stuck on.
+  const photoLoadRunRef = useRef(0);
+
   // Load photos from photo_keys when base64 photos are missing (e.g. after session reload)
   useEffect(() => {
     if (mode !== 'content' || !photoRooms?.length) return;
     let cancelled = false;
+    const runId = ++photoLoadRunRef.current;
 
     const loadMissing = async () => {
       const updates: { index: number; photos: ReportRoomPhoto[] }[] = [];
+
+      const hasMissing = photoRooms.some(
+        (pr, i) =>
+          !roomPhotos[i]?.photos?.length && (pr.photo_keys?.length ?? 0) > 0,
+      );
+      if (!hasMissing) {
+        setPhotosLoading(false);
+        return;
+      }
+      setPhotosLoading(true);
 
       for (let i = 0; i < photoRooms.length; i++) {
         const pr = photoRooms[i];
@@ -385,6 +412,7 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
           return next;
         });
       }
+      if (photoLoadRunRef.current === runId) setPhotosLoading(false);
     };
 
     loadMissing();
@@ -576,62 +604,108 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
     [roomPhotos],
   );
 
+  // Exporting mid-load would produce a report missing its room photos.
+  const exportBlocked = !activeSessionId || photosLoading;
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  return (
-    <Modal
-      open={open}
-      onCancel={onClose}
-      footer={null}
-      width={720}
-      style={{ top: 40 }}
-      styles={{
-        body: {
-          padding: 0,
-          maxHeight: 'calc(90vh - 80px)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        },
-        content: {
-          padding: 0,
-          borderRadius: borderRadius.lg,
-          overflow: 'hidden',
-        },
+  // Shared by the "preparing" placeholder and the full form below.
+  const modalProps = {
+    open,
+    onCancel: onClose,
+    footer: null,
+    width: 720,
+    style: { top: 40 },
+    styles: {
+      body: {
+        padding: 0,
+        maxHeight: 'calc(90vh - 80px)',
+        display: 'flex',
+        flexDirection: 'column' as const,
+        overflow: 'hidden',
+      },
+      content: {
+        padding: 0,
+        borderRadius: borderRadius.lg,
+        overflow: 'hidden',
+      },
+    },
+    closeIcon: null,
+    destroyOnHidden: true,
+  };
+
+  const header = (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '14px 20px',
+        borderBottom: `1px solid ${colors.border}`,
+        background: colors.bgWhite,
+        flexShrink: 0,
       }}
-      closeIcon={null}
-      destroyOnHidden
     >
-      {/* Header */}
-      <div
+      <Title
+        level={5}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '14px 20px',
-          borderBottom: `1px solid ${colors.border}`,
-          background: colors.bgWhite,
-          flexShrink: 0,
+          margin: 0,
+          fontFamily: fonts.heading,
+          color: colors.textPrimary,
+          fontWeight: 700,
         }}
       >
-        <Title
-          level={5}
+        Generate Report
+      </Title>
+      <Button
+        type="text"
+        icon={<CloseOutlined />}
+        onClick={onClose}
+        style={{ color: colors.textSecondary }}
+      />
+    </div>
+  );
+
+  // The session is saved before the report options are shown, which can take a
+  // few seconds. Open the modal immediately with a spinner so the click is
+  // acknowledged instead of the UI looking frozen.
+  if (preparing) {
+    return (
+      <Modal {...modalProps}>
+        {header}
+        <div
           style={{
-            margin: 0,
-            fontFamily: fonts.heading,
-            color: colors.textPrimary,
-            fontWeight: 700,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: '56px 24px',
+            background: colors.bgLight,
           }}
         >
-          Generate Report
-        </Title>
-        <Button
-          type="text"
-          icon={<CloseOutlined />}
-          onClick={onClose}
-          style={{ color: colors.textSecondary }}
-        />
-      </div>
+          <Spin size="large" />
+          <Text
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              fontFamily: fonts.heading,
+              color: colors.textPrimary,
+            }}
+          >
+            Preparing report...
+          </Text>
+          <Text style={{ fontSize: 12, color: colors.textMuted }}>
+            Saving the latest estimate changes
+          </Text>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal {...modalProps}>
+      {header}
 
       {/* Scrollable Body */}
       <div
@@ -779,11 +853,18 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
               >
                 Room Photos
               </Text>
-              {totalPhotos > 0 && (
-                <Tag style={{ fontSize: 11 }}>
-                  {totalPhotos} photo{totalPhotos !== 1 ? 's' : ''}
-                </Tag>
-              )}
+              <Space size={6}>
+                {photosLoading && (
+                  <Tag icon={<LoadingOutlined />} style={{ fontSize: 11 }}>
+                    Loading photos...
+                  </Tag>
+                )}
+                {totalPhotos > 0 && (
+                  <Tag style={{ fontSize: 11 }}>
+                    {totalPhotos} photo{totalPhotos !== 1 ? 's' : ''}
+                  </Tag>
+                )}
+              </Space>
             </div>
 
             <Collapse
@@ -1139,14 +1220,20 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
           flexShrink: 0,
         }}
       >
+        {photosLoading && (
+          <Text style={{ fontSize: 12, color: colors.textMuted, marginRight: 'auto' }}>
+            <Spin size="small" style={{ marginRight: 6 }} />
+            Loading room photos...
+          </Text>
+        )}
         {onRequestSign && (
           <Tooltip title="Generate report and send for e-signature">
             <Button
               icon={<SendOutlined />}
               onClick={() => handleExport(true)}
               loading={exporting}
-              disabled={!activeSessionId}
-              style={{ borderColor: colors.border }}
+              disabled={exportBlocked}
+              style={exportBlocked ? undefined : { borderColor: colors.border }}
             >
               Send for Signature
             </Button>
@@ -1157,11 +1244,14 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
           icon={<FilePdfOutlined />}
           onClick={() => handleExport(false)}
           loading={exporting}
-          disabled={!activeSessionId}
-          style={{
-            background: colors.primary,
-            borderColor: colors.primary,
-          }}
+          disabled={exportBlocked}
+          // The inline brand colors would otherwise paint over antd's disabled
+          // styling and leave the button looking clickable.
+          style={
+            exportBlocked
+              ? undefined
+              : { background: colors.primary, borderColor: colors.primary }
+          }
         >
           Download Report
         </Button>
