@@ -2596,7 +2596,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           size="small"
           style={{ flex: 1, minWidth: 0 }}
         />
-        <Tooltip title={photoRoomsDirty ? 'Save your photo/analysis changes' : 'No unsaved AI analysis changes'}>
+        <Tooltip title={photoRoomsDirty ? 'Save photos and AI analysis results' : 'No unsaved photo/analysis changes'}>
           <Button
             type={photoRoomsDirty ? 'primary' : 'default'}
             icon={<SaveOutlined />}
@@ -2612,7 +2612,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
               ...(photoRoomsDirty ? { background: colors.primary, borderColor: colors.primary } : {}),
             }}
           >
-            {photoRoomsDirty ? 'Save' : 'Saved'}
+            {photoRoomsDirty ? 'Save Photos' : 'Photos Saved'}
           </Button>
         </Tooltip>
       </div>

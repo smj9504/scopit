@@ -592,7 +592,8 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     }
     if (creatingEstimateRef.current) return;
     if (linkedEstimate) {
-      Modal.confirm({
+      let modalRef: { destroy: () => void } | undefined;
+      modalRef = Modal.confirm({
         title: 'Estimate already created',
         content: `This session is already linked to Estimate ${linkedEstimate.number}. Do you want to update it with the current data, or create a brand new estimate?`,
         okText: 'Update Existing',
@@ -601,6 +602,13 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         onCancel: () => runCreateEstimate(false),
         okButtonProps: { type: 'primary' },
         cancelButtonProps: { type: 'default' },
+        footer: (_, { OkBtn, CancelBtn }) => (
+          <>
+            <Button onClick={() => modalRef?.destroy()}>Cancel</Button>
+            <CancelBtn />
+            <OkBtn />
+          </>
+        ),
       });
       return;
     }
