@@ -140,6 +140,10 @@ export interface EstimateResponse {
   total_items: number;
   total_hours: number;
   crew_size: number;
+  /** ceil(total_hours / 8-hr workday). Drives the moving-van DY quantity. */
+  work_days?: number;
+  /** Moving-van DY quantity = max(capacity trips, work_days). 0 for on-site jobs. */
+  truck_trips?: number;
   sections: Record<string, number>;
   section_details?: Record<string, { lines: SectionDetailLine[] }>;
   materials: Record<string, number>;

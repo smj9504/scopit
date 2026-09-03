@@ -45,6 +45,36 @@ def _solo_detail(desc: str, hrs: float, rate: float, amt: float) -> str:
     return f"1 person ({desc}) · {hrs} hr × {_fmt_money(rate)}/hr = {_fmt_money(amt)}"
 
 
+# A standard on-site workday. A job whose elapsed crew time exceeds this
+# spans multiple days, which drives both the scheduling note and the truck
+# rental quantity (the van is billed per DAY, not per load).
+WORKDAY_HOURS = 8
+
+
+def work_days_for(total_hours: float) -> int:
+    """Number of workdays an elapsed-hours figure spans (minimum 1)."""
+    if total_hours <= 0:
+        return 1
+    return max(1, math.ceil(total_hours / WORKDAY_HOURS))
+
+
+def truck_qty_note(capacity_trips: int, work_days: int) -> str:
+    """Explain what drove the moving-van DY quantity.
+
+    Quantity is max(capacity_trips, work_days): a job can need extra van-days
+    because the load doesn't fit in one trip, or because the crew is on site
+    for more than one day, whichever is larger.
+    """
+    qty = max(capacity_trips, work_days)
+    trips_txt = f"{capacity_trips} trip{'s' if capacity_trips > 1 else ''} (~500 SF capacity per trip)"
+    if work_days > capacity_trips:
+        return (
+            f"{qty} van-days — {work_days}-day job "
+            f"(on-site time exceeds a {WORKDAY_HOURS}-hr workday) · {trips_txt}"
+        )
+    return f"{trips_txt}"
+
+
 def rh(x: float) -> float:
     """Round hours to the nearest 0.5 — every displayed labor-hour line
     must land on a half-hour increment (0.5, 1.0, 1.5, ...), never 0.1/0.4-
@@ -1298,9 +1328,14 @@ class EstimateCalculator:
         # Smart truck selection based on job size
         _, truck_rate = self.select_truck(storage_sf)
         # Truck trips: large van holds ~500 SF
-        quick_truck_trips = max(
+        quick_capacity_trips = max(
             1, math.ceil(storage_sf / 500)
         ) if storage_sf > 0 else 1
+        # The van is rented by the DAY, so a job that spans multiple workdays
+        # needs it for that many days even when one trip would hold the load.
+        quick_work_days = work_days_for(total_hours)
+        quick_truck_trips = max(quick_capacity_trips, quick_work_days)
+        quick_truck_note = truck_qty_note(quick_capacity_trips, quick_work_days)
 
         # Special items (fixed cost, not affected by region/density/floor)
         # Merge request-level + per-room special items
@@ -1416,7 +1451,7 @@ class EstimateCalculator:
             _t_out_lines = [
                 {"name": "26' Moving Van", "qty": quick_truck_trips, "unit": "DY",
                  "rate": round(truck_rate, 2),
-                 "detail": f"{quick_truck_trips} trip{'s' if quick_truck_trips > 1 else ''}  (~500 SF capacity per trip)",
+                 "detail": quick_truck_note,
                  "amount": round(truck_rate * quick_truck_trips, 2)},
                 {"name": "Loading Labor", "qty": quick_loading_hours, "unit": "HR",
                  "rate": crew_labor_rate,
@@ -1426,7 +1461,7 @@ class EstimateCalculator:
             _t_back_lines = [
                 {"name": "26' Moving Van", "qty": quick_truck_trips, "unit": "DY",
                  "rate": round(truck_rate, 2),
-                 "detail": f"{quick_truck_trips} trip{'s' if quick_truck_trips > 1 else ''}  (~500 SF capacity per trip)",
+                 "detail": quick_truck_note,
                  "amount": round(truck_rate * quick_truck_trips, 2)},
                 {"name": "Unloading Labor", "qty": quick_loading_hours, "unit": "HR",
                  "rate": crew_labor_rate,
@@ -1521,14 +1556,12 @@ class EstimateCalculator:
         grand_total = round(subtotal + op_amount + supplements_total + contingency_amount, 2)
 
         # Workday scheduling notes
-        WORKDAY_HOURS = 8
         quick_notes: list[str] = []
         if total_hours > WORKDAY_HOURS:
-            work_days = math.ceil(total_hours / WORKDAY_HOURS)
             quick_notes.append(
                 f"Estimated on-site time is {round(total_hours, 1)} hrs "
                 f"({request.crew_size}-person crew), exceeding a standard {WORKDAY_HOURS}-hr workday. "
-                f"Recommend scheduling {work_days} days."
+                f"Recommend scheduling {quick_work_days} days."
             )
 
         return EstimateResponse(
@@ -1536,6 +1569,8 @@ class EstimateCalculator:
             total_items=total_items,
             total_hours=round(total_hours, 1),
             crew_size=request.crew_size,
+            work_days=quick_work_days,
+            truck_trips=quick_truck_trips if not is_on_site else 0,
             sections=sections,
             section_details=section_details,
             materials=materials,
@@ -3127,8 +3162,14 @@ class EstimateCalculator:
             "Materials": round(material_cost, 2),
         }
 
-        # Truck trips: 26' van holds ~500 SF worth of contents
-        truck_trips = max(1, math.ceil(storage_sf / 500)) if storage_sf > 0 else 1
+        # Truck trips: 26' van holds ~500 SF worth of contents.
+        # The van is rented by the DAY, so a multi-day job needs it for that
+        # many days even when a single trip would hold the whole load.
+        capacity_trips = max(1, math.ceil(storage_sf / 500)) if storage_sf > 0 else 1
+        total_hours_calc = total_labor_hours + debris_hours
+        work_days = work_days_for(total_hours_calc)
+        truck_trips = max(capacity_trips, work_days)
+        truck_note = truck_qty_note(capacity_trips, work_days)
 
         if is_on_site:
             sections["On-Site Relocation"] = round(on_site_moving_fee, 2)
@@ -3198,8 +3239,8 @@ class EstimateCalculator:
 
         # total_hours = elapsed time the crew actually spends on site.
         # Supervisor & inventory work concurrently with packing crew,
-        # so they do NOT add to elapsed time — only debris hauling is sequential.
-        total_hours_calc = total_labor_hours + debris_hours
+        # so they do NOT add to elapsed time — only debris hauling is
+        # sequential. (Computed above, where it drives truck van-days.)
 
         # material_details uses hybrid category lines (computed above)
         material_details = mat_details_legacy
@@ -3302,7 +3343,7 @@ class EstimateCalculator:
             return [
                 {"name": "26' Moving Van", "qty": trips, "unit": "DY",
                  "rate": round(t_rate, 2),
-                 "detail": f"{trips} trip{'s' if trips > 1 else ''}  (~500 SF capacity per trip)",
+                 "detail": truck_note,
                  "amount": round(t_rate * trips, 2)},
                 {"name": "Content Carry-Out (floor-weighted)", "qty": _carry_out_elapsed, "unit": "HR",
                  "rate": _carry_out_rate,
@@ -3318,7 +3359,7 @@ class EstimateCalculator:
             return [
                 {"name": "26' Moving Van", "qty": trips, "unit": "DY",
                  "rate": round(t_rate, 2),
-                 "detail": f"{trips} trip{'s' if trips > 1 else ''}  (~500 SF capacity per trip)",
+                 "detail": truck_note,
                  "amount": round(t_rate * trips, 2)},
                 {"name": "Content Carry-In (floor-weighted)", "qty": _carry_in_elapsed, "unit": "HR",
                  "rate": _carry_in_rate,
@@ -3433,10 +3474,8 @@ class EstimateCalculator:
         grand_total = round(subtotal + op_amount + supplements_total + contingency_amount, 2)
 
         # Workday scheduling notes
-        WORKDAY_HOURS = 8
         notes: list[str] = []
         if total_hours_calc > WORKDAY_HOURS:
-            work_days = math.ceil(total_hours_calc / WORKDAY_HOURS)
             notes.append(
                 f"Estimated on-site time is {round(total_hours_calc, 1)} hrs "
                 f"({crew}-person crew), exceeding a standard {WORKDAY_HOURS}-hr workday. "
@@ -3448,6 +3487,8 @@ class EstimateCalculator:
             total_items=total_items,
             total_hours=round(total_hours_calc, 1),
             crew_size=request.crew_size,
+            work_days=work_days,
+            truck_trips=truck_trips if not is_on_site else 0,
             sections=sections,
             section_details=section_details,
             materials=materials,

@@ -202,6 +202,11 @@ class EstimateResponse(BaseModel):
     total_items: int
     total_hours: float
     crew_size: int
+    # Scheduling / logistics quantities the editor can adjust by hand.
+    # work_days = ceil(total_hours / 8-hr workday); truck_trips is the moving-van
+    # DY quantity, which is max(capacity trips, work_days) — 0 for on-site jobs.
+    work_days: int = 1
+    truck_trips: int = 0
 
     # Breakdown
     sections: Dict[str, float]

@@ -36,6 +36,8 @@ import {
   FolderOpenOutlined,
   ThunderboltOutlined,
   InfoCircleOutlined,
+  UndoOutlined,
+  RedoOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { toolService } from '@/services/toolService';
@@ -198,6 +200,165 @@ function generateSchedulingNotes(
   }
 
   return notes;
+}
+
+/** Recompute section/subtotal/O&P/grand-total from edited section_details.
+ * Every mutation path funnels through this so the derived money never drifts
+ * from the lines actually displayed. */
+function recalcFromDetails(
+  prev: EstimateResponse,
+  details: Record<string, { lines: SectionDetailLine[] }>,
+): EstimateResponse {
+  const sections = { ...prev.sections };
+  for (const [name, sd] of Object.entries(details)) {
+    if (name in sections) {
+      sections[name] = Math.round(sd.lines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
+    }
+  }
+  const subtotal = Object.values(sections).reduce((s, v) => s + v, 0);
+  const opAmount = prev.include_op ? subtotal * (prev.op_rate / 100) : 0;
+  const contingencyAmount = prev.include_contingency ? subtotal * (prev.contingency_rate / 100) : 0;
+  return {
+    ...prev,
+    sections,
+    section_details: details,
+    subtotal,
+    op_amount: opAmount,
+    contingency_amount: contingencyAmount,
+    grand_total: subtotal + opAmount + contingencyAmount + (prev.supplements_total || 0),
+    notes: generateSchedulingNotes(details, prev.crew_size),
+  };
+}
+
+/** True for a crew-priced labor line: qty is elapsed hours and rate is
+ * per-person-rate × crew. Mirrors the backend's _crew_detail() marker. */
+function isCrewLaborLine(line: SectionDetailLine): boolean {
+  return line.unit === 'HR' && /crew/i.test(line.detail || '');
+}
+
+/** Rebuild a crew-labor line's detail text so every number in it matches the
+ * line's own qty/rate/amount. Mirrors the backend's _crew_detail():
+ *   "{crew}-person crew ({desc}) · {hrs} hr × {crew} crew × ${rate}/hr = ${amt}"
+ * Patching the string piecemeal leaves the trailing per-person rate and total
+ * stale, so the printed breakdown contradicts the line it describes. Falls
+ * back to the original text if the shape isn't recognised. */
+function rebuildCrewDetail(
+  detail: string,
+  hrs: number,
+  crew: number,
+  crewRate: number,
+  amount: number,
+): string {
+  // Pull the parenthesised task description out of the canonical prefix.
+  const desc = detail.match(/^\s*\d+-person crew \(([^)]*)\)/)?.[1];
+  if (desc == null) return detail;
+  const perPerson = crew > 0 ? crewRate / crew : crewRate;
+  return (
+    `${crew}-person crew (${desc}) · ${hrs} hr × ${crew} crew × ` +
+    `${fmtMoney(Math.round(perPerson * 100) / 100)}/hr = ${fmtMoney(amount)}`
+  );
+}
+
+/** True for the moving-van line, whose qty is billed in DY (van-days). */
+function isTruckLine(line: SectionDetailLine): boolean {
+  return /moving van/i.test(line.name) && (line.unit || '').toUpperCase() === 'DY';
+}
+
+/** Rewrite every moving-van line to a new van-day quantity.
+ * Rate is held; amount follows qty, matching how the backend builds the line. */
+function applyTruckQty(
+  prev: EstimateResponse,
+  trips: number,
+): EstimateResponse {
+  const qty = Math.max(0, Math.round(trips));
+  const details = { ...(prev.section_details ?? {}) };
+  let touched = false;
+  for (const [name, sd] of Object.entries(details)) {
+    if (!sd.lines.some(isTruckLine)) continue;
+    details[name] = {
+      lines: sd.lines.map((l) =>
+        isTruckLine(l)
+          ? {
+              ...l,
+              qty,
+              amount: Math.round(l.rate * qty * 100) / 100,
+              detail: `${qty} van-day${qty === 1 ? '' : 's'} × ${fmtMoney(l.rate)}/day`,
+            }
+          : l,
+      ),
+    };
+    touched = true;
+  }
+  if (!touched) return { ...prev, truck_trips: qty };
+  return { ...recalcFromDetails(prev, details), truck_trips: qty };
+}
+
+/** Scale every crew-labor HR line so total elapsed hours hit `targetHours`.
+ * Rate per line is unchanged — only qty (elapsed hours) and amount move, so
+ * the mix between pack-out categories is preserved. */
+function applyTotalHours(
+  prev: EstimateResponse,
+  targetHours: number,
+): EstimateResponse {
+  const details = { ...(prev.section_details ?? {}) };
+  const laborSections = ['Pack-Out Labor', 'Pack-Back Labor'];
+  const current =
+    Math.round(
+      laborSections.reduce((s, n) => s + sumCrewElapsedHours(details[n]?.lines ?? []), 0) * 10,
+    ) / 10;
+  if (current <= 0 || targetHours <= 0) return prev;
+  const factor = targetHours / current;
+
+  for (const name of laborSections) {
+    const sd = details[name];
+    if (!sd) continue;
+    details[name] = {
+      lines: sd.lines.map((l) => {
+        if (!isCrewLaborLine(l)) return l;
+        // Keep hours on the half-hour grid the backend's rh() enforces.
+        const qty = Math.max(0.5, Math.round(l.qty * factor * 2) / 2);
+        const amount = Math.round(l.rate * qty * 100) / 100;
+        const detail = rebuildCrewDetail(l.detail || '', qty, prev.crew_size, l.rate, amount);
+        return { ...l, qty, amount, detail };
+      }),
+    };
+  }
+
+  const next = recalcFromDetails(prev, details);
+  const newTotal =
+    Math.round(
+      laborSections.reduce(
+        (s, n) => s + sumCrewElapsedHours(next.section_details?.[n]?.lines ?? []),
+        0,
+      ) * 10,
+    ) / 10;
+  return { ...next, total_hours: newTotal };
+}
+
+/** Re-price crew-labor lines for a new crew size.
+ * A crew line's rate is per-person-rate × crew, so changing crew size changes
+ * the rate. Elapsed hours are held — the user adjusts those separately. */
+function applyCrewSize(prev: EstimateResponse, crewSize: number): EstimateResponse {
+  const oldCrew = Math.max(1, prev.crew_size);
+  const newCrew = Math.max(1, Math.round(crewSize));
+  if (newCrew === oldCrew) return prev;
+  const ratio = newCrew / oldCrew;
+  const details = { ...(prev.section_details ?? {}) };
+
+  for (const [name, sd] of Object.entries(details)) {
+    details[name] = {
+      lines: sd.lines.map((l) => {
+        if (!isCrewLaborLine(l)) return l;
+        const rate = Math.round(l.rate * ratio * 100) / 100;
+        const amount = Math.round(rate * l.qty * 100) / 100;
+        const detail = rebuildCrewDetail(l.detail || '', l.qty, newCrew, rate, amount);
+        return { ...l, rate, amount, detail };
+      }),
+    };
+  }
+
+  const next = recalcFromDetails({ ...prev, crew_size: newCrew }, details);
+  return { ...next, notes: generateSchedulingNotes(next.section_details, newCrew) };
 }
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -736,6 +897,57 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     onDirtyChange?.(false);
   }, [onDirtyChange]);
 
+  // ── Undo / redo ────────────────────────────────────────────────────────────
+  // Snapshots of the whole EstimateResponse. Every mutating handler calls
+  // pushHistory() with the pre-edit result BEFORE applying its change, so undo
+  // restores exactly what was on screen a moment earlier. A fresh calculate or
+  // a loaded session resets the stacks — there is nothing meaningful to undo
+  // back past a full recalculation.
+  const [undoStack, setUndoStack] = useState<EstimateResponse[]>([]);
+  const [redoStack, setRedoStack] = useState<EstimateResponse[]>([]);
+  const HISTORY_LIMIT = 50;
+
+  const pushHistory = useCallback(() => {
+    setResult((prev) => {
+      if (prev) {
+        setUndoStack((st) => [...st, prev].slice(-HISTORY_LIMIT));
+        setRedoStack([]);
+      }
+      return prev;
+    });
+  }, [setResult]);
+
+  const resetHistory = useCallback(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    setUndoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const restored = stack[stack.length - 1];
+      setResult((prev) => {
+        if (prev) setRedoStack((r) => [...r, prev].slice(-HISTORY_LIMIT));
+        return restored;
+      });
+      setEditing(null);
+      return stack.slice(0, -1);
+    });
+  }, [setResult]);
+
+  const handleRedo = useCallback(() => {
+    setRedoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const restored = stack[stack.length - 1];
+      setResult((prev) => {
+        if (prev) setUndoStack((u) => [...u, prev].slice(-HISTORY_LIMIT));
+        return restored;
+      });
+      setEditing(null);
+      return stack.slice(0, -1);
+    });
+  }, [setResult]);
+
   // ── Customer link ──────────────────────────────────────────────────────────
   // Mirrors SharedDetailsStep's ClientInfo <-> CustomerData mapping so this
   // panel searches/updates the same linked Customer record instead of drifting.
@@ -777,6 +989,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       if (res) {
         setResult(res);
         clearDirty();
+        resetHistory();
         message.success('Estimate calculated');
       }
     } catch {
@@ -784,7 +997,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     } finally {
       setCalculating(false);
     }
-  }, [onCalculate, setResult, clearDirty]);
+  }, [onCalculate, setResult, clearDirty, resetHistory]);
 
   const handleCalculate = useCallback(() => {
     // Recalculating rebuilds every line from the current room/settings data —
@@ -801,6 +1014,29 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       runCalculate();
     }
   }, [hasEdits, runCalculate]);
+
+  // Ctrl/Cmd+Z to undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) to redo — but not while
+  // the user is typing in an input, where the browser's own text undo is what
+  // they mean.
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [active, handleUndo, handleRedo]);
 
   // ── Leaving cleanup ────────────────────────────────────────────────────────
   // Navigation itself is owned by the parent's breadcrumb — this panel stays
@@ -855,6 +1091,51 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     return note ? note.replace(/^Scheduling:\s*/, '') : null;
   }, [result?.section_details, result?.crew_size]);
 
+  // ── Schedule & logistics (editable) ───────────────────────────────────────
+  // Read straight off the current lines so hand-edits to a labor or van line
+  // are reflected in these controls, not just the other way round.
+  const currentTruckQty = useMemo(() => {
+    const details = result?.section_details ?? {};
+    for (const sd of Object.values(details)) {
+      const truck = sd.lines.find(isTruckLine);
+      if (truck) return truck.qty;
+    }
+    return result?.truck_trips ?? 0;
+  }, [result?.section_details, result?.truck_trips]);
+
+  const currentLaborHours = useMemo(() => {
+    const details = result?.section_details ?? {};
+    return (
+      Math.round(
+        (sumCrewElapsedHours(details['Pack-Out Labor']?.lines ?? []) +
+          sumCrewElapsedHours(details['Pack-Back Labor']?.lines ?? [])) * 10,
+      ) / 10
+    );
+  }, [result?.section_details]);
+
+  const currentWorkDays = Math.max(1, Math.ceil(currentLaborHours / 8));
+
+  const handleTruckQtyChange = useCallback((val: number | null) => {
+    if (val == null || val < 0) return;
+    pushHistory();
+    markDirty();
+    setResult((prev) => (prev ? applyTruckQty(prev, val) : prev));
+  }, [pushHistory, markDirty, setResult]);
+
+  const handleLaborHoursChange = useCallback((val: number | null) => {
+    if (val == null || val <= 0) return;
+    pushHistory();
+    markDirty();
+    setResult((prev) => (prev ? applyTotalHours(prev, val) : prev));
+  }, [pushHistory, markDirty, setResult]);
+
+  const handleCrewSizeChange = useCallback((val: number | null) => {
+    if (val == null || val < 1) return;
+    pushHistory();
+    markDirty();
+    setResult((prev) => (prev ? applyCrewSize(prev, val) : prev));
+  }, [pushHistory, markDirty, setResult]);
+
   // Everything except the "Scheduling:" summary, which now lives in the
   // Hours stat's tooltip instead of a standalone alert.
   const visibleNotes = (result?.notes ?? []).filter((n) => !n.startsWith('Scheduling:'));
@@ -904,6 +1185,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   const handleSaveEdit = useCallback(() => {
     if (!editing) return;
+    pushHistory();
     markDirty();
     const { sectionName, lineIndex, name, detail, qty, unit, rate } = editing;
     const newAmount = Math.round(qty * rate * 100) / 100;
@@ -949,7 +1231,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         // text's embedded "X hr × N crew" number in sync with the new qty.
         const isCrewLine = /crew/i.test(prevLine?.detail || '');
         const finalDetail = isCrewLine && detail
-          ? detail.replace(/[\d.]+(\s*hr\s*×\s*\d+\s*crew)/, `${qty}$1`)
+          ? rebuildCrewDetail(detail, qty, prev.crew_size, rate, newAmount)
           : detail;
         lines[lineIndex] = { ...prevLine, name, detail: finalDetail, qty, unit, rate, amount: newAmount };
         details[sectionName] = { lines };
@@ -991,12 +1273,13 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     });
 
     setEditing(null);
-  }, [editing, setResult, markDirty]);
+  }, [editing, setResult, markDirty, pushHistory]);
 
   const handleCancelEdit = useCallback(() => setEditing(null), []);
 
   const handleDeleteLine = useCallback(
     (sectionName: string, lineIndex: number) => {
+      pushHistory();
       markDirty();
       setResult((prev) => {
         if (!prev) return prev;
@@ -1069,7 +1352,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         };
       });
     },
-    [setResult, markDirty],
+    [setResult, markDirty, pushHistory],
   );
 
   // ── Add line handlers ──────────────────────────────────────────────────────
@@ -1094,6 +1377,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
     const amount = newLine.qty * newLine.rate;
 
+    pushHistory();
     markDirty();
     setResult((prev) => {
       if (!prev) return prev;
@@ -1139,6 +1423,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       message.warning('Section name is required');
       return;
     }
+    pushHistory();
     markDirty();
     setResult((prev) => {
       if (!prev) return prev;
@@ -1187,6 +1472,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       if (d?.result) {
         setResult(d.result);
         clearDirty();
+        resetHistory();
         if (d?.client_info) setClientInfo(d.client_info);
         message.success(`Loaded: ${session.name}`);
       }
@@ -1199,6 +1485,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   // ── O&P / Contingency handlers ─────────────────────────────────────────────
 
   const handleOpToggle = (checked: boolean) => {
+    pushHistory();
     markDirty();
     setResult((prev) => {
       if (!prev) return prev;
@@ -1217,6 +1504,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   const handleOpRateChange = (val: number | null) => {
     const rate = val ?? 0;
+    pushHistory();
     markDirty();
     setResult((prev) => {
       if (!prev) return prev;
@@ -1844,6 +2132,127 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             </Row>
           </Card>
 
+          {/* ── Schedule & Logistics ─────────────────────────────────────────── */}
+          {/* Hand-adjust the drivers behind the estimate: on-site hours, crew
+              size, and moving-van days. Each edit rewrites the affected lines
+              and is undoable. */}
+          <Card
+            style={{
+              border: `1px solid ${colors.border}`,
+              borderRadius: borderRadius.lg,
+              marginBottom: 16,
+            }}
+            styles={{ body: { padding: '16px 20px' } }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 12,
+              }}
+            >
+              <Title level={5} style={{ margin: 0, fontFamily: fonts.heading, fontSize: 15 }}>
+                Schedule &amp; Logistics
+              </Title>
+              <Space size={4}>
+                <Tooltip title={undoStack.length ? 'Undo last change' : 'Nothing to undo'}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<UndoOutlined />}
+                    disabled={undoStack.length === 0}
+                    onClick={handleUndo}
+                  />
+                </Tooltip>
+                <Tooltip title={redoStack.length ? 'Redo' : 'Nothing to redo'}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<RedoOutlined />}
+                    disabled={redoStack.length === 0}
+                    onClick={handleRedo}
+                  />
+                </Tooltip>
+              </Space>
+            </div>
+
+            {/* On-site hours */}
+            <Row justify="space-between" align="middle" style={{ marginBottom: 10 }}>
+              <Col>
+                <Space size={4}>
+                  <Text style={{ fontSize: 13 }}>On-Site Hours</Text>
+                  <Tooltip title="Total elapsed crew hours. Changing this scales every crew-labor line proportionally.">
+                    <InfoCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
+                  </Tooltip>
+                </Space>
+              </Col>
+              <Col>
+                <Space size={8}>
+                  <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                    {currentWorkDays} day{currentWorkDays > 1 ? 's' : ''}
+                  </Text>
+                  <InputNumber
+                    size="small"
+                    min={0.5}
+                    step={0.5}
+                    value={currentLaborHours}
+                    onChange={handleLaborHoursChange}
+                    suffix="hr"
+                    style={{ width: 92 }}
+                  />
+                </Space>
+              </Col>
+            </Row>
+
+            {/* Crew size */}
+            <Row justify="space-between" align="middle" style={{ marginBottom: 10 }}>
+              <Col>
+                <Space size={4}>
+                  <Text style={{ fontSize: 13 }}>Crew Size</Text>
+                  <Tooltip title="Crew-labor lines are priced at per-person rate × crew, so this re-prices them. Hours stay as set.">
+                    <InfoCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
+                  </Tooltip>
+                </Space>
+              </Col>
+              <Col>
+                <InputNumber
+                  size="small"
+                  min={1}
+                  max={20}
+                  value={result.crew_size}
+                  onChange={handleCrewSizeChange}
+                  style={{ width: 92 }}
+                />
+              </Col>
+            </Row>
+
+            {/* Moving van days */}
+            {currentTruckQty > 0 && (
+              <Row justify="space-between" align="middle">
+                <Col>
+                  <Space size={4}>
+                    <Text style={{ fontSize: 13 }}>Moving Van</Text>
+                    <Tooltip title="Van-days billed. Defaults to whichever is larger: trips needed for the load, or the number of workdays on site.">
+                      <InfoCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
+                    </Tooltip>
+                  </Space>
+                </Col>
+                <Col>
+                  <InputNumber
+                    size="small"
+                    min={0}
+                    max={30}
+                    value={currentTruckQty}
+                    onChange={handleTruckQtyChange}
+                    suffix="DY"
+                    style={{ width: 92 }}
+                  />
+                </Col>
+              </Row>
+            )}
+          </Card>
+
           {/* ── Scheduling Notes ─────────────────────────────────────────────── */}
           {/* The "Scheduling: ..." summary now lives in the Hours stat's hover
               tooltip above; only actionable warnings (e.g. exceeds an 8-hr
@@ -1946,6 +2355,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                         <Checkbox
                           checked={s.enabled}
                           onChange={(e) => {
+                            pushHistory();
                             markDirty();
                             setResult(prev => {
                               if (!prev) return prev;
@@ -1976,6 +2386,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                         prefix="$"
                         style={{ width: 100, fontSize: 13, opacity: s.enabled ? 1 : 0.4 }}
                         onChange={(val) => {
+                          pushHistory();
                           markDirty();
                           setResult(prev => {
                             if (!prev) return prev;
@@ -1999,6 +2410,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                           placeholder="Reason (shown on estimate)"
                           value={s.reason || ''}
                           onChange={(e) => {
+                            pushHistory();
                             markDirty();
                             setResult(prev => {
                               if (!prev) return prev;
