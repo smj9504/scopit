@@ -457,6 +457,15 @@ NOTE: Built-in cabinets themselves are EXCLUDED (fixed structures), but the CONT
 NAMING:
 - Include size info that affects packing: "Queen Bed Frame", "4-Drawer Dresser", "3-Section Sectional Sofa"
 - NO colors, brands, or patterns.
+- BED SIZING: a bed frame and the mattress on it are the SAME bed — always give
+  them the SAME size. Never report e.g. a "Queen Bed Frame" alongside a "Full
+  Mattress". Decide the bed's size once, then name both parts with it.
+  Judge size from the bed itself, not from the room: compare the mattress width
+  to reference objects in the photo (a standard pillow is ~20in wide, so Twin
+  ~2 pillows across, Full/Queen ~3, King ~4; a nightstand is ~20-24in wide).
+  If the size genuinely cannot be told from the photo, use "Queen" for a
+  double-occupancy bed and "Twin" for a single — but use the SAME choice for
+  both the frame and the mattress.
 - List contents separately from containers (books separately from bookshelf, clothing separately from dresser).
 
 Use the report_room_contents tool to submit your findings."""

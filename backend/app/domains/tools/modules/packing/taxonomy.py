@@ -38,7 +38,7 @@ PACKING_TAXONOMY: list[CanonicalItem] = [
     CanonicalItem("King Bed Frame", "Furniture",
                   ["king bed", "king size bed", "king bed frame", "california king"]),
     CanonicalItem("Queen Bed Frame", "Furniture",
-                  ["queen bed", "queen size bed", "queen bed frame", "bed frame"]),
+                  ["queen bed", "queen size bed", "queen bed frame"]),
     CanonicalItem("Full Bed Frame", "Furniture",
                   ["full bed", "full size bed", "double bed", "double bed frame"]),
     CanonicalItem("Twin Bed Frame", "Furniture",
@@ -49,6 +49,16 @@ PACKING_TAXONOMY: list[CanonicalItem] = [
                   ["toddler bed frame", "child bed", "kids bed"]),
     CanonicalItem("Crib", "Furniture",
                   ["baby crib", "infant crib", "convertible crib"]),
+    # Unsized fallbacks. The AI is asked to size beds (and to size a frame and
+    # its mattress identically), but when it reports a bare "bed frame" or
+    # "mattress" these must NOT be silently promoted to a specific size —
+    # doing so previously produced mismatched pairs like a Queen Bed Frame
+    # next to a King Mattress from a single photo. An unsized name in, an
+    # unsized name out; pricing treats these as the standard double size.
+    CanonicalItem("Bed Frame", "Furniture",
+                  ["bed frame", "platform bed", "bed base", "bedframe"]),
+    CanonicalItem("Mattress", "Furniture",
+                  ["mattress and box spring", "box spring"]),
     CanonicalItem("King Mattress", "Furniture",
                   ["king size mattress", "california king mattress"]),
     CanonicalItem("Queen Mattress", "Furniture",
@@ -552,6 +562,27 @@ def _try_exact_match(name_lower: str) -> Optional[CanonicalItem]:
     return _ALIAS_MAP.get(name_lower)
 
 
+# Words that distinguish one canonical item from another. If an alias adds any
+# of these on top of the input, matching the two together would be asserting a
+# detail the input never carried (e.g. "mattress" -> "king size mattress").
+_DISTINGUISHING_WORDS = frozenset({
+    "twin", "single", "full", "double", "queen", "king", "california",
+    "toddler", "crib", "bunk", "loft", "baby", "infant",
+    "small", "large", "mini", "compact", "oversized",
+})
+
+
+def _alias_only_adds_noise(name_lower: str, alias: str) -> bool:
+    """True when `alias` is `name_lower` plus only non-distinguishing words.
+
+    Used to decide whether a shorter input may match a longer alias. Extra
+    filler ("size", "set") is harmless; an extra size or type word is not,
+    because it would attach a specific size to an item reported without one.
+    """
+    extra = set(re.findall(r"[a-z]+", alias)) - set(re.findall(r"[a-z]+", name_lower))
+    return not (extra & _DISTINGUISHING_WORDS)
+
+
 def _try_substring_match(name_lower: str) -> Optional[tuple[CanonicalItem, float]]:
     """Check if any alias is a substring of the input (or vice versa).
 
@@ -578,9 +609,14 @@ def _try_substring_match(name_lower: str) -> Optional[tuple[CanonicalItem, float
             if left_ok and right_ok and len(alias) > best_len:
                 best_match = item
                 best_len = len(alias)
-        # Check input is a substring of alias (input is shorter form)
+        # Check input is a substring of alias (input is shorter form).
+        # Guarded against size promotion: a bare "mattress" is a substring of
+        # "king size mattress", and picking the longest alias used to resolve
+        # it to King — inventing a size the photo never established. When the
+        # input omits a qualifier the alias adds, the two are not the same
+        # item, so require the extra words to be non-distinguishing.
         elif name_lower in alias and len(name_lower) >= 5:
-            if len(alias) > best_len:
+            if _alias_only_adds_noise(name_lower, alias) and len(alias) > best_len:
                 best_match = item
                 best_len = len(alias)
     if best_match:
@@ -691,7 +727,63 @@ def normalize_items_list(items: list[dict]) -> list[dict]:
         if matched and confidence >= 0.65:
             item["is_high_value"] = matched.is_high_value_default
             item["is_fragile"] = matched.is_fragile
+
+    _reconcile_bed_sizes(items)
     return items
+
+
+# Bed size names ordered from smallest to largest, used to reconcile a frame
+# and mattress that were reported at different sizes.
+_BED_SIZES = ("Twin", "Full", "Queen", "King")
+
+
+def _bed_size_of(name: str) -> Optional[str]:
+    """Return the bed size prefix of a bed-frame or mattress name, if any."""
+    if not name:
+        return None
+    lowered = name.lower()
+    if "bed frame" not in lowered and "mattress" not in lowered:
+        return None
+    for size in _BED_SIZES:
+        if re.search(rf"\b{size.lower()}\b", lowered):
+            return size
+    return None
+
+
+def _reconcile_bed_sizes(items: list[dict]) -> None:
+    """Force bed frames and mattresses in one room to a single size.
+
+    A frame and the mattress on it are the same bed, so reporting a "Queen Bed
+    Frame" beside a "Full Mattress" is always wrong — but both are plausible
+    readings of one photo, and the vision model does sometimes disagree with
+    itself across the two lines. The prompt asks for a single size; this makes
+    it true regardless.
+
+    The largest reported size wins: mattress bag and moving-blanket quantities
+    scale with size, so erring large under-charges nobody and avoids sending a
+    crew with packaging too small for the item in front of them.
+
+    Rooms that legitimately hold differently-sized beds (a bunk room, a guest
+    room with two twins) are unaffected, because those report bunk beds or a
+    matching pair rather than one frame and one mismatched mattress. Only
+    rooms with a genuine size disagreement are touched, and unsized names are
+    left alone rather than being promoted to a size nobody observed.
+    """
+    sized = [(i, _bed_size_of(i.get("name", ""))) for i in items]
+    present = {size for _, size in sized if size}
+    if len(present) < 2:
+        return  # nothing to reconcile — one size, or no sized beds at all
+
+    target = max(present, key=_BED_SIZES.index)
+    for item, size in sized:
+        if not size or size == target:
+            continue
+        name = item["name"]
+        item.setdefault("_original_name", name)
+        item["name"] = re.sub(
+            rf"\b{size}\b", target, name, count=1,
+        )
+        item["_bed_size_reconciled"] = True
 
 
 def get_taxonomy_names() -> list[str]:
