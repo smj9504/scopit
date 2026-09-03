@@ -606,6 +606,38 @@ def _select_diverse_images(
     return selected
 
 
+# Media types the Anthropic API accepts for images. Anything else has to be
+# transcoded before it can be sent.
+_SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+
+def _sniff_media_type(raw_b64: str) -> Optional[str]:
+    """Identify an image's real media type from its leading bytes.
+
+    The media type declared by the caller (or defaulted to JPEG) is not
+    trustworthy: images are passed around as bare base64, so the only
+    reliable signal is the file's own magic number. Sending the wrong one
+    makes the Anthropic API reject the whole request.
+
+    Returns None when the format isn't recognised, leaving the caller's
+    existing behaviour intact.
+    """
+    try:
+        header = base64.b64decode(raw_b64[:32] + "==", validate=False)[:12]
+    except Exception:
+        return None
+
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if header.startswith(b"GIF87a") or header.startswith(b"GIF89a"):
+        return "image/gif"
+    if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 def _compress_image_base64(
     image_base64: str,
     max_bytes: int = MAX_IMAGE_BYTES,
@@ -616,7 +648,7 @@ def _compress_image_base64(
     If the image is already small enough, returns it unchanged.
     Falls back gracefully if Pillow is not installed.
     """
-    media_type = "image/jpeg"
+    media_type = None
     raw_b64 = image_base64
 
     if raw_b64.startswith("data:"):
@@ -625,7 +657,23 @@ def _compress_image_base64(
             media_type = parts[0].split(":")[1].split(";")[0]
             raw_b64 = parts[1]
 
-    if len(raw_b64) <= max_bytes:
+    # Determine the real media type from the bytes rather than assuming JPEG.
+    # Photos arrive here as raw base64 with no data URL prefix (that is what
+    # /photos/upload stores and what the client sends), so a declared type is
+    # usually absent — and a PNG screenshot announced as image/jpeg is
+    # rejected outright by the Anthropic API with a media-type mismatch.
+    sniffed = _sniff_media_type(raw_b64)
+    if sniffed:
+        media_type = sniffed
+    elif not media_type:
+        media_type = "image/jpeg"
+
+    # An unrecognised format (e.g. HEIC from an iPhone) can't be sent as-is
+    # whatever we label it, so fall through to the transcode below even when
+    # the image is already small enough.
+    needs_transcode = media_type not in _SUPPORTED_IMAGE_TYPES
+
+    if len(raw_b64) <= max_bytes and not needs_transcode:
         return media_type, raw_b64
 
     try:
@@ -649,7 +697,7 @@ def _compress_image_base64(
             encoded = base64.b64encode(buf.getvalue()).decode("ascii")
 
             if len(encoded) <= max_bytes or quality <= 30:
-                return "image/jpeg", encoded
+                return "image/jpeg", encoded  # always a real JPEG here
 
             if quality > 40:
                 quality -= 15
