@@ -50,6 +50,7 @@ import {
 } from '@ant-design/icons';
 import { packingApi } from './packingApi';
 import { FolderImportModal } from './FolderImportModal';
+import { fileToResizedBase64 } from './photoResize';
 import { useGoogleDrive } from './useGoogleDrive';
 import {
   DENSITY_OPTIONS,
@@ -171,18 +172,6 @@ function defaultPhotoRoom(roomName: string, presetId?: string): PhotoRoom {
 }
 
 /** Convert File to base64 string (data URI stripped) */
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 /** Build a data URI for displaying a base64 image */
 function toDataUri(base64: string): string {
@@ -223,8 +212,31 @@ const AddRoomPanel: React.FC<AddRoomPanelProps> = ({ presets, presetsLoading, on
   const handleFilesSelected = useCallback(async (files: FileList) => {
     const fileArray = Array.from(files).filter((f) => f.type.startsWith('image/'));
     if (fileArray.length === 0) return;
-    const base64List = await Promise.all(fileArray.map(fileToBase64));
-    setPendingPhotos((prev) => [...prev, ...base64List]);
+
+    // One file at a time, downscaled on the way in — see photoResize.ts for
+    // why reading these concurrently at full size is what breaks on large
+    // PNG screenshots. A file that can't be read is reported and skipped
+    // rather than rejecting and losing the whole selection.
+    const base64List: string[] = [];
+    const failed: string[] = [];
+    for (const file of fileArray) {
+      try {
+        base64List.push(await fileToResizedBase64(file));
+      } catch (err) {
+        console.error(`Could not read "${file.name}"`, err);
+        failed.push(file.name);
+      }
+    }
+
+    if (failed.length > 0) {
+      message.error(
+        `Could not read ${failed.length} image${failed.length !== 1 ? 's' : ''}: ` +
+          failed.slice(0, 3).join(', '),
+      );
+    }
+    if (base64List.length > 0) {
+      setPendingPhotos((prev) => [...prev, ...base64List]);
+    }
   }, []);
 
   const handleAdd = () => {
@@ -1637,7 +1649,15 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           setPhotoRooms((prev) =>
             prev.map((r) => r.id === room.id ? { ...r, photo_keys: keys } : r),
           );
-        }).catch(() => {});
+        }).catch((err) => {
+          // In-memory photos still work for this session, but without
+          // storage keys later analysis and reports can't re-fetch them.
+          console.error(`Photo upload failed for "${room.room_name}"`, err);
+          message.warning(
+            'Room added, but its photos could not be saved to storage. ' +
+              'They may not persist.',
+          );
+        });
       }
     },
     [setPhotoRooms],
@@ -1648,25 +1668,50 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
     async (roomId: string, files: FileList) => {
       const fileArray = Array.from(files).filter((f) => f.type.startsWith('image/'));
       if (fileArray.length === 0) return;
-      try {
-        const base64List = await Promise.all(fileArray.map(fileToBase64));
-        const room = photoRooms.find((r) => r.id === roomId);
 
-        // Upload to storage in background, then store keys
-        packingApi.uploadPhotos(base64List).then((keys) => {
-          updateRoom(roomId, {
-            photo_keys: [...(room?.photo_keys ?? []), ...keys],
-          });
-        }).catch(() => {
-          // Non-fatal: photos still work in-memory for current session
-        });
-
-        updateRoom(roomId, {
-          photos: [...(room?.photos ?? []), ...base64List],
-        });
-      } catch {
-        message.error('Failed to process image files.');
+      // Read and downscale one file at a time. Reading them concurrently
+      // held every original plus its base64 string in memory at once, which
+      // large PNG screenshots could push past what the tab can allocate —
+      // and a single rejected read then discarded the whole batch.
+      const base64List: string[] = [];
+      const failed: string[] = [];
+      for (const file of fileArray) {
+        try {
+          base64List.push(await fileToResizedBase64(file));
+        } catch (err) {
+          console.error(`Could not read "${file.name}"`, err);
+          failed.push(file.name);
+        }
       }
+
+      if (failed.length > 0) {
+        message.error(
+          `Could not read ${failed.length} image${failed.length !== 1 ? 's' : ''}: ` +
+            failed.slice(0, 3).join(', '),
+        );
+      }
+      if (base64List.length === 0) return;
+
+      const room = photoRooms.find((r) => r.id === roomId);
+
+      // Upload to storage in background, then store keys
+      packingApi.uploadPhotos(base64List).then((keys) => {
+        updateRoom(roomId, {
+          photo_keys: [...(room?.photo_keys ?? []), ...keys],
+        });
+      }).catch((err) => {
+        // Photos still work in-memory for this session, but without storage
+        // keys analysis and reports can't re-fetch them later — so say so
+        // rather than failing silently at some later step.
+        console.error('Photo upload failed', err);
+        message.warning(
+          'Photos added, but could not be saved to storage. They may not persist.',
+        );
+      });
+
+      updateRoom(roomId, {
+        photos: [...(room?.photos ?? []), ...base64List],
+      });
     },
     [photoRooms, updateRoom],
   );
@@ -1784,16 +1829,38 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
   const handleBulkAddRooms = useCallback(
     (newRooms: PhotoRoom[]) => {
       setPhotoRooms((prev) => [...newRooms, ...prev]);
-      // Upload all room photos to storage in background
-      for (const room of newRooms) {
-        if (room.photos.length > 0) {
-          packingApi.uploadPhotos(room.photos).then((keys) => {
+
+      // Upload room by room, waiting for each before starting the next.
+      // Firing every room's upload at once put a folder's worth of photos
+      // on the wire simultaneously, which is what the backend has to absorb
+      // in one go; one room at a time keeps that bounded no matter how many
+      // rooms the folder had. This runs in the background — the rooms are
+      // already usable in-memory while their keys land.
+      void (async () => {
+        const failedRooms: string[] = [];
+        for (const room of newRooms) {
+          if (room.photos.length === 0) continue;
+          try {
+            const keys = await packingApi.uploadPhotos(room.photos);
             setPhotoRooms((prev) =>
-              prev.map((r) => r.id === room.id ? { ...r, photo_keys: keys } : r),
+              prev.map((r) => (r.id === room.id ? { ...r, photo_keys: keys } : r)),
             );
-          }).catch(() => {});
+          } catch (err) {
+            console.error(`Photo upload failed for "${room.room_name}"`, err);
+            failedRooms.push(room.room_name);
+          }
         }
-      }
+        if (failedRooms.length > 0) {
+          // Without storage keys these rooms can't be re-analyzed or put in
+          // a report later, so surface it now instead of failing downstream.
+          message.warning(
+            `Could not save photos for ${failedRooms.length} room` +
+              `${failedRooms.length !== 1 ? 's' : ''}: ${failedRooms.slice(0, 3).join(', ')}. ` +
+              'They may not persist.',
+            8,
+          );
+        }
+      })();
     },
     [setPhotoRooms],
   );

@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import type { PhotoRoom, FolderRoom } from './types';
+import { fileToResizedBase64, resizeDataUrl, dataUrlToBase64 } from './photoResize';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -65,19 +66,6 @@ function groupFilesBySubfolder(files: FileList): FolderRoom[] {
   return Array.from(groups.entries())
     .map(([name, files]) => ({ name, files, selected: true }))
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 /** Detect floor from room/section name */
@@ -232,29 +220,45 @@ export const FolderImportModal: React.FC<FolderImportModalProps> = ({
       );
 
       const newRooms: PhotoRoom[] = [];
+      const failedFiles: string[] = [];
 
       for (let i = 0; i < selectedRooms.length; i++) {
         const folderRoom = selectedRooms[i] as FolderRoom & { _driveFiles?: any[] };
         setImportProgress({ current: i + 1, total: selectedRooms.length });
 
-        let base64List: string[];
+        const base64List: string[] = [];
 
         if (driveMode && folderRoom._driveFiles && gDrive) {
           // Google Drive: download files via Drive API
           const driveFiles = folderRoom._driveFiles.slice(0, MAX_PHOTOS_PER_ROOM);
-          base64List = [];
           for (const df of driveFiles) {
             try {
               const b64 = await gDrive.downloadAsBase64(df.id);
-              base64List.push(b64);
-            } catch {
-              // Skip failed downloads, notify later
+              const resized = await resizeDataUrl(`data:image/jpeg;base64,${b64}`);
+              base64List.push(dataUrlToBase64(resized));
+            } catch (err) {
+              console.error(`Drive download failed for "${df.name}"`, err);
+              failedFiles.push(df.name);
             }
           }
         } else {
-          // Local folder: convert File objects to base64
+          // Local folder: read each file one at a time and downscale it
+          // immediately. Reading a room's photos concurrently used to hold
+          // every original *and* its base64 string in memory at once, which
+          // large PNG screenshots could push past what the tab can allocate.
+          // Sequential reads keep peak memory at roughly one photo.
           const filesToConvert = folderRoom.files.slice(0, MAX_PHOTOS_PER_ROOM);
-          base64List = await Promise.all(filesToConvert.map(fileToBase64));
+          for (const file of filesToConvert) {
+            try {
+              base64List.push(await fileToResizedBase64(file));
+            } catch (err) {
+              // One unreadable file must not discard the whole import — the
+              // rest of the folder is still perfectly usable. Collect the
+              // name so the user learns which file to look at.
+              console.error(`Could not read "${file.name}"`, err);
+              failedFiles.push(file.name);
+            }
+          }
         }
 
         if (base64List.length === 0) continue;
@@ -264,16 +268,42 @@ export const FolderImportModal: React.FC<FolderImportModalProps> = ({
         newRooms.push(room);
       }
 
+      const failureSummary = (max: number) => {
+        const shown = failedFiles.slice(0, max).join(', ');
+        const rest = failedFiles.length - Math.min(max, failedFiles.length);
+        return rest > 0 ? `${shown} and ${rest} more` : shown;
+      };
+
       if (newRooms.length === 0) {
-        message.warning('No photos could be imported.');
+        message.warning(
+          failedFiles.length > 0
+            ? `No photos could be imported. Could not read: ${failureSummary(3)}`
+            : 'No photos could be imported.',
+        );
         return;
       }
 
       onRoomsCreated(newRooms);
-      message.success(`Imported ${newRooms.length} room${newRooms.length !== 1 ? 's' : ''} from ${driveMode ? 'Google Drive' : 'folder'}`);
+      const roomLabel = `${newRooms.length} room${newRooms.length !== 1 ? 's' : ''}`;
+      const source = driveMode ? 'Google Drive' : 'folder';
+      if (failedFiles.length > 0) {
+        // Partial success: the rooms are usable, but say plainly what was
+        // left out so the user isn't left wondering about a missing photo.
+        message.warning(
+          `Imported ${roomLabel} from ${source}, but skipped ` +
+            `${failedFiles.length} photo${failedFiles.length !== 1 ? 's' : ''} ` +
+            `that could not be read: ${failureSummary(3)}`,
+          8,
+        );
+      } else {
+        message.success(`Imported ${roomLabel} from ${source}`);
+      }
       handleClose();
     } catch (err) {
-      message.error('Failed to process folder. Please try again.');
+      console.error('Folder import failed', err);
+      message.error(
+        `Failed to process folder: ${(err as Error)?.message || 'unknown error'}`,
+      );
     } finally {
       setImporting(false);
     }
