@@ -5,6 +5,7 @@
  */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useBlocker, type BlockerFunction } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Modal,
@@ -85,6 +86,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   const { message } = App.useApp();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // View state: list (default) or editor (wizard)
   const [view, setView] = useState<ViewState>(sessionId ? 'editor' : 'list');
@@ -575,6 +577,10 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       const linked: LinkedDocRef = { id: res.estimateId, number: res.estimateNumber };
       setLinkedEstimate(linked);
       await saveEstimate(estimateMode, undefined, { linked_estimate: linked });
+      // The estimates list is cached by react-query and this estimate was
+      // created outside it, so without invalidating, the new row is missing
+      // from the list until the cache happens to expire.
+      queryClient.invalidateQueries({ queryKey: ['estimates'] });
       onCreateEstimate?.(activeSessionId);
       navigate(`/app/estimates/${res.estimateId}`);
     } catch {
@@ -583,7 +589,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       creatingEstimateRef.current = false;
       setCreatingEstimate(false);
     }
-  }, [activeSessionId, estimateMode, saveEstimate, onCreateEstimate, clientInfo, navigate]);
+  }, [activeSessionId, estimateMode, saveEstimate, onCreateEstimate, clientInfo, navigate, queryClient]);
 
   const handleCreateEstimate = useCallback(async () => {
     if (!activeSessionId) {

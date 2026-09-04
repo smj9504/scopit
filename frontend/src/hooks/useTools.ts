@@ -63,10 +63,14 @@ export function useDeleteToolSession() {
 export function useCreateEstimateFromTool() {
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ sessionId, data }: { sessionId: string; data?: CreateEstimateFromToolRequest }) =>
       toolService.createEstimateFromSession(sessionId, data),
     onSuccess: (result) => {
+      // Created outside the cached estimates list, so invalidate or the new
+      // row stays missing until the cache goes stale on its own.
+      queryClient.invalidateQueries({ queryKey: ['estimates'] });
       message.success(`Estimate ${result.estimateNumber} created`);
       navigate(`/app/estimates/${result.estimateId}`);
     },

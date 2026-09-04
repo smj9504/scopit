@@ -40,6 +40,7 @@ import {
   RedoOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { toolService } from '@/services/toolService';
 import type { ToolSession } from '@/types/tools';
 import ReportExportModal from './ReportExportModal';
@@ -909,6 +910,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   // ── Responsive ─────────────────────────────────────────────────────────────
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // ── Local state ────────────────────────────────────────────────────────────
   const [editing, setEditing] = useState<EditingState | null>(null);
@@ -1654,6 +1656,9 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           : 'Packing & Moving Invoice',
       });
       message.success(`Invoice ${res.invoiceNumber} created`);
+      // Same staleness as the estimate path: the invoice was created outside
+      // the cached list, so the list must be invalidated to show it.
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
       onInvoiceCreated?.(res.invoiceId, res.invoiceNumber);
       navigate(`/app/invoices/${res.invoiceId}`);
     } catch {
