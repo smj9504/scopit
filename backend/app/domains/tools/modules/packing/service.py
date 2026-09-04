@@ -155,77 +155,65 @@ SIZE_TO_PRICE_CODE = {
 # DEFAULT PRICES FALLBACK TABLE
 # Used when DB prices are not seeded — ensures calculations always
 # produce meaningful results independent of database state.
+#
+# IMPORTANT: must stay in sync with seed.DEFAULT_MOVING_PRICES (same
+# codes, prices, names and units).  A company that has run the seeder
+# prices off the database; one that has not falls back to this table.
+# If the two disagree, the identical estimate produces different totals
+# depending on seed state — see test_default_prices_match_seed.
 # ============================================
 DEFAULT_PRICES = {
     # Labor
-    "2825": {"price": 57.31, "name": "Pack-Out Labor", "unit": "HR"},
-    "2826": {"price": 52.18, "name": "Pack-Back Labor", "unit": "HR"},
-    "2911": {"price": 87.00, "name": "Supervisor / Fragile Specialist", "unit": "HR"},
-    "2912": {"price": 125.00, "name": "Specialty Item Handler", "unit": "HR"},
-    # Transport (adjusted +15% for 2025 fuel costs)
-    "2932": {"price": 198.00, "name": "Transport - Small Van", "unit": "EA"},
-    "2933": {"price": 206.00, "name": "Transport - Medium Van", "unit": "EA"},
-    "2934": {"price": 227.00, "name": "Transport - Large Van", "unit": "EA"},
+    "2825": {"price": 59.03, "name": "Content Manipulation", "unit": "HR"},
+    "2911": {"price": 89.75, "name": "Supervisor/Admin", "unit": "HR"},
+    "2912": {"price": 128.75, "name": "Specialty Item Handler", "unit": "HR"},
+
+    # Room rates (composite reference)
+    "2833": {"price": 190.55, "name": "Small Room Pack/Reset", "unit": "EA"},
+    "2834": {"price": 293.55, "name": "Large Room Pack/Reset", "unit": "EA"},
+    "2835": {"price": 427.45, "name": "Extra Large Room Pack/Reset", "unit": "EA"},
+
+    # Boxes
+    "3025": {"price": 6.44, "name": "Medium Box (3.0cf)", "unit": "EA"},
+    "3026": {"price": 5.21, "name": "Small Box (1.5cf)", "unit": "EA"},
+    "3027": {"price": 7.71, "name": "Large Box (4.5cf)", "unit": "EA"},
+    "3028": {"price": 9.64, "name": "XL Box (6.0cf)", "unit": "EA"},
+    "3029": {"price": 5.21, "name": "Book Box", "unit": "EA"},
+    "3030": {"price": 10.78, "name": "Dish Pack", "unit": "EA"},
+    "3031": {"price": 9.62, "name": "Lamp Box Set", "unit": "EA"},
+    "3033": {"price": 11.11, "name": "Mirror/Picture Box", "unit": "EA"},
+    "3039": {"price": 19.96, "name": "Wardrobe Box", "unit": "EA"},
+    "3039L": {"price": 30.12, "name": "Wardrobe Box - Large", "unit": "EA"},
+    "3039S": {"price": 17.29, "name": "Wardrobe Box - Small", "unit": "EA"},
+    "3899": {"price": 30.81, "name": "TV Box", "unit": "EA"},
+
+    # Mattress
+    "3876": {"price": 9.64, "name": "Mattress Bag - Twin", "unit": "EA"},
+    "3877": {"price": 13.5, "name": "Mattress Bag - Queen", "unit": "EA"},
+    "3878": {"price": 15.43, "name": "Mattress Bag - King", "unit": "EA"},
+    "3905": {"price": 11.57, "name": "Mattress Bag - Full", "unit": "EA"},
+
+    # Protective
+    "2915": {"price": 15.43, "name": "Moving Blanket", "unit": "EA"},
+    "2916": {"price": 19.72, "name": "Furniture Pad", "unit": "EA"},
+    "2917": {"price": 5.79, "name": "Chair Cover", "unit": "EA"},
+    "2918": {"price": 9.64, "name": "Couch/Sofa Cover", "unit": "EA"},
+    "2936": {"price": 32.22, "name": "Shrink Wrap 20\"", "unit": "RL"},
+    "3018": {"price": 23.76, "name": "Bubble Wrap 24\"", "unit": "RL"},
+    "3022": {"price": 37.98, "name": "Corner Protectors (100)", "unit": "BX"},
+    "3023": {"price": 11.88, "name": "Bubble Wrap 12\"", "unit": "RL"},
+    "3035": {"price": 4.82, "name": "Packing Tape Roll", "unit": "EA"},
+    "3089": {"price": 94.45, "name": "Packing Paper Bundle", "unit": "BN"},
+
+    # Transport
+    "2932": {"price": 198.0, "name": "Moving Van 14'-15'", "unit": "EA"},
+    "2933": {"price": 206.0, "name": "Moving Van 16'-20'", "unit": "EA"},
+    "2934": {"price": 227.0, "name": "Moving Van 26'", "unit": "EA"},
+    "2935": {"price": 156.69, "name": "Cargo Van", "unit": "EA"},
+
     # Storage
-    "2840": {"price": 2.18, "name": "Storage (per SF/month)", "unit": "SF"},
-    "2841": {"price": 42.00, "name": "Storage Setup Fee", "unit": "EA"},
-    # Room-size base rates (used by calculate_room_base via SIZE_TO_PRICE_CODE)
-    "2833": {"price": 185.00, "name": "Room Rate - Small", "unit": "EA"},
-    "2834": {"price": 285.00, "name": "Room Rate - Standard", "unit": "EA"},
-    "2835": {"price": 415.00, "name": "Room Rate - Large", "unit": "EA"},
-    # Materials - Boxes
-    # Code assignments aligned with MATERIAL_CODES mapping.
-    "3026": {"price": 4.82, "name": "Small Box (1.5 cu ft)", "unit": "EA"},
-    "3025": {"price": 5.96, "name": "Medium Box (3.0 cu ft)", "unit": "EA"},
-    "3027": {"price": 7.14, "name": "Large Box (4.5 cu ft)", "unit": "EA"},
-    "3028": {"price": 8.93, "name": "XL Box (6.0 cu ft)", "unit": "EA"},
-    "3029": {"price": 4.82, "name": "Book Box (1.5 cu ft)", "unit": "EA"},
-    "3030": {"price": 9.64, "name": "Dish Pack Box", "unit": "EA"},
-    "3031": {"price": 5.36, "name": "Lamp Box", "unit": "EA"},
-    "3033": {"price": 9.64, "name": "Mirror/Picture Box", "unit": "EA"},
-    "3039": {"price": 12.86, "name": "Wardrobe Box", "unit": "EA"},
-    "3032": {"price": 3.57, "name": "File Box", "unit": "EA"},
-    # Materials - Protective
-    "2915": {"price": 14.29, "name": "Moving Blanket", "unit": "EA"},
-    "3023": {"price": 8.93, "name": "Bubble Wrap Roll 12in", "unit": "EA"},
-    "3018": {"price": 12.50, "name": "Bubble Wrap Roll 24in", "unit": "EA"},
-    "3089": {"price": 32.14, "name": "Packing Paper (50-lb bundle)", "unit": "EA"},
-    "3035": {"price": 4.46, "name": "Packing Tape Roll", "unit": "EA"},
-    "2936": {"price": 8.93, "name": "Stretch/Shrink Wrap Roll", "unit": "EA"},
-    "2916": {"price": 8.57, "name": "Furniture Pad", "unit": "EA"},
-    "3022": {"price": 2.68, "name": "Corner Protector Set", "unit": "EA"},
-    "2917": {"price": 5.36, "name": "Chair Cover", "unit": "EA"},
-    "2918": {"price": 8.93, "name": "Sofa Cover", "unit": "EA"},
-    "3041": {"price": 1.79, "name": "Foam Sheet", "unit": "EA"},
-    "3043": {"price": 3.21, "name": "Dust Cover", "unit": "EA"},
-    # Materials - Specialty
-    "3050": {"price": 4.46, "name": "Anti-Static Wrap", "unit": "EA"},
-    "3051": {"price": 5.36, "name": "Acid-Free Tissue", "unit": "EA"},
-    "3052": {"price": 17.86, "name": "Wine Cell Box (12-cell)", "unit": "EA"},
-    "3053": {"price": 8.93, "name": "Electronics Box", "unit": "EA"},
-    "3054": {"price": 12.50, "name": "TV Box", "unit": "EA"},
-    "3055": {"price": 3.57, "name": "Lamp Box", "unit": "EA"},
-    "3056": {"price": 5.36, "name": "Rug Wrap", "unit": "EA"},
-    "3057": {"price": 7.14, "name": "Piano Board", "unit": "EA"},
-    "3058": {"price": 0.71, "name": "Marker/Label Set", "unit": "EA"},
-    "3059": {"price": 2.14, "name": "Hazmat Label", "unit": "EA"},
-    "3060": {"price": 16.07, "name": "Instrument Case Wrap", "unit": "EA"},
-    "3061": {"price": 1.43, "name": "Silica Gel Pack", "unit": "EA"},
-    "3062": {"price": 7.14, "name": "Gun Sleeve", "unit": "EA"},
-    "3063": {"price": 2.50, "name": "Tool Roll", "unit": "EA"},
-    "3064": {"price": 3.57, "name": "Bike Box/Bag", "unit": "EA"},
-    "3065": {"price": 7.14, "name": "Plant Pot Wrap", "unit": "EA"},
-    # Debris / Cleaning
-    "3080": {"price": 250.00, "name": "Debris Hauling", "unit": "EA"},
-    "3081": {"price": 45.00, "name": "Cleaning Fee", "unit": "HR"},
-    # Materials - Additional size variants and mattress bags
-    "3039S": {"price": 7.14, "name": "Wardrobe Box - Small", "unit": "EA"},
-    "3039L": {"price": 10.71, "name": "Wardrobe Box - Large", "unit": "EA"},
-    "3899": {"price": 14.29, "name": "TV Box", "unit": "EA"},
-    "3876": {"price": 8.93, "name": "Mattress Bag - Twin", "unit": "EA"},
-    "3905": {"price": 10.71, "name": "Mattress Bag - Full", "unit": "EA"},
-    "3877": {"price": 12.50, "name": "Mattress Bag - Queen", "unit": "EA"},
-    "3878": {"price": 14.29, "name": "Mattress Bag - King", "unit": "EA"},
+    "2840": {"price": 2.18, "name": "Climate-Controlled Storage", "unit": "SF"},
+    "2844": {"price": 17.33, "name": "Padlock", "unit": "EA"},
 }
 
 # Content hints -> material mapping
