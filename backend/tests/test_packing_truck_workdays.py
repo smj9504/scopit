@@ -23,8 +23,8 @@ from app.domains.tools.modules.packing.schemas import (
     StagingType,
 )
 from app.domains.tools.modules.packing.service import (
-    EstimateCalculator,
     WORKDAY_HOURS,
+    EstimateCalculator,
     truck_qty_note,
     work_days_for,
 )
