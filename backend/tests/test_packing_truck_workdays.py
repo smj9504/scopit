@@ -25,6 +25,7 @@ from app.domains.tools.modules.packing.schemas import (
 from app.domains.tools.modules.packing.service import (
     EstimateCalculator,
     WORKDAY_HOURS,
+    schedule_note,
     truck_qty_note,
     work_days_for,
 )
@@ -203,3 +204,54 @@ def test_section_total_matches_van_line_amount(calc):
             continue
         expected = round(sum(ln["amount"] for ln in lines), 2)
         assert result.sections[section] == pytest.approx(expected, abs=0.01)
+
+
+# ── schedule_note ────────────────────────────────────────────────────────────
+
+def test_schedule_note_states_the_schedule_as_priced_in():
+    """The multi-day schedule is already applied, so the note must not read as
+    an unresolved warning recommending a fix."""
+    note = schedule_note(13.0, 4, 2)
+    assert note.startswith("Scheduled over 2 days")
+    assert "13.0 hrs" in note
+    assert "4-person crew" in note
+    assert "6.5 hrs/day" in note
+    assert "pricing reflects the 2-day schedule" in note
+    # The old phrasing framed it as an open problem — it must be gone.
+    assert "Recommend scheduling" not in note
+
+
+def test_schedule_note_per_day_divides_total():
+    note = schedule_note(80.6, 4, 11)
+    assert "Scheduled over 11 days" in note
+    assert "80.6 hrs" in note
+    assert f"{round(80.6 / 11, 1)} hrs/day" in note
+
+
+def test_calculated_note_uses_new_phrasing(calc):
+    rooms = [
+        RoomInput(preset=p) for p in (
+            "bedroom_master", "living_standard", "kitchen_standard",
+            "basement_standard", "bedroom_standard", "bedroom_kids",
+            "office_standard", "dining_standard",
+        )
+    ]
+    result = calc.calculate_estimate(QuickEstimateRequest(
+        rooms=rooms, crew_size=4, include_packback=True,
+        staging_type=StagingType.OFF_SITE, storage_months=1,
+    ))
+    assert result.total_hours > WORKDAY_HOURS
+    assert result.notes, "multi-day job must carry a scheduling note"
+    joined = " ".join(result.notes)
+    assert "Recommend scheduling" not in joined
+    assert f"Scheduled over {result.work_days} days" in joined
+
+
+def test_single_day_job_has_no_schedule_note(calc):
+    result = calc.calculate_estimate(QuickEstimateRequest(
+        rooms=[RoomInput(preset="bedroom_standard")], crew_size=4,
+        include_packback=False, staging_type=StagingType.OFF_SITE,
+        storage_months=1,
+    ))
+    assert result.total_hours <= WORKDAY_HOURS
+    assert not any("Scheduled over" in n for n in result.notes)

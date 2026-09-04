@@ -191,11 +191,21 @@ function generateSchedulingNotes(
       ` · crew of ${crewN} · ${totalManHrs} man-hrs total`,
   );
 
+  // A multi-day job is already priced for that schedule (labor hours are the
+  // job's real total and the van is billed per day), so state the resulting
+  // schedule as a fact rather than warning about an overrun and recommending
+  // a fix that has already been applied. Mirrors the backend's schedule_note().
   if (totalElapsed > 8) {
     const workDays = Math.ceil(totalElapsed / 8);
+    const perDay = Math.round((totalElapsed / workDays) * 10) / 10;
+    // toFixed(1) so the text is byte-identical to the backend's, which
+    // formats with Python's round(x, 1) — otherwise regenerating the note on
+    // an edit would visibly reformat "13.0 hrs" to "13 hrs".
     notes.push(
-      `On-site time exceeds a standard 8-hr workday — ` +
-        `recommend scheduling ${workDays} day${workDays > 1 ? 's' : ''}.`,
+      `Scheduled over ${workDays} days — estimated on-site time is ` +
+        `${totalElapsed.toFixed(1)} hrs (${crewN}-person crew), which exceeds a ` +
+        `standard 8-hr workday. Approx. ${perDay.toFixed(1)} hrs/day; pricing ` +
+        `reflects the ${workDays}-day schedule.`,
     );
   }
 
@@ -2255,8 +2265,9 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
           {/* ── Scheduling Notes ─────────────────────────────────────────────── */}
           {/* The "Scheduling: ..." summary now lives in the Hours stat's hover
-              tooltip above; only actionable warnings (e.g. exceeds an 8-hr
-              workday) still get a standalone alert. */}
+              tooltip above; standalone notes carry the rest. A multi-day
+              schedule is already priced in, so it reads as info rather than a
+              warning about something the user still has to resolve. */}
           {visibleNotes.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               {visibleNotes.map((note, i) => (
@@ -2269,7 +2280,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                       note
                     )
                   }
-                  type="warning"
+                  type={note.startsWith('Scheduled over') ? 'info' : 'warning'}
                   showIcon
                   style={{ marginBottom: i < visibleNotes.length - 1 ? 8 : 0 }}
                 />

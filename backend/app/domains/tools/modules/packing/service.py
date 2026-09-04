@@ -58,6 +58,24 @@ def work_days_for(total_hours: float) -> int:
     return max(1, math.ceil(total_hours / WORKDAY_HOURS))
 
 
+def schedule_note(total_hours: float, crew_size: int, work_days: int) -> str:
+    """Scheduling note for a job that spans more than one workday.
+
+    The estimate is already priced for the multi-day schedule (labor hours are
+    the job's real total and the van is billed per day), so this states the
+    resulting schedule as a fact rather than warning about an unresolved
+    overrun and "recommending" a fix that has already been applied.
+    """
+    hrs = round(total_hours, 1)
+    per_day = round(hrs / work_days, 1) if work_days else hrs
+    return (
+        f"Scheduled over {work_days} days — estimated on-site time is {hrs} hrs "
+        f"({crew_size}-person crew), which exceeds a standard {WORKDAY_HOURS}-hr "
+        f"workday. Approx. {per_day} hrs/day; pricing reflects the "
+        f"{work_days}-day schedule."
+    )
+
+
 def truck_qty_note(capacity_trips: int, work_days: int) -> str:
     """Explain what drove the moving-van DY quantity.
 
@@ -1559,9 +1577,7 @@ class EstimateCalculator:
         quick_notes: list[str] = []
         if total_hours > WORKDAY_HOURS:
             quick_notes.append(
-                f"Estimated on-site time is {round(total_hours, 1)} hrs "
-                f"({request.crew_size}-person crew), exceeding a standard {WORKDAY_HOURS}-hr workday. "
-                f"Recommend scheduling {quick_work_days} days."
+                schedule_note(total_hours, request.crew_size, quick_work_days)
             )
 
         return EstimateResponse(
@@ -3477,9 +3493,7 @@ class EstimateCalculator:
         notes: list[str] = []
         if total_hours_calc > WORKDAY_HOURS:
             notes.append(
-                f"Estimated on-site time is {round(total_hours_calc, 1)} hrs "
-                f"({crew}-person crew), exceeding a standard {WORKDAY_HOURS}-hr workday. "
-                f"Recommend scheduling {work_days} days."
+                schedule_note(total_hours_calc, crew, work_days)
             )
 
         return EstimateResponse(
