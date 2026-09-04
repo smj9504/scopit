@@ -142,8 +142,13 @@ export interface EstimateResponse {
   crew_size: number;
   /** ceil(total_hours / 8-hr workday). Drives the moving-van DY quantity. */
   work_days?: number;
-  /** Moving-van DY quantity = max(capacity trips, work_days). 0 for on-site jobs. */
+  /** Moving-van DY quantity as calculated (load capacity only). 0 for on-site
+   * jobs. The editor overwrites this when the user opts into per-work-day
+   * billing. */
   truck_trips?: number;
+  /** The calculated capacity figure, never overwritten by editor adjustments —
+   * the anchor that per-work-day billing is restored from when switched off. */
+  truck_capacity_trips?: number;
   sections: Record<string, number>;
   section_details?: Record<string, { lines: SectionDetailLine[] }>;
   materials: Record<string, number>;

@@ -45,9 +45,11 @@ def _solo_detail(desc: str, hrs: float, rate: float, amt: float) -> str:
     return f"1 person ({desc}) · {hrs} hr × {_fmt_money(rate)}/hr = {_fmt_money(amt)}"
 
 
-# A standard on-site workday. A job whose elapsed crew time exceeds this
-# spans multiple days, which drives both the scheduling note and the truck
-# rental quantity (the van is billed per DAY, not per load).
+# A standard on-site workday. A job whose elapsed crew time exceeds this spans
+# multiple days, which drives the scheduling note. It deliberately does NOT
+# drive the truck rental quantity: the van is billed per day, but whether a
+# multi-day job actually keeps it on site throughout is a judgement call, so
+# that is an explicit opt-in in the editor rather than an automatic markup.
 WORKDAY_HOURS = 8
 
 
@@ -61,36 +63,31 @@ def work_days_for(total_hours: float) -> int:
 def schedule_note(total_hours: float, crew_size: int, work_days: int) -> str:
     """Scheduling note for a job that spans more than one workday.
 
-    The estimate is already priced for the multi-day schedule (labor hours are
-    the job's real total and the van is billed per day), so this states the
-    resulting schedule as a fact rather than warning about an unresolved
-    overrun and "recommending" a fix that has already been applied.
+    Labor hours are the job's real total either way, so this states the
+    resulting schedule as a fact. It deliberately does NOT claim the van is
+    billed for those days: the moving van defaults to its capacity-driven
+    quantity, and billing it per work day is an explicit opt-in the estimator
+    makes in the editor.
     """
     hrs = round(total_hours, 1)
     per_day = round(hrs / work_days, 1) if work_days else hrs
     return (
         f"Scheduled over {work_days} days — estimated on-site time is {hrs} hrs "
         f"({crew_size}-person crew), which exceeds a standard {WORKDAY_HOURS}-hr "
-        f"workday. Approx. {per_day} hrs/day; pricing reflects the "
-        f"{work_days}-day schedule."
+        f"workday. Approx. {per_day} hrs/day."
     )
 
 
-def truck_qty_note(capacity_trips: int, work_days: int) -> str:
-    """Explain what drove the moving-van DY quantity.
+def truck_qty_note(capacity_trips: int) -> str:
+    """Explain the moving-van DY quantity.
 
-    Quantity is max(capacity_trips, work_days): a job can need extra van-days
-    because the load doesn't fit in one trip, or because the crew is on site
-    for more than one day, whichever is larger.
+    Quantity is driven by load capacity alone. A multi-day job does not
+    automatically bill extra van-days — an estimator opts into that in the
+    editor, which rewrites this line — so the calculated estimate is never
+    silently inflated by a schedule that may not need the van on site
+    throughout.
     """
-    qty = max(capacity_trips, work_days)
-    trips_txt = f"{capacity_trips} trip{'s' if capacity_trips > 1 else ''} (~500 SF capacity per trip)"
-    if work_days > capacity_trips:
-        return (
-            f"{qty} van-days — {work_days}-day job "
-            f"(on-site time exceeds a {WORKDAY_HOURS}-hr workday) · {trips_txt}"
-        )
-    return f"{trips_txt}"
+    return f"{capacity_trips} trip{'s' if capacity_trips > 1 else ''} (~500 SF capacity per trip)"
 
 
 def rh(x: float) -> float:
@@ -1349,11 +1346,11 @@ class EstimateCalculator:
         quick_capacity_trips = max(
             1, math.ceil(storage_sf / 500)
         ) if storage_sf > 0 else 1
-        # The van is rented by the DAY, so a job that spans multiple workdays
-        # needs it for that many days even when one trip would hold the load.
+        # Quantity is capacity-driven only. work_days is still reported so the
+        # editor can offer per-work-day billing as a one-click opt-in.
         quick_work_days = work_days_for(total_hours)
-        quick_truck_trips = max(quick_capacity_trips, quick_work_days)
-        quick_truck_note = truck_qty_note(quick_capacity_trips, quick_work_days)
+        quick_truck_trips = quick_capacity_trips
+        quick_truck_note = truck_qty_note(quick_capacity_trips)
 
         # Special items (fixed cost, not affected by region/density/floor)
         # Merge request-level + per-room special items
@@ -1587,6 +1584,7 @@ class EstimateCalculator:
             crew_size=request.crew_size,
             work_days=quick_work_days,
             truck_trips=quick_truck_trips if not is_on_site else 0,
+            truck_capacity_trips=quick_capacity_trips if not is_on_site else 0,
             sections=sections,
             section_details=section_details,
             materials=materials,
@@ -3178,14 +3176,13 @@ class EstimateCalculator:
             "Materials": round(material_cost, 2),
         }
 
-        # Truck trips: 26' van holds ~500 SF worth of contents.
-        # The van is rented by the DAY, so a multi-day job needs it for that
-        # many days even when a single trip would hold the whole load.
+        # Truck trips: 26' van holds ~500 SF worth of contents. Quantity is
+        # capacity-driven only; per-work-day billing is an editor opt-in.
         capacity_trips = max(1, math.ceil(storage_sf / 500)) if storage_sf > 0 else 1
         total_hours_calc = total_labor_hours + debris_hours
         work_days = work_days_for(total_hours_calc)
-        truck_trips = max(capacity_trips, work_days)
-        truck_note = truck_qty_note(capacity_trips, work_days)
+        truck_trips = capacity_trips
+        truck_note = truck_qty_note(capacity_trips)
 
         if is_on_site:
             sections["On-Site Relocation"] = round(on_site_moving_fee, 2)
@@ -3256,7 +3253,7 @@ class EstimateCalculator:
         # total_hours = elapsed time the crew actually spends on site.
         # Supervisor & inventory work concurrently with packing crew,
         # so they do NOT add to elapsed time — only debris hauling is
-        # sequential. (Computed above, where it drives truck van-days.)
+        # sequential. (Computed above, where it drives the work-day count.)
 
         # material_details uses hybrid category lines (computed above)
         material_details = mat_details_legacy
@@ -3503,6 +3500,7 @@ class EstimateCalculator:
             crew_size=request.crew_size,
             work_days=work_days,
             truck_trips=truck_trips if not is_on_site else 0,
+            truck_capacity_trips=capacity_trips if not is_on_site else 0,
             sections=sections,
             section_details=section_details,
             materials=materials,

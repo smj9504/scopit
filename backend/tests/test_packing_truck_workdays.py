@@ -1,11 +1,12 @@
 """
-Tests that the moving-van quantity reflects the number of workdays a job
-spans, not just the number of trips the load requires.
+Tests that the calculated moving-van quantity is driven by load capacity
+alone, and that a multi-day job is reported without inflating that quantity.
 
-The 26' van is rented per DAY. A job whose elapsed on-site time exceeds a
-standard 8-hr workday keeps the van for that many days even when a single
-trip would hold the entire load, so the van DY quantity is
-max(capacity_trips, work_days).
+The 26' van is rented per DAY, but whether a multi-day job keeps it on site
+throughout is the estimator's judgement, so billing it per work day is an
+explicit opt-in in the Estimate Editor rather than an automatic markup. The
+calculation therefore reports work_days (so the editor can offer the opt-in)
+while leaving truck_trips at the capacity figure.
 
 Covers both calculation paths:
   - calculate_estimate()              -- Quick Estimate tab
@@ -73,23 +74,22 @@ def test_work_days_for(hours, expected):
 
 # ── truck_qty_note ───────────────────────────────────────────────────────────
 
-def test_note_explains_multi_day_driver():
-    note = truck_qty_note(capacity_trips=1, work_days=2)
-    assert "2 van-days" in note
-    assert "2-day job" in note
-    assert f"{WORKDAY_HOURS}-hr workday" in note
-
-
-def test_note_stays_trip_based_when_capacity_dominates():
-    note = truck_qty_note(capacity_trips=3, work_days=2)
-    assert "van-days" not in note
-    assert "3 trips" in note
+def test_note_describes_capacity_only():
+    """The calculated note never promises van-days for a multi-day schedule."""
+    assert truck_qty_note(capacity_trips=1) == "1 trip (~500 SF capacity per trip)"
+    assert truck_qty_note(capacity_trips=3) == "3 trips (~500 SF capacity per trip)"
+    for trips in (1, 2, 5):
+        assert "van-day" not in truck_qty_note(trips)
 
 
 # ── Quick estimate path ──────────────────────────────────────────────────────
 
-def test_quick_estimate_van_qty_follows_work_days(calc):
-    """A multi-room job exceeding one workday bills multiple van-days."""
+def test_quick_estimate_van_qty_ignores_work_days(calc):
+    """A multi-day job still bills the capacity-driven van quantity.
+
+    Per-work-day billing is an editor opt-in, so the calculation must not
+    silently inflate the van line just because the job spans two days.
+    """
     rooms = [
         RoomInput(preset=p) for p in (
             "bedroom_master", "living_standard", "kitchen_standard",
@@ -104,13 +104,17 @@ def test_quick_estimate_van_qty_follows_work_days(calc):
     result = calc.calculate_estimate(req)
 
     assert result.total_hours > WORKDAY_HOURS, "fixture must span >1 workday"
+    # work_days is still reported, so the editor can offer the opt-in.
     assert result.work_days == work_days_for(result.total_hours)
-    assert result.truck_trips >= result.work_days
+    assert result.work_days > 1
+    # ...but the van quantity does not follow it.
+    assert result.truck_trips < result.work_days
 
     vans = _van_lines(result.section_details)
     assert vans, "expected moving-van lines on an off-site job"
     for section, line in vans:
         assert line["qty"] == result.truck_trips, section
+        assert "van-day" not in (line["detail"] or ""), section
         # Amount must track qty, or the section total silently under-bills.
         assert line["amount"] == pytest.approx(line["rate"] * line["qty"], abs=0.01)
 
@@ -156,7 +160,7 @@ def _content_room(name, preset, items):
     )
 
 
-def test_content_estimate_van_qty_follows_work_days(calc):
+def test_content_estimate_van_qty_ignores_work_days(calc):
     rooms = [
         _content_room(f"Room {i}", "bedroom_master", [
             ("Bed", "Furniture", 4), ("Dresser", "Furniture", 6),
@@ -174,12 +178,14 @@ def test_content_estimate_van_qty_follows_work_days(calc):
 
     assert result.total_hours > WORKDAY_HOURS, "fixture must span >1 workday"
     assert result.work_days == work_days_for(result.total_hours)
-    assert result.truck_trips >= result.work_days
+    assert result.work_days > 1
+    assert result.truck_trips < result.work_days
 
     vans = _van_lines(result.section_details)
     assert vans, "expected moving-van lines on an off-site job"
     for section, line in vans:
         assert line["qty"] == result.truck_trips, section
+        assert "van-day" not in (line["detail"] or ""), section
         assert line["amount"] == pytest.approx(line["rate"] * line["qty"], abs=0.01)
 
 
@@ -208,17 +214,18 @@ def test_section_total_matches_van_line_amount(calc):
 
 # ── schedule_note ────────────────────────────────────────────────────────────
 
-def test_schedule_note_states_the_schedule_as_priced_in():
-    """The multi-day schedule is already applied, so the note must not read as
-    an unresolved warning recommending a fix."""
+def test_schedule_note_states_the_schedule_without_promising_pricing():
+    """States the schedule as a fact, but must not claim the van is billed for
+    those days — that is an opt-in the estimator has not necessarily made."""
     note = schedule_note(13.0, 4, 2)
     assert note.startswith("Scheduled over 2 days")
     assert "13.0 hrs" in note
     assert "4-person crew" in note
     assert "6.5 hrs/day" in note
-    assert "pricing reflects the 2-day schedule" in note
-    # The old phrasing framed it as an open problem — it must be gone.
+    # The old phrasings both misstated the estimate: one framed a resolved
+    # schedule as an open problem, the other promised pricing that is opt-in.
     assert "Recommend scheduling" not in note
+    assert "pricing reflects" not in note
 
 
 def test_schedule_note_per_day_divides_total():
@@ -255,3 +262,52 @@ def test_single_day_job_has_no_schedule_note(calc):
     ))
     assert result.total_hours <= WORKDAY_HOURS
     assert not any("Scheduled over" in n for n in result.notes)
+
+
+# ── truck_capacity_trips (the editor's restore anchor) ───────────────────────
+
+def test_capacity_anchor_matches_calculated_qty(calc):
+    """truck_capacity_trips records the calculated figure the editor restores
+    to when the user switches per-work-day billing back off."""
+    rooms = [
+        RoomInput(preset=p) for p in (
+            "bedroom_master", "living_standard", "kitchen_standard",
+            "basement_standard", "bedroom_standard", "bedroom_kids",
+            "office_standard", "dining_standard",
+        )
+    ]
+    result = calc.calculate_estimate(QuickEstimateRequest(
+        rooms=rooms, crew_size=4, include_packback=True,
+        staging_type=StagingType.OFF_SITE, storage_months=1,
+    ))
+    assert result.truck_capacity_trips == result.truck_trips
+    assert result.truck_capacity_trips >= 1
+    for _, line in _van_lines(result.section_details):
+        assert line["qty"] == result.truck_capacity_trips
+
+
+def test_capacity_anchor_on_content_path(calc):
+    rooms = [
+        _content_room(f"Room {i}", "bedroom_master", [
+            ("Bed", "Furniture", 4), ("Clothing", "Clothing", 200),
+            ("Books", "Books", 250),
+        ])
+        for i in range(10)
+    ]
+    result = calc.calculate_estimate_from_content(RoomsEstimateRequest(
+        rooms=rooms, crew_size=4, include_packback=True,
+        staging_type=StagingType.OFF_SITE, storage_months=1,
+    ))
+    assert result.truck_capacity_trips == result.truck_trips
+    assert result.work_days > 1, "fixture must span >1 workday"
+    # The anchor tracks capacity, never the day count.
+    assert result.truck_capacity_trips < result.work_days
+
+
+def test_on_site_job_has_no_capacity_anchor(calc):
+    result = calc.calculate_estimate(QuickEstimateRequest(
+        rooms=[RoomInput(preset="bedroom_master")], crew_size=4,
+        include_packback=True, staging_type=StagingType.ON_SITE,
+        storage_months=0,
+    ))
+    assert result.truck_capacity_trips == 0

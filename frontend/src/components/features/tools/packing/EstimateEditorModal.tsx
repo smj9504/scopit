@@ -275,12 +275,15 @@ function isTruckLine(line: SectionDetailLine): boolean {
 }
 
 /** Rewrite every moving-van line to a new van-day quantity.
- * Rate is held; amount follows qty, matching how the backend builds the line. */
+ * Rate is held; amount follows qty, matching how the backend builds the line.
+ * `detail` describes why the quantity is what it is: pass a baseline to restore
+ * the calculated wording, otherwise the line is labelled as van-days. */
 function applyTruckQty(
   prev: EstimateResponse,
   trips: number,
+  restore?: TruckBaseline,
 ): EstimateResponse {
-  const qty = Math.max(0, Math.round(trips));
+  const qty = Math.max(0, Math.round(restore ? restore.qty : trips));
   const details = { ...(prev.section_details ?? {}) };
   let touched = false;
   for (const [name, sd] of Object.entries(details)) {
@@ -292,7 +295,9 @@ function applyTruckQty(
               ...l,
               qty,
               amount: Math.round(l.rate * qty * 100) / 100,
-              detail: `${qty} van-day${qty === 1 ? '' : 's'} × ${fmtMoney(l.rate)}/day`,
+              detail: restore
+                ? restore.detail
+                : `${qty} van-day${qty === 1 ? '' : 's'} × ${fmtMoney(l.rate)}/day`,
             }
           : l,
       ),
@@ -301,6 +306,27 @@ function applyTruckQty(
   }
   if (!touched) return { ...prev, truck_trips: qty };
   return { ...recalcFromDetails(prev, details), truck_trips: qty };
+}
+
+/** The van line's qty and detail as the calculation produced them. */
+interface TruckBaseline {
+  qty: number;
+  detail: string;
+}
+
+/** Rebuild the van line exactly as the calculation produced it, from the
+ * untouched capacity figure the backend reports. Derived rather than stashed
+ * in React state: a cached baseline is invisible to undo/redo (which restore
+ * `result` alone), so it goes stale and a later switch-off silently no-ops,
+ * losing the original wording for good. Mirrors the backend's
+ * truck_qty_note(). */
+function calculatedTruckLine(result: EstimateResponse): TruckBaseline | null {
+  const qty = result.truck_capacity_trips ?? 0;
+  if (qty <= 0) return null;
+  return {
+    qty,
+    detail: `${qty} trip${qty === 1 ? '' : 's'} (~500 SF capacity per trip)`,
+  };
 }
 
 /** Scale every crew-labor HR line so total elapsed hours hit `targetHours`.
@@ -1125,6 +1151,13 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   const currentWorkDays = Math.max(1, Math.ceil(currentLaborHours / 8));
 
+  // Derived, not stored: the van is being billed per work day exactly when its
+  // quantity equals the work-day count and that count is more than the load
+  // needs. Deriving it means undo/redo — which restore `result` and nothing
+  // else — can never show a switch that contradicts the estimate.
+  const vanPerWorkDay =
+    currentWorkDays > 1 && currentTruckQty === currentWorkDays;
+
   const handleTruckQtyChange = useCallback((val: number | null) => {
     if (val == null || val < 0) return;
     pushHistory();
@@ -1132,12 +1165,45 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     setResult((prev) => (prev ? applyTruckQty(prev, val) : prev));
   }, [pushHistory, markDirty, setResult]);
 
+  // Per-work-day van billing is OFF by default — the calculated estimate bills
+  // the van by load capacity, and charging it for every day of a multi-day job
+  // is the estimator's call. Toggling on stashes the calculated qty/detail so
+  // toggling back off restores them exactly rather than guessing at 1.
+  const handleVanPerWorkDayToggle = useCallback((checked: boolean) => {
+    pushHistory();
+    markDirty();
+    setResult((prev) => {
+      if (!prev) return prev;
+      if (checked) return applyTruckQty(prev, currentWorkDays);
+      // Switching off rebuilds the calculated line from the capacity figure the
+      // backend reported, so it restores correctly no matter what happened in
+      // between (undo, redo, a session reload).
+      const original = calculatedTruckLine(prev);
+      return original
+        ? applyTruckQty(prev, original.qty, original)
+        : applyTruckQty(prev, 1);
+    });
+  }, [pushHistory, markDirty, setResult, currentWorkDays]);
+
   const handleLaborHoursChange = useCallback((val: number | null) => {
     if (val == null || val <= 0) return;
     pushHistory();
     markDirty();
-    setResult((prev) => (prev ? applyTotalHours(prev, val) : prev));
-  }, [pushHistory, markDirty, setResult]);
+    setResult((prev) => {
+      if (!prev) return prev;
+      const wasPerWorkDay = vanPerWorkDay;
+      const next = applyTotalHours(prev, val);
+      if (!wasPerWorkDay) return next;
+      // Per-work-day billing was on, and the day count just moved — keep the
+      // van in step with it. Without this a drop below 8 hrs hides the switch
+      // (it only shows for multi-day jobs) while leaving the inflated quantity
+      // stranded on the estimate with no visible control to undo it.
+      const days = Math.max(1, Math.ceil(val / 8));
+      if (days > 1) return applyTruckQty(next, days);
+      const original = calculatedTruckLine(next);
+      return original ? applyTruckQty(next, original.qty, original) : next;
+    });
+  }, [pushHistory, markDirty, setResult, vanPerWorkDay]);
 
   const handleCrewSizeChange = useCallback((val: number | null) => {
     if (val == null || val < 1) return;
@@ -2239,27 +2305,50 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
             {/* Moving van days */}
             {currentTruckQty > 0 && (
-              <Row justify="space-between" align="middle">
-                <Col>
-                  <Space size={4}>
-                    <Text style={{ fontSize: 13 }}>Moving Van</Text>
-                    <Tooltip title="Van-days billed. Defaults to whichever is larger: trips needed for the load, or the number of workdays on site.">
-                      <InfoCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
-                    </Tooltip>
-                  </Space>
-                </Col>
-                <Col>
-                  <InputNumber
-                    size="small"
-                    min={0}
-                    max={30}
-                    value={currentTruckQty}
-                    onChange={handleTruckQtyChange}
-                    suffix="DY"
-                    style={{ width: 92 }}
-                  />
-                </Col>
-              </Row>
+              <>
+                <Row justify="space-between" align="middle" style={{ marginBottom: 6 }}>
+                  <Col>
+                    <Space size={4}>
+                      <Text style={{ fontSize: 13 }}>Moving Van</Text>
+                      <Tooltip title="Van-days billed. The calculated estimate bills the van by load capacity; switch on per-work-day billing to charge one day per workday instead.">
+                        <InfoCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
+                      </Tooltip>
+                    </Space>
+                  </Col>
+                  <Col>
+                    <InputNumber
+                      size="small"
+                      min={0}
+                      max={30}
+                      value={currentTruckQty}
+                      onChange={handleTruckQtyChange}
+                      suffix="DY"
+                      style={{ width: 92 }}
+                    />
+                  </Col>
+                </Row>
+
+                {/* Per-work-day billing: off by default, and reversible —
+                    switching back restores the calculated quantity and its
+                    original description. Only meaningful once the job actually
+                    spans more than one day. */}
+                {currentWorkDays > 1 && (
+                  <Row justify="space-between" align="middle">
+                    <Col flex="1" style={{ minWidth: 0 }}>
+                      <Space size={6}>
+                        <Switch
+                          size="small"
+                          checked={vanPerWorkDay}
+                          onChange={handleVanPerWorkDayToggle}
+                        />
+                        <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                          Bill per work day ({currentWorkDays} days)
+                        </Text>
+                      </Space>
+                    </Col>
+                  </Row>
+                )}
+              </>
             )}
           </Card>
 

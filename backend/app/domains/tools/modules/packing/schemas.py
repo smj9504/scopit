@@ -203,10 +203,15 @@ class EstimateResponse(BaseModel):
     total_hours: float
     crew_size: int
     # Scheduling / logistics quantities the editor can adjust by hand.
-    # work_days = ceil(total_hours / 8-hr workday); truck_trips is the moving-van
-    # DY quantity, which is max(capacity trips, work_days) — 0 for on-site jobs.
+    # work_days = ceil(total_hours / 8-hr workday) — reported so the editor can
+    # offer per-work-day van billing, which is an opt-in and NOT applied here.
+    # truck_trips is the moving-van DY quantity, driven by load capacity alone
+    # (0 for on-site jobs). truck_capacity_trips records that same calculated
+    # figure permanently: the editor overwrites truck_trips when the user opts
+    # in, and needs an untouched anchor to restore from when they opt back out.
     work_days: int = 1
     truck_trips: int = 0
+    truck_capacity_trips: int = 0
 
     # Breakdown
     sections: Dict[str, float]
