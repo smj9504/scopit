@@ -262,7 +262,9 @@ async def export_demo_report(
             "room_name": room.room_name,
             "items": item_dicts,
             "photos": [p.model_dump() for p in room.photos],
-            "field_notes": labor["field_notes"] if request.include_field_notes else room.field_notes,
+            # Opting out means no field notes reach the PDF at all — falling
+            # back to the caller-supplied notes here would put them back.
+            "field_notes": labor["field_notes"] if request.include_field_notes else [],
             "labor_hours": room.labor_hours if room.labor_hours is not None else labor["labor_hours"],
             "labor_notes": room.labor_notes or labor["labor_notes"],
         })

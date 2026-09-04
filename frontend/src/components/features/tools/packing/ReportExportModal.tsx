@@ -542,6 +542,11 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
 
   // ── Export ─────────────────────────────────────────────────────────────────
 
+  // Every option read below must appear in this hook's dependency list. A
+  // missing entry silently pins the callback to the value that option held
+  // when the modal mounted, so the control looks flipped in the UI while the
+  // export request still carries the old value — that is how `includeFieldNotes`
+  // used to put field notes in a report exported with the toggle switched off.
   const handleExport = useCallback(async (forSign = false) => {
     if (!activeSessionId) {
       message.error('Save the session first');
@@ -594,7 +599,8 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
     }
   }, [
     activeSessionId, sections, roomPhotos, companyOverride,
-    taxRate, notes, includeSignature, imageQuality, photosPerPage, onRequestSign,
+    taxRate, notes, includeSignature, includeFieldNotes, imageQuality,
+    photosPerPage, onRequestSign, clientInfo, result,
   ]);
 
   // ── Total photo count ──────────────────────────────────────────────────────
