@@ -41,6 +41,7 @@ from app.domains.company.models import Company
 # Import all models to ensure SQLAlchemy relationships are resolved
 from app.domains.customer.service import seed_sample_customers
 from app.domains.settings.service import seed_default_settings
+from app.domains.tools.modules.packing.seed import seed_moving_line_items
 from app.domains.user.models import User
 
 router = APIRouter()
@@ -261,6 +262,11 @@ async def register(
 
     # Seed sample customers for the new company
     seed_sample_customers(db, company.id, user.id)
+
+    # Seed the packing tool's moving prices so the Moving Prices tab is
+    # populated and estimates price off the company's own line items
+    # rather than the service.DEFAULT_PRICES fallback.
+    seed_moving_line_items(db, company.id, user.id, commit=False)
 
     db.commit()
     db.refresh(user)
@@ -682,6 +688,9 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 
             # Seed sample customers for the new company
             seed_sample_customers(db, company.id, user.id)
+
+            # Seed the packing tool's moving prices (see register())
+            seed_moving_line_items(db, company.id, user.id, commit=False)
 
             db.commit()
             db.refresh(user)

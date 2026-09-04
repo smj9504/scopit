@@ -309,6 +309,39 @@ function applyTruckQty(
   return { ...recalcFromDetails(prev, details), truck_trips: qty };
 }
 
+/** Rebuild a single-person HR line's detail so its numbers match the line.
+ * These carry the same "N hr × $rate/hr = $total" breakdown as crew lines but
+ * without a crew multiplier — the backend's _solo_detail(), plus the inline
+ * "1 supervisor (...)" lines built in the same shape. Editing one of these
+ * used to leave the trailing total stale, so the printed breakdown
+ * contradicted the line's own amount. */
+function rebuildSoloDetail(
+  detail: string,
+  hrs: number,
+  rate: number,
+  amount: number,
+): string {
+  // Keep whatever role the line names ("1 person", "1 supervisor", ...).
+  const head = detail.match(/^\s*(1 [a-z/]+ \([^)]*\))\s*·/i)?.[1];
+  if (head == null) return detail;
+  return `${head} · ${hrs} hr × ${fmtMoney(rate)}/hr = ${fmtMoney(amount)}`;
+}
+
+/** Rebuild any HR line's detail breakdown, crew or single-person, so every
+ * number printed in it agrees with the line's qty/rate/amount. Returns the
+ * detail unchanged when it isn't a recognised breakdown (a plain note). */
+function rebuildHourDetail(
+  detail: string,
+  hrs: number,
+  crew: number,
+  rate: number,
+  amount: number,
+): string {
+  return /crew/i.test(detail)
+    ? rebuildCrewDetail(detail, hrs, crew, rate, amount)
+    : rebuildSoloDetail(detail, hrs, rate, amount);
+}
+
 /** The van line's qty and detail as the calculation produced them. */
 interface TruckBaseline {
   qty: number;
@@ -1305,11 +1338,11 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         if (!details[sectionName]) return prev;
         const lines = [...details[sectionName].lines];
         const prevLine = lines[lineIndex];
-        // Crew-labor lines store qty as ELAPSED hours directly — keep the note
-        // text's embedded "X hr × N crew" number in sync with the new qty.
-        const isCrewLine = /crew/i.test(prevLine?.detail || '');
-        const finalDetail = isCrewLine && detail
-          ? rebuildCrewDetail(detail, qty, prev.crew_size, rate, newAmount)
+        // HR lines store qty as ELAPSED hours and spell the arithmetic out in
+        // their detail text, so rebuild it from the new numbers — patching it
+        // piecemeal leaves the trailing total contradicting the line amount.
+        const finalDetail = (unit === 'HR' || prevLine?.unit === 'HR') && detail
+          ? rebuildHourDetail(detail, qty, prev.crew_size, rate, newAmount)
           : detail;
         lines[lineIndex] = { ...prevLine, name, detail: finalDetail, qty, unit, rate, amount: newAmount };
         details[sectionName] = { lines };
