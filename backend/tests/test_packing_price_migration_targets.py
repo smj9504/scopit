@@ -19,6 +19,7 @@ VERSIONS_DIR = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 PRICE_MIGRATIONS = [
     "resync_moving_line_item_prices.py",
     "apply_2026_packing_price_increase.py",
+    "raise_packing_labor_to_billable_rate.py",
 ]
 # (code, from, to) rows in the migrations' correction tables.
 ROW_RE = re.compile(r'^    \("(\d+[A-Z]?)", ([\d.]+), ([\d.]+)\),', re.M)
@@ -36,15 +37,37 @@ def _rows(filename: str):
 
 
 @pytest.mark.parametrize("filename", PRICE_MIGRATIONS)
-def test_migration_targets_match_price_table(filename):
-    """Every migration target must equal the current seeded price."""
+def test_migration_targets_known_codes(filename):
     table = _table()
-    for code, _old, new in _rows(filename):
+    for code, _old, _new in _rows(filename):
         assert code in table, f"{filename}: code {code} is not in the price table"
-        assert new == pytest.approx(table[code], abs=0.005), (
-            f"{filename}: {code} targets {new} but the price table says "
-            f"{table[code]} — a company migrated by this would hold a stale price"
-        )
+
+
+def test_final_migrated_price_matches_the_table():
+    """Replaying the migrations in order must land every code on the table's
+    current price.
+
+    An earlier migration may legitimately target an intermediate value that a
+    later one supersedes — what must not happen is the chain ENDING on a price
+    the table has since moved past, because alembic will not re-run a stamped
+    revision to correct it.
+    """
+    table = _table()
+    # code -> price after replaying every migration in order.
+    final = {}
+    for filename in PRICE_MIGRATIONS:
+        for code, _old, new in _rows(filename):
+            final[code] = new
+
+    stale = {
+        code: (landed, table[code])
+        for code, landed in final.items()
+        if abs(landed - table[code]) > 0.005
+    }
+    assert not stale, (
+        "after every migration runs, these codes hold a price the table has "
+        f"moved past (code: migrated -> table): {stale}"
+    )
 
 
 @pytest.mark.parametrize("filename", PRICE_MIGRATIONS)
@@ -55,9 +78,19 @@ def test_migration_rows_are_not_noops(filename):
 
 
 @pytest.mark.parametrize("filename", PRICE_MIGRATIONS)
-def test_migration_addresses_each_code_once(filename):
-    codes = [c for c, _, _ in _rows(filename)]
-    assert len(codes) == len(set(codes)), f"{filename}: duplicate code rows"
+def test_migration_has_no_conflicting_rows(filename):
+    """A code may list several source prices (a row can hold any of them), but
+    they must all agree on the target, or the result depends on row order."""
+    targets = {}
+    for code, old, new in _rows(filename):
+        targets.setdefault(code, set()).add(new)
+    conflicting = {c: t for c, t in targets.items() if len(t) > 1}
+    assert not conflicting, f"{filename}: codes with two targets: {conflicting}"
+
+    seen = set()
+    for code, old, _new in _rows(filename):
+        assert (code, old) not in seen, f"{filename}: duplicate row for {code} @ {old}"
+        seen.add((code, old))
 
 
 def test_increase_migration_covers_every_repriced_code():

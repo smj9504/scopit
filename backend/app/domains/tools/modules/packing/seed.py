@@ -51,14 +51,14 @@ CATEGORY_MAP = {
 # ── Default prices (Xactimate VAAR8X_MAR26) ─────────────────────────
 DEFAULT_MOVING_PRICES = [
     # Labor
-    {"code": "2825", "name": "Content Manipulation", "category": "labor", "unit": "HR", "price": 59.03},
-    {"code": "2911", "name": "Supervisor/Admin", "category": "labor", "unit": "HR", "price": 89.75},
-    {"code": "2912", "name": "Specialty Item Handler", "category": "labor", "unit": "HR", "price": 128.75},
+    {"code": "2825", "name": "Content Manipulation", "category": "labor", "unit": "HR", "price": 75.0},
+    {"code": "2911", "name": "Supervisor/Admin", "category": "labor", "unit": "HR", "price": 114.04},
+    {"code": "2912", "name": "Specialty Item Handler", "category": "labor", "unit": "HR", "price": 163.58},
 
     # Room rates (composite reference)
-    {"code": "2833", "name": "Small Room Pack/Reset", "category": "room", "unit": "EA", "price": 190.55},
-    {"code": "2834", "name": "Large Room Pack/Reset", "category": "room", "unit": "EA", "price": 293.55},
-    {"code": "2835", "name": "Extra Large Room Pack/Reset", "category": "room", "unit": "EA", "price": 427.45},
+    {"code": "2833", "name": "Small Room Pack/Reset", "category": "room", "unit": "EA", "price": 242.1},
+    {"code": "2834", "name": "Large Room Pack/Reset", "category": "room", "unit": "EA", "price": 372.97},
+    {"code": "2835", "name": "Extra Large Room Pack/Reset", "category": "room", "unit": "EA", "price": 543.1},
 
     # Boxes
     {"code": "3025", "name": "Medium Box (3.0cf)", "category": "box", "unit": "EA", "price": 6.44},

@@ -164,14 +164,14 @@ SIZE_TO_PRICE_CODE = {
 # ============================================
 DEFAULT_PRICES = {
     # Labor
-    "2825": {"price": 59.03, "name": "Content Manipulation", "unit": "HR"},
-    "2911": {"price": 89.75, "name": "Supervisor/Admin", "unit": "HR"},
-    "2912": {"price": 128.75, "name": "Specialty Item Handler", "unit": "HR"},
+    "2825": {"price": 75.0, "name": "Content Manipulation", "unit": "HR"},
+    "2911": {"price": 114.04, "name": "Supervisor/Admin", "unit": "HR"},
+    "2912": {"price": 163.58, "name": "Specialty Item Handler", "unit": "HR"},
 
     # Room rates (composite reference)
-    "2833": {"price": 190.55, "name": "Small Room Pack/Reset", "unit": "EA"},
-    "2834": {"price": 293.55, "name": "Large Room Pack/Reset", "unit": "EA"},
-    "2835": {"price": 427.45, "name": "Extra Large Room Pack/Reset", "unit": "EA"},
+    "2833": {"price": 242.1, "name": "Small Room Pack/Reset", "unit": "EA"},
+    "2834": {"price": 372.97, "name": "Large Room Pack/Reset", "unit": "EA"},
+    "2835": {"price": 543.1, "name": "Extra Large Room Pack/Reset", "unit": "EA"},
 
     # Boxes
     "3025": {"price": 6.44, "name": "Medium Box (3.0cf)", "unit": "EA"},
