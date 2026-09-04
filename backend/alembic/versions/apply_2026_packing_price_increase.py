@@ -117,7 +117,8 @@ def upgrade():
                 SELECT
                     gen_random_uuid(), :code, :name, :includes, :unit,
                     :unit_price, :cat, true, li.company_id,
-                    MIN(li.created_by), CAST('company' AS lineitemvisibility),
+                    CAST(MIN(li.created_by::text) AS uuid),
+                    CAST('company' AS lineitemvisibility),
                     'packing', true, now()
                 FROM line_items li
                 WHERE li.tool_id = 'packing'
