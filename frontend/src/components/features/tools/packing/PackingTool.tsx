@@ -44,6 +44,7 @@ import { HistoryTab } from './HistoryTab';
 import { PricesTab } from './PricesTab';
 import { EstimateEditorModal } from './EstimateEditorModal';
 import { derivePackingStatus } from './sessionStatus';
+import { formatPropertyAddress } from './propertyAddress';
 import type {
   PackingRoom,
   PhotoRoom,
@@ -579,7 +580,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       const res = await toolService.createEstimateFromSession(activeSessionId, {
         customer_name: clientInfo.name || undefined,
         title: clientInfo.property_address_line1
-          ? `Packing & Moving - ${[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}`
+          ? `Packing & Moving - ${formatPropertyAddress(clientInfo)}`
           : 'Packing & Moving Estimate',
         update_existing: updateExisting,
       });
@@ -1175,7 +1176,10 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
               {clientInfo.name}
             </Text>
             {clientInfo.property_address_line1 && (
+              // Single-line by design — this sticky bar can't grow — so the
+              // full address is carried on the tooltip when it doesn't fit.
               <Text
+                title={formatPropertyAddress(clientInfo)}
                 style={{
                   fontSize: 12,
                   color: colors.textMuted,
@@ -1186,7 +1190,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
                   whiteSpace: 'nowrap',
                 }}
               >
-                {[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}
+                {formatPropertyAddress(clientInfo)}
               </Text>
             )}
           </div>

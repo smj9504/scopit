@@ -48,6 +48,7 @@ import {
 } from './constants';
 import { SharedDetailsStep } from './SharedDetailsStep';
 import { RoomSpecialItems } from './RoomSpecialItems';
+import { formatPropertyAddress } from './propertyAddress';
 import type {
   PackingRoom,
   PackingSettings,
@@ -1078,7 +1079,7 @@ const StepReview: React.FC<{
             </div>
             {clientInfo.property_address_line1 && (
               <div style={{ fontSize: 13, color: colors.textSecondary }}>
-                {[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}
+                {formatPropertyAddress(clientInfo)}
               </div>
             )}
             {clientInfo.phone && (

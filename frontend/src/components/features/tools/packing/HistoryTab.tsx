@@ -29,6 +29,7 @@ import { toolService } from '@/services/toolService';
 import type { ToolSession } from '@/types/tools';
 import type { PackingSessionData } from './types';
 import { getGrandTotal, deriveHistoryStatus } from './sessionStatus';
+import { formatPropertyAddress } from './propertyAddress';
 import { colors, fonts, borderRadius, fontSizes } from '@/styles/theme';
 
 const { Text } = Typography;
@@ -50,21 +51,6 @@ function formatCurrency(value: number | undefined): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value);
-}
-
-/** Full property address — "line1, line2, city, ST 12345" — matching the
- *  street/city/state-zip grouping used by the Estimates and Invoices lists. */
-function formatPropertyAddress(clientInfo: any): string {
-  if (!clientInfo) return '';
-  const stateZip = [clientInfo.property_state, clientInfo.property_zipcode].filter(Boolean).join(' ');
-  return [
-    clientInfo.property_address_line1,
-    clientInfo.property_address_line2,
-    clientInfo.property_city,
-    stateZip,
-  ]
-    .filter(Boolean)
-    .join(', ');
 }
 
 function formatDate(iso: string): string {
