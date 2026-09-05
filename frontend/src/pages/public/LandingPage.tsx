@@ -360,6 +360,7 @@ const LandingPage: React.FC = () => {
           display: inline-block;
           width: 6px;
           height: 6px;
+          flex: 0 0 auto;
           border-radius: 50%;
           background: #111827;
           margin-right: 8px;
@@ -436,6 +437,9 @@ const LandingPage: React.FC = () => {
         .process-node {
           width: 56px;
           height: 56px;
+          /* The node is a flex item; without this it shrinks horizontally next to
+             the step text (row layout on mobile) and renders as an ellipse. */
+          flex: 0 0 auto;
           border-radius: 50%;
           background: #ffffff;
           border: 1px solid #e5e7eb;
@@ -469,7 +473,7 @@ const LandingPage: React.FC = () => {
           .process-rail::before,
           .process-rail-fill {
             top: 0;
-            left: 27px;
+            left: 31.5px;
             right: auto;
             bottom: 0;
             width: 1px;
@@ -482,6 +486,15 @@ const LandingPage: React.FC = () => {
           .process-step {
             flex-direction: row !important;
             align-items: flex-start !important;
+          }
+          /* Every node sits in the same 64px lane as the enlarged hero node, so
+             each circle stays centered on the rail and the text never shifts as
+             the active step advances. */
+          .process-node {
+            margin: 0 4px;
+          }
+          .process-step--hero .process-node {
+            margin: 0;
           }
           .process-step + .process-step {
             margin-top: 28px;
