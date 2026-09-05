@@ -775,8 +775,22 @@ const InvoiceDetailPage: React.FC = () => {
           {sections.length > 0 ? (
             sections.map((section) => (
               <Card key={section.id} style={{ borderRadius: 12, marginBottom: 12, boxShadow: shadows.card }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 12 }}>
-                  <h3 style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                {/* Long names wrap to two lines on a phone rather than being
+                    cut to a few characters; the subtotal stays on line one. */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', marginBottom: 14, gap: 12 }}>
+                  <h3
+                    title={section.name}
+                    style={{
+                      fontFamily: fonts.heading,
+                      fontSize: 15,
+                      fontWeight: 600,
+                      margin: 0,
+                      minWidth: 0,
+                      ...(isMobile
+                        ? { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties
+                        : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as React.CSSProperties),
+                    }}
+                  >
                     {section.name}
                   </h3>
                   <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, flexShrink: 0, letterSpacing: '-0.01em' }}>{formatCurrency(Number(section.subtotal || 0))}</span>

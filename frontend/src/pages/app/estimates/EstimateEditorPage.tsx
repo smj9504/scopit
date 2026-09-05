@@ -330,6 +330,54 @@ const Section: React.FC<{
     transition,
   };
 
+  // Two lines on a phone, one line with an ellipsis where there is room for it.
+  const sectionNameStyle: React.CSSProperties = isMobile
+    ? { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
+    : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
+  const subtotalNode = (
+    <span style={{ flexShrink: 0, fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>
+      {formatCurrency(subtotal)}
+    </span>
+  );
+
+  const addItemNode = (
+    <Dropdown
+      menu={{
+        items: [
+          {
+            key: 'new',
+            icon: <PlusOutlined />,
+            label: 'Add Blank Item',
+            onClick: isMobile && onMobileAddItem ? onMobileAddItem : onAddItem,
+          },
+          {
+            key: 'library',
+            icon: <AppstoreAddOutlined />,
+            label: 'Add from Library',
+            onClick: onAddFromLibrary,
+          },
+          ...(clipboardCount > 0
+            ? [
+                { type: 'divider' as const },
+                {
+                  key: 'paste',
+                  icon: <CopyOutlined />,
+                  label: `Paste ${clipboardCount} item${clipboardCount !== 1 ? 's' : ''} here`,
+                  onClick: onPasteHere,
+                },
+              ]
+            : []),
+        ],
+      }}
+      trigger={['click']}
+    >
+      <Button type="text" icon={<PlusOutlined />} size="small" style={{ flexShrink: 0 }}>
+        Add Item
+      </Button>
+    </Dropdown>
+  );
+
   return (
     <div ref={setNodeRef} style={style}>
       <Card
@@ -341,125 +389,94 @@ const Section: React.FC<{
         }}
         styles={{ body: { padding: 0 } }}
       >
-        {/* Section Header */}
+        {/* Section Header — the name competes with the handle, checkbox,
+            subtotal and two buttons, which on a phone left it about 60px.
+            Mobile moves the subtotal and Add Item to a second row so the name
+            gets the width instead. */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
             padding: '8px 12px',
             background: colors.bgLight,
             borderBottom: `1px solid ${colors.borderLight}`,
           }}
         >
-          {/* Drag Handle */}
-          <div
-            {...attributes}
-            {...listeners}
-            style={{ cursor: 'grab', color: colors.textMuted }}
-          >
-            <HolderOutlined />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Drag Handle */}
+            <div
+              {...attributes}
+              {...listeners}
+              style={{ cursor: 'grab', color: colors.textMuted, flexShrink: 0 }}
+            >
+              <HolderOutlined />
+            </div>
+
+            {/* Select All Checkbox */}
+            <Checkbox
+              checked={allSelected}
+              indeterminate={someSelected && !allSelected}
+              onChange={onSelectAllInSection}
+            />
+
+            {/* Collapse Toggle */}
+            <Button
+              type="text"
+              size="small"
+              icon={section.isCollapsed ? <CaretRightOutlined /> : <CaretDownOutlined />}
+              onClick={onToggleCollapse}
+              style={{ flexShrink: 0 }}
+            />
+
+            {/* Section Name — flex:1 also pushes the trailing controls right */}
+            {isEditing ? (
+              <Input
+                value={section.name}
+                onChange={(e) => onUpdateSection({ name: e.target.value })}
+                onBlur={() => setIsEditing(false)}
+                onPressEnter={() => setIsEditing(false)}
+                autoFocus
+                style={{ flex: 1, minWidth: 0, maxWidth: isMobile ? undefined : 320 }}
+              />
+            ) : (
+              <span
+                title={section.name}
+                style={{
+                  fontFamily: fonts.heading,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  flex: 1,
+                  minWidth: 0,
+                  ...sectionNameStyle,
+                }}
+                onClick={() => setIsEditing(true)}
+              >
+                {section.name}
+              </span>
+            )}
+
+            {!isMobile && subtotalNode}
+            {!isMobile && addItemNode}
+
+            {/* More Menu */}
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'rename', label: 'Rename Section', onClick: () => setIsEditing(true) },
+                  { type: 'divider' },
+                  { key: 'delete', label: 'Delete Section', danger: true, onClick: onDeleteSection },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <Button type="text" icon={<MoreOutlined />} size="small" style={{ flexShrink: 0 }} />
+            </Dropdown>
           </div>
 
-          {/* Select All Checkbox */}
-          <Checkbox
-            checked={allSelected}
-            indeterminate={someSelected && !allSelected}
-            onChange={onSelectAllInSection}
-          />
-
-          {/* Collapse Toggle */}
-          <Button
-            type="text"
-            size="small"
-            icon={section.isCollapsed ? <CaretRightOutlined /> : <CaretDownOutlined />}
-            onClick={onToggleCollapse}
-          />
-
-          {/* Section Name */}
-          {isEditing ? (
-            <Input
-              value={section.name}
-              onChange={(e) => onUpdateSection({ name: e.target.value })}
-              onBlur={() => setIsEditing(false)}
-              onPressEnter={() => setIsEditing(false)}
-              autoFocus
-              style={{ width: 200, minWidth: 0 }}
-            />
-          ) : (
-            // Ellipsis rather than wrap: on a phone this row is already tight,
-            // and a wrapping name collapses it into a tall one-word column.
-            <span
-              title={section.name}
-              style={{
-                fontFamily: fonts.heading,
-                fontWeight: 600,
-                cursor: 'pointer',
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-              onClick={() => setIsEditing(true)}
-            >
-              {section.name}
-            </span>
+          {isMobile && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
+              {subtotalNode}
+              {addItemNode}
+            </div>
           )}
-
-          {/* Subtotal */}
-          <span style={{ marginLeft: 'auto', flexShrink: 0, fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>
-            {formatCurrency(subtotal)}
-          </span>
-
-          {/* Add Buttons */}
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'new',
-                  icon: <PlusOutlined />,
-                  label: 'Add Blank Item',
-                  onClick: isMobile && onMobileAddItem ? onMobileAddItem : onAddItem,
-                },
-                {
-                  key: 'library',
-                  icon: <AppstoreAddOutlined />,
-                  label: 'Add from Library',
-                  onClick: onAddFromLibrary,
-                },
-                ...(clipboardCount > 0
-                  ? [
-                      { type: 'divider' as const },
-                      {
-                        key: 'paste',
-                        icon: <CopyOutlined />,
-                        label: `Paste ${clipboardCount} item${clipboardCount !== 1 ? 's' : ''} here`,
-                        onClick: onPasteHere,
-                      },
-                    ]
-                  : []),
-              ],
-            }}
-            trigger={['click']}
-          >
-            <Button type="text" icon={<PlusOutlined />} size="small">
-              Add Item
-            </Button>
-          </Dropdown>
-
-          {/* More Menu */}
-          <Dropdown
-            menu={{
-              items: [
-                { key: 'rename', label: 'Rename Section', onClick: () => setIsEditing(true) },
-                { type: 'divider' },
-                { key: 'delete', label: 'Delete Section', danger: true, onClick: onDeleteSection },
-              ],
-            }}
-            trigger={['click']}
-          >
-            <Button type="text" icon={<MoreOutlined />} size="small" />
-          </Dropdown>
         </div>
 
         {/* Section Items */}
