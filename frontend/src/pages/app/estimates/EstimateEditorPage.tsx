@@ -384,14 +384,21 @@ const Section: React.FC<{
               onBlur={() => setIsEditing(false)}
               onPressEnter={() => setIsEditing(false)}
               autoFocus
-              style={{ width: 200 }}
+              style={{ width: 200, minWidth: 0 }}
             />
           ) : (
+            // Ellipsis rather than wrap: on a phone this row is already tight,
+            // and a wrapping name collapses it into a tall one-word column.
             <span
+              title={section.name}
               style={{
                 fontFamily: fonts.heading,
                 fontWeight: 600,
                 cursor: 'pointer',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
               }}
               onClick={() => setIsEditing(true)}
             >
@@ -400,7 +407,7 @@ const Section: React.FC<{
           )}
 
           {/* Subtotal */}
-          <span style={{ marginLeft: 'auto', fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>
+          <span style={{ marginLeft: 'auto', flexShrink: 0, fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>
             {formatCurrency(subtotal)}
           </span>
 
@@ -2005,9 +2012,12 @@ const EstimateEditorPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, flexWrap: 'wrap' }}>
+      {/* Stacked layout must not wrap: a wrapping column flex line grows to its
+          widest child's min-content width, which pushed the editor past the
+          viewport and out of reach of the ancestor's overflow-x: hidden. */}
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
         {/* Main Editor */}
-        <div style={{ flex: 1, minWidth: isMobile ? 'auto' : 600 }}>
+        <div style={{ flex: 1, minWidth: isMobile ? 0 : 600, maxWidth: '100%' }}>
           {/* Customer Selection */}
           <div style={{ marginBottom: 16 }}>
             <h3 style={{ fontFamily: fonts.heading, fontWeight: 600, marginBottom: 12 }}>
@@ -2021,7 +2031,7 @@ const EstimateEditorPage: React.FC = () => {
 
           {/* Estimate Details */}
           <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
+            <div style={{ display: 'flex', gap: 16, flexWrap: isMobile ? 'nowrap' : 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
               <Form.Item label="Estimate Date" style={{ marginBottom: 0, flex: isMobile ? 'none' : '1 1 auto', minWidth: isMobile ? 'auto' : 150 }}>
                 <DatePicker value={estimateDate} onChange={(d) => d && setEstimateDate(d)} style={{ width: '100%' }} />
               </Form.Item>

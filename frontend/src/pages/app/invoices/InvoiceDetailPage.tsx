@@ -31,6 +31,7 @@ import { getErrorMessage } from '@/services/api';
 import { useInvoiceStatuses, getStatusDisplay } from '@/hooks/useSettings';
 import { useIsMobile, useIsNarrow } from '@/hooks/useIsMobile';
 import { useBackNav } from '@/hooks/useHeaderNav';
+import { MobileDocumentItems } from '@/components/common/MobileDocumentItems';
 import type { InvoiceStatus, PaymentMethod, Adjustment, Payment, PdfTemplateInfo } from '@/types/entities';
 import { ReceiptPreviewModal } from '@/components/features/ReceiptPreviewModal';
 
@@ -329,6 +330,7 @@ const InvoiceDetailPage: React.FC = () => {
   const canRecordPayment = !['paid', 'canceled'].includes(statusName) && balanceDue > 0;
   const isCanceled = statusName === 'canceled';
 
+  // Desktop only — mobile stacks the items instead (see MobileDocumentItems).
   const itemColumns = [
     {
       title: 'Description',
@@ -357,37 +359,33 @@ const InvoiceDetailPage: React.FC = () => {
         );
       },
     },
-    ...(!isMobile ? [
-      {
-        title: 'Unit',
-        dataIndex: 'unit',
-        key: 'unit',
-        width: 80,
-      },
-    ] : []),
+    {
+      title: 'Unit',
+      dataIndex: 'unit',
+      key: 'unit',
+      width: 80,
+    },
     {
       title: 'Qty',
       dataIndex: 'quantity',
       key: 'quantity',
-      ...(isMobile ? {} : { width: 80 }),
+      width: 80,
       align: 'right' as const,
       render: (quantity: number) => Number(quantity || 0).toFixed(2),
     },
-    ...(!isMobile ? [
-      {
-        title: 'Price',
-        dataIndex: 'unitPrice',
-        key: 'unitPrice',
-        width: 100,
-        align: 'right' as const,
-        render: (price: number) => formatCurrency(Number(price || 0)),
-      },
-    ] : []),
+    {
+      title: 'Price',
+      dataIndex: 'unitPrice',
+      key: 'unitPrice',
+      width: 100,
+      align: 'right' as const,
+      render: (price: number) => formatCurrency(Number(price || 0)),
+    },
     {
       title: 'Total',
       dataIndex: 'total',
       key: 'total',
-      ...(isMobile ? {} : { width: 120 }),
+      width: 120,
       align: 'right' as const,
       render: (total: number) => <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>{formatCurrency(Number(total || 0))}</span>,
     },
@@ -637,9 +635,12 @@ const InvoiceDetailPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: isNarrow ? 16 : 24, flexWrap: 'wrap', flexDirection: isNarrow ? 'column' : 'row' }}>
+      {/* Stacked layout must not wrap: a wrapping column flex line grows to its
+          widest child's min-content width, which pushed the whole page past the
+          viewport and out of reach of the ancestor's overflow-x: hidden. */}
+      <div style={{ display: 'flex', gap: isNarrow ? 16 : 24, flexWrap: isNarrow ? 'nowrap' : 'wrap', flexDirection: isNarrow ? 'column' : 'row' }}>
         {/* Main Content */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, maxWidth: '100%' }}>
           {/* Customer & Dates */}
           <Card style={{ borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: shadows.card }}>
             <style>{`
@@ -652,8 +653,23 @@ const InvoiceDetailPage: React.FC = () => {
               .invoice-header-descriptions .ant-descriptions-item-content .ant-picker-input > input {
                 line-height: 22px;
               }
+              /* The Descriptions <table> sizes to its content, so a long email or
+                 address made this card wider than a phone screen. Pin it to the
+                 card and let the values wrap instead. */
+              .invoice-header-descriptions .ant-descriptions-view table {
+                table-layout: fixed;
+                width: 100%;
+              }
+              .invoice-header-descriptions .ant-descriptions-item-content {
+                overflow-wrap: anywhere;
+              }
             `}</style>
-            <Descriptions className="invoice-header-descriptions" column={{ xs: 1, sm: 1, md: 1, lg: 2, xl: 3 }}>
+            <Descriptions
+              className="invoice-header-descriptions"
+              layout={isMobile ? 'vertical' : 'horizontal'}
+              colon={!isMobile}
+              column={{ xs: 1, sm: 1, md: 1, lg: 2, xl: 3 }}
+            >
               <Descriptions.Item label="Customer">
                 <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                   <div style={{ fontWeight: 600 }}>{customerName || '—'}</div>
@@ -765,16 +781,19 @@ const InvoiceDetailPage: React.FC = () => {
                   </h3>
                   <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: 14, flexShrink: 0, letterSpacing: '-0.01em' }}>{formatCurrency(Number(section.subtotal || 0))}</span>
                 </div>
-                <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                  <Table
-                    columns={itemColumns}
-                    dataSource={section.items || []}
-                    rowKey="id"
-                    pagination={false}
-                    size="small"
-                    style={{ minWidth: isMobile ? 320 : undefined }}
-                  />
-                </div>
+                {isMobile ? (
+                  <MobileDocumentItems items={section.items || []} quantityPrecision={2} />
+                ) : (
+                  <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                    <Table
+                      columns={itemColumns}
+                      dataSource={section.items || []}
+                      rowKey="id"
+                      pagination={false}
+                      size="small"
+                    />
+                  </div>
+                )}
               </Card>
             ))
           ) : (

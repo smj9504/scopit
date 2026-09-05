@@ -395,14 +395,21 @@ const Section: React.FC<{
               onBlur={() => setIsEditing(false)}
               onPressEnter={() => setIsEditing(false)}
               autoFocus
-              style={{ width: 200 }}
+              style={{ width: 200, minWidth: 0 }}
             />
           ) : (
+            // Ellipsis rather than wrap: on a phone this row is already tight,
+            // and a wrapping name collapses it into a tall one-word column.
             <span
+              title={section.name}
               style={{
                 fontFamily: fonts.heading,
                 fontWeight: 600,
                 cursor: 'pointer',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
               }}
               onClick={() => setIsEditing(true)}
             >
@@ -411,7 +418,7 @@ const Section: React.FC<{
           )}
 
           {/* Subtotal */}
-          <span style={{ marginLeft: 'auto', fontWeight: 600 }}>
+          <span style={{ marginLeft: 'auto', flexShrink: 0, fontWeight: 600 }}>
             {formatCurrency(subtotal)}
           </span>
 
@@ -2157,9 +2164,12 @@ const InvoiceEditorPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, flexWrap: 'wrap' }}>
+      {/* Stacked layout must not wrap: a wrapping column flex line grows to its
+          widest child's min-content width, which pushed the editor past the
+          viewport and out of reach of the ancestor's overflow-x: hidden. */}
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
         {/* Main Editor */}
-        <div style={{ flex: 1, minWidth: isMobile ? 'auto' : 600 }}>
+        <div style={{ flex: 1, minWidth: isMobile ? 0 : 600, maxWidth: '100%' }}>
           {/* Customer Selection */}
           <div style={{ marginBottom: 16 }}>
             <h3 style={{ fontFamily: fonts.heading, fontWeight: 600, marginBottom: 12 }}>
@@ -2173,7 +2183,7 @@ const InvoiceEditorPage: React.FC = () => {
 
           {/* Invoice Details */}
           <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
+            <div style={{ display: 'flex', gap: 16, flexWrap: isMobile ? 'nowrap' : 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
               <Form.Item label="Invoice Date" style={{ marginBottom: 0, flex: isMobile ? 'none' : '1 1 auto', minWidth: isMobile ? 'auto' : 150 }}>
                 <DatePicker
                   value={invoiceDate}
