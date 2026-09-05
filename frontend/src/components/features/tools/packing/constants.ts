@@ -93,7 +93,7 @@ export const DEFAULT_SETTINGS = {
   include_packback: true,
   include_op: true,
   op_rate: 20,
-  material_rate: 25,
+  material_rate: 0,
   region: 'mid_atlantic' as const,
   special_items: [] as string[],
   custom_special_items: [] as Array<{ name: string; price: number }>,

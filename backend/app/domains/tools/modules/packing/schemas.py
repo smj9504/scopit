@@ -148,8 +148,8 @@ class QuickEstimateRequest(BaseModel):
     include_packback: bool = Field(default=True)
     include_op: bool = Field(default=True)
     op_rate: int = Field(default=20, ge=0, le=30)
-    material_rate: int = Field(default=25, ge=10, le=40,
-        description="Material cost as % of pack-out labor")
+    material_rate: int = Field(default=0, ge=0, le=40,
+        description="Handling & markup added on top of catalog material cost, %")
     include_contingency: bool = Field(default=False)
     contingency_rate: int = Field(default=0, ge=0, le=20)
     supplement_overrides: Dict[str, bool] = Field(default_factory=dict)
@@ -355,8 +355,8 @@ class RoomsEstimateRequest(BaseModel):
     include_packback: bool = Field(default=True)
     include_op: bool = Field(default=True)
     op_rate: int = Field(default=20, ge=0, le=30)
-    material_rate: int = Field(default=25, ge=10, le=40,
-        description="Material cost as % of pack-out labor")
+    material_rate: int = Field(default=0, ge=0, le=40,
+        description="Handling & markup added on top of catalog material cost, %")
     materials_mode: Literal["pct_of_labor", "itemized"] = Field(
         default="pct_of_labor",
         description="Photo AI materials calc: % of pack-out labor, or itemized box/protection pricing",

@@ -109,9 +109,11 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   const [rooms, setRooms] = useState<PackingRoom[]>([]);
   // Photo AI rooms
   const [photoRooms, setPhotoRooms] = useState<PhotoRoom[]>([]);
-  // Photo AI materials calculation method — % of pack-out labor (default) or
-  // itemized. A per-estimate choice, not a saved setting; seeded from
-  // result.materials_mode on load so it survives reload for free.
+  // Photo AI materials breakdown — rolled-up category lines (default, still
+  // keyed 'pct_of_labor' for saved sessions) or one line per material. Both
+  // price identically; this only picks the layout. A per-estimate choice,
+  // not a saved setting; seeded from result.materials_mode on load so it
+  // survives reload for free.
   const [materialsMode, setMaterialsMode] = useState<MaterialsMode>('pct_of_labor');
   // Packout rooms — retired mode; state kept only so old sessions with
   // mode: 'packout' still load and display read-only (see editorContent below).
@@ -504,7 +506,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         include_packback: settings.include_packback,
         include_op: settings.include_op,
         op_rate: settings.op_rate,
-        material_rate: settings.material_rate ?? 25,
+        material_rate: settings.material_rate ?? 0,
         materials_mode: materialsMode,
         include_contingency: false,
         contingency_rate: 0,
@@ -538,7 +540,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
         include_packback: settings.include_packback,
         include_op: settings.include_op,
         op_rate: settings.op_rate,
-        material_rate: settings.material_rate ?? 25,
+        material_rate: settings.material_rate ?? 0,
         include_contingency: false,
         contingency_rate: 0,
         region: settings.region,

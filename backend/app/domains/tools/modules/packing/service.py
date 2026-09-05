@@ -521,6 +521,12 @@ HINT_MATERIAL_MAP = {
     "chemicals":         {},  # hazmat — disposal only per OSHA/EPA; not transported
 }
 
+# The materials markup line. Not a catalog SKU — it is derived from the
+# materials it marks up — so it carries its own code rather than one from
+# MATERIAL_CODES, and consumers that group by SKU keep it as its own line.
+MATERIAL_MARKUP_CODE = "MAT-MKUP"
+MATERIAL_MARKUP_NAME = "Material Handling & Markup"
+
 # Material code mapping
 MATERIAL_CODES = {
     "box_small": "3026",
@@ -1054,19 +1060,32 @@ class EstimateCalculator:
     def build_hybrid_materials(
         self,
         pack_out_labor_cost: float,
-        material_rate_pct: int,
+        markup_pct: int,
         materials: Dict[str, int],
     ) -> Tuple[float, List[dict], List[dict]]:
-        """Compute material cost as % of labor, split into 2-3 categories.
+        """Price the materials at catalog cost, collapsed into 2-3 categories.
 
-        Uses the itemised material breakdown only for determining the
-        *ratio* between categories.  The total is anchored to labor cost.
+        This is the rolled-up presentation of the SAME cost basis that
+        build_itemized_materials uses: every material is priced from the
+        LineItem catalog and summed, then ``markup_pct`` is applied on top,
+        and the result is shown as a few lump-sum category lines instead of
+        one line per SKU. Both builders take the same markup, so switching
+        presentation never changes the price.
+
+        It used to anchor the total to pack-out labor x a percentage, using
+        the catalog only for the ratio between categories. That made the two
+        modes disagree by up to 10x: the implied material/labor ratio swings
+        with item mix (furniture-heavy jobs need many blankets and little
+        labor, fragile-heavy jobs the reverse), and crew size, region and
+        the fragile/specialty rate premiums move labor without moving
+        materials at all.
+
+        ``pack_out_labor_cost`` is now only a fallback basis, for estimates
+        whose materials carry no catalog price at all (see below).
 
         Returns (total_cost, section_detail_lines, material_details_legacy).
         """
-        mat_total = pack_out_labor_cost * material_rate_pct / 100.0
-
-        # Compute category costs from itemised breakdown for ratio
+        # Category costs, priced from the same catalog as the itemized mode
         supply_cost = 0.0
         protective_cost = 0.0
         specialty_cost = 0.0
@@ -1083,13 +1102,23 @@ class EstimateCalculator:
                 protective_cost += cost
 
         raw_total = supply_cost + protective_cost + specialty_cost
-        if raw_total <= 0:
+        if raw_total > 0:
+            # Real catalog cost + markup — the same number the itemized
+            # builder reports for these materials.
+            mat_total = raw_total * (1 + markup_pct / 100.0)
+        else:
+            # Nothing here carries a catalog price (no material breakdown, or
+            # only unpriced keys), so there is no cost to mark up. Fall back
+            # to the legacy labor-anchored figure at the historical 25% so
+            # these estimates still show a materials number rather than $0,
+            # and split it on a nominal supply/protective ratio.
+            mat_total = pack_out_labor_cost * 0.25
             supply_cost = 0.6
             protective_cost = 0.4
             specialty_cost = 0.0
             raw_total = 1.0
 
-        # Distribute labor-based total proportionally
+        # Distribute the total across categories in catalog proportion
         supply_amt = round(mat_total * supply_cost / raw_total, 2)
         protective_amt = round(mat_total * protective_cost / raw_total, 2)
         specialty_amt = round(mat_total * specialty_cost / raw_total, 2)
@@ -1193,13 +1222,20 @@ class EstimateCalculator:
         self,
         materials: Dict[str, int],
         rooms: Optional[List[Any]] = None,
+        markup_pct: int = 0,
     ) -> Tuple[float, List[dict], List[dict]]:
         """Compute material cost as a real itemized sum (Mode B).
 
         Every material key in `materials` becomes its own priced line, using
         the SAME MATERIAL_CODES -> LineItem price catalog as Quick Estimate /
-        the hybrid % model. No % anchoring — total is a literal sum of
+        the rolled-up category model, so the total is a literal sum of
         qty x unit price.
+
+        ``markup_pct`` is added as one explicit line on top, rather than
+        folded into the per-unit rates, so each SKU still shows its true
+        catalog price. build_hybrid_materials applies the same markup to the
+        same catalog cost, which is what keeps the two presentations priced
+        identically.
 
         Returns (total_cost, section_detail_lines, material_details).
         """
@@ -1253,6 +1289,22 @@ class EstimateCalculator:
                 "detail": detail,
             })
 
+        if markup_pct and total_cost > 0:
+            markup_amt = round(total_cost * markup_pct / 100.0, 2)
+            total_cost += markup_amt
+            lines.append({
+                "name": MATERIAL_MARKUP_NAME, "qty": 1, "unit": "LS",
+                "rate": markup_amt,
+                "detail": f"{markup_pct}% handling & markup on materials",
+                "amount": markup_amt,
+            })
+            material_details.append({
+                "code": MATERIAL_MARKUP_CODE, "name": MATERIAL_MARKUP_NAME,
+                "quantity": 1, "unit": "LS",
+                "unit_price": markup_amt, "total": markup_amt,
+                "detail": f"{markup_pct}% handling & markup on materials",
+            })
+
         return round(total_cost, 2), lines, material_details
 
     def calculate_estimate(self, request: QuickEstimateRequest) -> EstimateResponse:
@@ -1292,16 +1344,18 @@ class EstimateCalculator:
 
         crew = request.crew_size
 
-        # Calculate materials: hybrid approach
-        # Itemised breakdown used only for category ratios;
-        # total is anchored to pack-out labor × material_rate%.
+        # Materials: catalog cost of the estimated material list + markup,
+        # shown as 2-3 lump-sum category lines. Quick Estimate has no
+        # per-SKU review step, so it always uses the rolled-up presentation.
         materials = self.calculate_materials(request.rooms)
+        # Only a fallback basis now, for rooms whose materials carry no
+        # catalog price at all (see build_hybrid_materials).
         # Pack-out labor cost = elapsed hours × crew × rate (all crew members working)
         pack_out_labor_cost = pack_out_hours * crew * labor_rate
-        material_rate_pct = getattr(request, 'material_rate', 25)
+        markup_pct = getattr(request, 'material_rate', 0) or 0
         material_cost, mat_section_lines, mat_details_legacy = (
             self.build_hybrid_materials(
-                pack_out_labor_cost, material_rate_pct, materials,
+                pack_out_labor_cost, markup_pct, materials,
             )
         )
 
@@ -3076,20 +3130,24 @@ class EstimateCalculator:
             + supervisor_hours * fragile_rate_adj       # 1 person
         )
 
-        # Materials calc: either hybrid (% of pack-out labor, collapsed into
-        # 2-3 category lines) or itemized (real per-box/per-material pricing,
-        # one line per material) — user's choice, made at the Photo AI review
-        # step and carried on the request as `materials_mode`.
+        # Materials calc: both modes price the same materials from the same
+        # catalog and apply the same markup, so this is a presentation
+        # choice, not a pricing one — itemized shows one line per material,
+        # the default collapses them into 2-3 lump-sum category lines. The
+        # user picks at the Photo AI review step; it arrives as
+        # `materials_mode`.
         materials_mode = getattr(request, 'materials_mode', 'pct_of_labor') or 'pct_of_labor'
+        markup_pct = getattr(request, 'material_rate', 0) or 0
         if materials_mode == "itemized":
             material_cost, mat_section_lines, mat_details_legacy = (
-                self.build_itemized_materials(materials, request.rooms)
+                self.build_itemized_materials(
+                    materials, request.rooms, markup_pct=markup_pct,
+                )
             )
         else:
-            material_rate_pct = getattr(request, 'material_rate', 25)
             material_cost, mat_section_lines, mat_details_legacy = (
                 self.build_hybrid_materials(
-                    pack_out_labor, material_rate_pct, materials,
+                    pack_out_labor, markup_pct, materials,
                 )
             )
 

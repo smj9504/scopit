@@ -955,7 +955,7 @@ const StepReview: React.FC<{
         include_packback: settings.include_packback,
         include_op: settings.include_op,
         op_rate: settings.op_rate,
-        material_rate: settings.material_rate ?? 25,
+        material_rate: settings.material_rate ?? 0,
         include_contingency: false,
         contingency_rate: 0,
         region: settings.region,

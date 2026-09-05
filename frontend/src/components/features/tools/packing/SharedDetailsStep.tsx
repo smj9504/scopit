@@ -379,19 +379,19 @@ const SharedDetailsStep: React.FC<SharedDetailsStepProps> = ({
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: colors.textPrimary }}>Material Rate</span>
-          <span style={{ fontSize: 11, color: colors.textMuted, marginTop: 1 }}>% of pack-out labor</span>
+          <span style={{ fontSize: 13, fontWeight: 500, color: colors.textPrimary }}>Material Markup</span>
+          <span style={{ fontSize: 11, color: colors.textMuted, marginTop: 1 }}>handling % on top of material cost</span>
         </div>
         <InputNumber
-          min={10}
+          min={0}
           max={40}
-          value={settings.material_rate ?? 25}
-          onChange={(val) => patchSettings({ material_rate: val ?? 25 })}
+          value={settings.material_rate ?? 0}
+          onChange={(val) => patchSettings({ material_rate: val ?? 0 })}
           style={{ width: 80 }}
           addonAfter="%"
           step={5}
           size="small"
-          aria-label="Material rate"
+          aria-label="Material markup"
         />
       </div>
 

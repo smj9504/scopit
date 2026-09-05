@@ -42,7 +42,10 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from app.domains.tools.modules.packing.service import MATERIAL_CODES
+from app.domains.tools.modules.packing.service import (
+    MATERIAL_CODES,
+    MATERIAL_MARKUP_CODE,
+)
 
 # ============================================
 # SCOPIT COMPANY INFO HELPER
@@ -636,6 +639,7 @@ def _section_details_to_line_items(
                 # conventionally separate box SKUs from wrap/pad consumables.
                 box_items = []
                 other_items = []
+                markup_items = []
                 for m in material_details:
                     entry = {
                         'name': m.get('name', ''),
@@ -644,7 +648,12 @@ def _section_details_to_line_items(
                         'unit': m.get('unit', 'EA'),
                         'price': m.get('unit_price', 0),
                     }
-                    if m.get('code') in _BOX_CODES:
+                    if m.get('code') == MATERIAL_MARKUP_CODE:
+                        # Derived from the SKUs above, not a supply itself —
+                        # its own trailing group, so it never reads as a
+                        # line item the crew is expected to load.
+                        markup_items.append(entry)
+                    elif m.get('code') in _BOX_CODES:
                         box_items.append(entry)
                     else:
                         other_items.append(entry)
@@ -652,6 +661,8 @@ def _section_details_to_line_items(
                     result.append({'title': 'Materials - Packing Boxes', 'items': box_items})
                 if other_items:
                     result.append({'title': 'Materials - Protective & Packing Supplies', 'items': other_items})
+                if markup_items:
+                    result.append({'title': 'Materials - Handling & Markup', 'items': markup_items})
                 continue
 
             items = []

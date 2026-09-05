@@ -1737,7 +1737,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                     color: result.materials_mode === 'itemized' ? colors.primary : colors.textSecondary,
                   }}
                 >
-                  {result.materials_mode === 'itemized' ? 'Itemized' : '% of Labor'}
+                  {result.materials_mode === 'itemized' ? 'Itemized' : 'Summary'}
                 </Tag>
               )}
             </Col>
