@@ -2512,8 +2512,9 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             MATERIAL BREAKDOWN
           </div>
           <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 10, fontWeight: 400 }}>
-            Both price the same materials from the same catalog — this only
-            changes how they are listed.
+            Both price the same materials from the same catalog. The client
+            PDF always groups them into 3-4 category lines — this sets the
+            detail you work with here and in the Estimate.
           </div>
           <Radio.Group
             value={materialsMode}
@@ -2530,7 +2531,8 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             <Radio value="itemized" style={{ fontSize: 13, color: colors.textPrimary }}>
               Itemized — by box &amp; protection type
               <div style={{ fontSize: 12, color: colors.textSecondary, marginLeft: 24, fontWeight: 400 }}>
-                Detailed line-by-line pricing that matches physical box counts.
+                One line per material, so you can check the counts against
+                what the crew will actually load.
               </div>
             </Radio>
           </Radio.Group>

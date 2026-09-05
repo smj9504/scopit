@@ -43,8 +43,8 @@ from reportlab.platypus import (
 )
 
 from app.domains.tools.modules.packing.service import (
-    MATERIAL_CODES,
-    MATERIAL_MARKUP_CODE,
+    MATERIAL_CATEGORY_ORDER,
+    material_category_for_code,
 )
 
 # ============================================
@@ -599,16 +599,64 @@ def get_line_items_from_estimate(
 # SECTION DETAILS → LINE ITEMS CONVERTER
 # ============================================
 
-_BOX_CODES = {
-    code for key, code in MATERIAL_CODES.items() if key.startswith('box_')
-}
+def _rollup_material_details(material_details: List[Dict]) -> List[Dict]:
+    """Collapse priced material lines into the 3-4 category lines the
+    estimate documents show.
+
+    A printed estimate lists materials as a few lump sums — Packing
+    Supplies, Protective Wrapping, Specialty Packaging — not one row per box
+    size, so a per-SKU breakdown (materials_mode "itemized") is grouped here
+    on the way out. The category rule is the one shared with
+    build_hybrid_materials, so an estimate reads the same on paper whichever
+    breakdown the user picked on screen; the per-SKU detail still shows in
+    the Estimate Editor and in the pack-out inventory.
+
+    Lines that are not catalog materials pass through untouched, in their
+    original order, after the category lines: rolled-up estimates already
+    arrive as category lines, and the markup line is derived from the
+    materials rather than being one of them.
+    """
+    buckets: Dict[str, Dict[str, Any]] = {}
+    passthrough: List[Dict] = []
+
+    for m in material_details:
+        category = material_category_for_code(m.get('code', ''))
+        if category is None:
+            passthrough.append({
+                'name': m.get('name', ''),
+                'detail': m.get('detail', ''),
+                'qty': m.get('quantity', 1),
+                'unit': m.get('unit', 'EA'),
+                'price': m.get('unit_price', 0),
+            })
+            continue
+        bucket = buckets.setdefault(category, {'total': 0.0, 'names': []})
+        bucket['total'] += float(m.get('total', 0) or 0)
+        qty = m.get('quantity', 1)
+        name = m.get('name', '')
+        # Same "Medium Box ×12" phrasing the rolled-up builder uses, so
+        # the category line names its contents either way.
+        bucket['names'].append(f"{name} ×{qty}" if qty and qty > 1 else name)
+
+    items: List[Dict] = []
+    for category, label in MATERIAL_CATEGORY_ORDER:
+        bucket = buckets.get(category)
+        if not bucket:
+            continue
+        items.append({
+            'name': label,
+            'detail': ", ".join(n for n in bucket['names'] if n),
+            'qty': 1,
+            'unit': 'LS',
+            'price': round(bucket['total'], 2),
+        })
+    return items + passthrough
 
 
 def _section_details_to_line_items(
     section_details: Dict[str, Any],
     sections_totals: Dict[str, float],
     material_details: Optional[List[Dict]] = None,
-    materials_mode: Optional[str] = None,
 ) -> List[Dict]:
     """Convert section_details (from calculate_estimate_from_content) to the
     line_items format expected by the PDF/Excel export.
@@ -632,48 +680,7 @@ def _section_details_to_line_items(
         if section_name == 'Materials' and material_details:
             processed.add(section_name)
 
-            if materials_mode == 'itemized':
-                # Mode B: split into two scannable subgroups instead of one
-                # flat list — "Packing Boxes" and "Protective & Packing
-                # Supplies" — matching how moving-industry estimates
-                # conventionally separate box SKUs from wrap/pad consumables.
-                box_items = []
-                other_items = []
-                markup_items = []
-                for m in material_details:
-                    entry = {
-                        'name': m.get('name', ''),
-                        'detail': m.get('detail', ''),
-                        'qty': m.get('quantity', 1),
-                        'unit': m.get('unit', 'EA'),
-                        'price': m.get('unit_price', 0),
-                    }
-                    if m.get('code') == MATERIAL_MARKUP_CODE:
-                        # Derived from the SKUs above, not a supply itself —
-                        # its own trailing group, so it never reads as a
-                        # line item the crew is expected to load.
-                        markup_items.append(entry)
-                    elif m.get('code') in _BOX_CODES:
-                        box_items.append(entry)
-                    else:
-                        other_items.append(entry)
-                if box_items:
-                    result.append({'title': 'Materials - Packing Boxes', 'items': box_items})
-                if other_items:
-                    result.append({'title': 'Materials - Protective & Packing Supplies', 'items': other_items})
-                if markup_items:
-                    result.append({'title': 'Materials - Handling & Markup', 'items': markup_items})
-                continue
-
-            items = []
-            for m in material_details:
-                items.append({
-                    'name': m.get('name', ''),
-                    'detail': m.get('detail', ''),
-                    'qty': m.get('quantity', 1),
-                    'unit': m.get('unit', 'EA'),
-                    'price': m.get('unit_price', 0),
-                })
+            items = _rollup_material_details(material_details)
             if items:
                 result.append({'title': section_name, 'items': items})
             continue
@@ -771,7 +778,6 @@ def generate_estimate_pdf(
             section_details,
             estimate_data.get('sections', {}),
             estimate_data.get('material_details'),
-            estimate_data.get('materials_mode'),
         )
     else:
         sections = get_line_items_from_estimate(estimate_data, prices=prices)
@@ -1303,7 +1309,6 @@ def generate_estimate_excel(
             section_details,
             estimate_data.get('sections', {}),
             estimate_data.get('material_details'),
-            estimate_data.get('materials_mode'),
         )
     else:
         sections = get_line_items_from_estimate(estimate_data, prices=prices)

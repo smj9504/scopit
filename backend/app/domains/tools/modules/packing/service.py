@@ -527,6 +527,44 @@ HINT_MATERIAL_MAP = {
 MATERIAL_MARKUP_CODE = "MAT-MKUP"
 MATERIAL_MARKUP_NAME = "Material Handling & Markup"
 
+# The three buckets every material rolls up into. One definition, shared by
+# build_hybrid_materials and by the PDF/Excel exports, so a material can
+# never land in one category on screen and another on paper.
+MATERIAL_SUPPLY_KEYS = {
+    "box_small", "box_medium", "box_large", "box_xlarge",
+    "box_book", "box_dish", "box_wardrobe",
+    "box_wardrobe_small", "box_wardrobe_large",
+    "packing_paper", "packing_tape",
+}
+MATERIAL_SPECIALTY_KEYS = {
+    "box_tv", "box_mirror", "box_lamp",
+    "mattress_twin", "mattress_full",
+    "mattress_queen", "mattress_king",
+}
+# Everything else (blanket, furniture_pad, chair_cover, sofa_cover,
+# bubble_12, bubble_24, shrink_wrap, corner_protector) → protective
+
+MATERIAL_CATEGORY_SUPPLY = "supply"
+MATERIAL_CATEGORY_PROTECTIVE = "protective"
+MATERIAL_CATEGORY_SPECIALTY = "specialty"
+
+# Display order and label for each bucket, matching the rolled-up lines
+# build_hybrid_materials emits.
+MATERIAL_CATEGORY_ORDER = [
+    (MATERIAL_CATEGORY_SUPPLY, "Packing Supplies"),
+    (MATERIAL_CATEGORY_PROTECTIVE, "Protective Wrapping"),
+    (MATERIAL_CATEGORY_SPECIALTY, "Specialty Packaging"),
+]
+
+
+def material_category_for_key(mat_key: str) -> str:
+    """Which rolled-up category a material key belongs to."""
+    if mat_key in MATERIAL_SUPPLY_KEYS:
+        return MATERIAL_CATEGORY_SUPPLY
+    if mat_key in MATERIAL_SPECIALTY_KEYS:
+        return MATERIAL_CATEGORY_SPECIALTY
+    return MATERIAL_CATEGORY_PROTECTIVE
+
 # Material code mapping
 MATERIAL_CODES = {
     "box_small": "3026",
@@ -556,6 +594,20 @@ MATERIAL_CODES = {
     "shrink_wrap": "2936",
     "corner_protector": "3022",
 }
+
+# Catalog code -> material key. Codes are unique across MATERIAL_CODES, so
+# this is unambiguous; it lets consumers holding priced lines (which carry a
+# code, not a key) ask which category a line belongs to.
+MATERIAL_KEY_BY_CODE = {code: key for key, code in MATERIAL_CODES.items()}
+
+
+def material_category_for_code(code: str) -> Optional[str]:
+    """Category for a priced material line, or None if the code is not a
+    catalog material (a rolled-up category line, the markup line, or
+    anything a caller invented)."""
+    mat_key = MATERIAL_KEY_BY_CODE.get(code)
+    return material_category_for_key(mat_key) if mat_key else None
+
 
 # Human-readable descriptions for each material (shown in estimate detail)
 MATERIAL_DETAIL = {
@@ -1043,19 +1095,8 @@ class EstimateCalculator:
 
     # ── Hybrid material categories ─────────────────────────────────────
     # Used to split the labor-based material total into 2-3 line items.
-    _SUPPLY_KEYS = {
-        "box_small", "box_medium", "box_large", "box_xlarge",
-        "box_book", "box_dish", "box_wardrobe",
-        "box_wardrobe_small", "box_wardrobe_large",
-        "packing_paper", "packing_tape",
-    }
-    _SPECIALTY_KEYS = {
-        "box_tv", "box_mirror", "box_lamp",
-        "mattress_twin", "mattress_full",
-        "mattress_queen", "mattress_king",
-    }
-    # Everything else (blanket, furniture_pad, chair_cover, sofa_cover,
-    # bubble_12, bubble_24, shrink_wrap, corner_protector) → protective
+    _SUPPLY_KEYS = MATERIAL_SUPPLY_KEYS
+    _SPECIALTY_KEYS = MATERIAL_SPECIALTY_KEYS
 
     def build_hybrid_materials(
         self,

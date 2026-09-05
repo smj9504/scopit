@@ -1,14 +1,21 @@
 """
 Tests for how the itemized ("Mode B") materials shape flows into the PDF/
 Excel line-item splitter (export.py) and the real Scopit Estimate converter
-(converter.py) -- covering the two-subgroup PDF layout and the
-medium-granularity Estimate grouping confirmed in the implementation plan.
+(converter.py).
+
+The two have deliberately different granularity: the printed estimate rolls
+every material up into the 3-4 category lump sums (Packing Supplies /
+Protective Wrapping / Specialty Packaging, plus any markup), while the real
+Estimate keeps medium-granularity per-SKU-type lines.
 """
+import pytest
+
 from app.domains.tools.modules.packing.converter import (
     PackingEstimateConverter,
     _group_itemized_materials_for_estimate,
 )
 from app.domains.tools.modules.packing.export import _section_details_to_line_items
+from app.domains.tools.modules.packing.service import MATERIAL_MARKUP_CODE
 
 
 def _sample_itemized_material_details():
@@ -39,67 +46,88 @@ def _sample_hybrid_material_details():
 
 # ── export.py: _section_details_to_line_items ───────────────────────────
 
-def test_export_itemized_mode_produces_two_materials_subgroups():
+def _materials_group(material_details, section_details=None, totals=None):
+    result = _section_details_to_line_items(
+        section_details or {}, totals or {"Materials": 0.0},
+        material_details=material_details,
+    )
+    titles = [r["title"] for r in result]
+    # One Materials group, never per-category or per-SKU sub-groups
+    assert titles.count("Materials") == 1, titles
+    assert not any(t.startswith("Materials - ") for t in titles), titles
+    return next(r for r in result if r["title"] == "Materials")
+
+
+def test_export_rolls_itemized_materials_up_into_category_lines():
+    """A printed estimate shows a few material lump sums, not one row per
+    box size -- even when the user picked the itemized breakdown on screen."""
     section_details = {"Pack-Out Labor": {"lines": [
         {"name": "Standard Pack-Out", "qty": 8, "unit": "HR", "rate": 200.0,
          "detail": "", "amount": 1600.0},
     ]}}
-    sections_totals = {"Pack-Out Labor": 1600.0, "Materials": 370.56}
-
-    result = _section_details_to_line_items(
-        section_details, sections_totals,
-        material_details=_sample_itemized_material_details(),
-        materials_mode="itemized",
+    details = _sample_itemized_material_details()
+    group = _materials_group(
+        details, section_details,
+        {"Pack-Out Labor": 1600.0, "Materials": 370.56},
     )
 
-    titles = [r["title"] for r in result]
-    assert "Materials - Packing Boxes" in titles
-    assert "Materials - Protective & Packing Supplies" in titles
-    assert "Materials" not in titles  # single flat group must not also appear
+    # Six SKUs collapse to two category lines (this fixture has no specialty)
+    assert [i["name"] for i in group["items"]] == [
+        "Packing Supplies", "Protective Wrapping",
+    ]
+    for item in group["items"]:
+        assert item["qty"] == 1
+        assert item["unit"] == "LS"
 
-    box_group = next(r for r in result if r["title"] == "Materials - Packing Boxes")
-    other_group = next(
-        r for r in result if r["title"] == "Materials - Protective & Packing Supplies"
-    )
-    box_names = {i["name"] for i in box_group["items"]}
-    other_names = {i["name"] for i in other_group["items"]}
+    # No money is lost or invented in the rollup
+    assert sum(i["price"] for i in group["items"]) == pytest.approx(
+        sum(d["total"] for d in details), abs=0.01)
 
-    assert "Small Box (1.5 cu ft)" in box_names
-    assert "Medium Box (3.0 cu ft)" in box_names
-    assert "Moving Blanket" in other_names
-    assert "Furniture Pad" in other_names
-    # Every material_details entry lands in exactly one subgroup
-    assert len(box_group["items"]) + len(other_group["items"]) == len(
-        _sample_itemized_material_details()
-    )
-
-
-def test_export_legacy_mode_produces_single_materials_group():
-    section_details = {}
-    sections_totals = {"Materials": 200.0}
-
-    result = _section_details_to_line_items(
-        section_details, sections_totals,
-        material_details=_sample_hybrid_material_details(),
-        materials_mode=None,  # legacy / Mode A -- no opinion on itemized layout
-    )
-
-    titles = [r["title"] for r in result]
-    assert titles == ["Materials"]
-    assert len(result[0]["items"]) == 2
+    # Each category still names what went into it
+    supplies = group["items"][0]
+    assert "Small Box (1.5 cu ft) ×14" in supplies["detail"]
+    assert "Packing Tape Roll ×5" in supplies["detail"]
+    protective = group["items"][1]
+    assert "Moving Blanket ×8" in protective["detail"]
+    assert "Furniture Pad ×4" in protective["detail"]
 
 
-def test_export_pct_of_labor_mode_also_single_group():
-    section_details = {}
-    sections_totals = {"Materials": 200.0}
+def test_export_keeps_specialty_as_its_own_category():
+    details = _sample_itemized_material_details() + [
+        {"code": "3899", "name": "TV Box", "quantity": 2,
+         "unit": "EA", "unit_price": 37.50, "total": 75.00},
+    ]
+    group = _materials_group(details)
+    assert [i["name"] for i in group["items"]] == [
+        "Packing Supplies", "Protective Wrapping", "Specialty Packaging",
+    ]
+    assert group["items"][2]["price"] == pytest.approx(75.00, abs=0.01)
 
-    result = _section_details_to_line_items(
-        section_details, sections_totals,
-        material_details=_sample_hybrid_material_details(),
-        materials_mode="pct_of_labor",
-    )
-    titles = [r["title"] for r in result]
-    assert titles == ["Materials"]
+
+def test_export_passes_already_rolled_up_materials_through_unchanged():
+    """Category lines arrive pre-rolled from the summary mode and carry no
+    catalog code, so they must survive the rollup untouched."""
+    details = _sample_hybrid_material_details()
+    group = _materials_group(details, totals={"Materials": 200.0})
+    assert [i["name"] for i in group["items"]] == [
+        "Packing Supplies", "Protective Wrapping",
+    ]
+    assert [i["price"] for i in group["items"]] == [120.0, 80.0]
+
+
+def test_export_keeps_the_markup_as_its_own_line():
+    """The markup is derived from the materials, not one of them, so it must
+    not be folded into a category."""
+    details = _sample_itemized_material_details() + [
+        {"code": MATERIAL_MARKUP_CODE, "name": "Material Handling & Markup",
+         "quantity": 1, "unit": "LS", "unit_price": 55.58, "total": 55.58,
+         "detail": "15% handling & markup on materials"},
+    ]
+    group = _materials_group(details)
+    assert group["items"][-1]["name"] == "Material Handling & Markup"
+    assert group["items"][-1]["price"] == pytest.approx(55.58, abs=0.01)
+    assert sum(i["price"] for i in group["items"]) == pytest.approx(
+        sum(d["total"] for d in details), abs=0.01)
 
 
 # ── converter.py: itemized grouping for the real Estimate ──────────────
