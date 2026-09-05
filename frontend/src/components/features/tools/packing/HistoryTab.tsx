@@ -52,9 +52,19 @@ function formatCurrency(value: number | undefined): string {
   }).format(value);
 }
 
+/** Full property address — "line1, line2, city, ST 12345" — matching the
+ *  street/city/state-zip grouping used by the Estimates and Invoices lists. */
 function formatPropertyAddress(clientInfo: any): string {
   if (!clientInfo) return '';
-  return [clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ');
+  const stateZip = [clientInfo.property_state, clientInfo.property_zipcode].filter(Boolean).join(' ');
+  return [
+    clientInfo.property_address_line1,
+    clientInfo.property_address_line2,
+    clientInfo.property_city,
+    stateZip,
+  ]
+    .filter(Boolean)
+    .join(', ');
 }
 
 function formatDate(iso: string): string {
@@ -151,7 +161,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
             </Text>
             {d?.client_info?.property_address_line1 && (
               <div>
-                <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary }}>
+                {/* normal wrap overrides the global nowrap/ellipsis on table
+                    cells, so the whole address stays readable */}
+                <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary, whiteSpace: 'normal' }}>
                   {formatPropertyAddress(d.client_info)}
                 </Text>
               </div>
@@ -363,9 +375,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onLoadEstimate }) => {
                   color: colors.textSecondary,
                   display: 'block',
                   marginBottom: 6,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  // wraps rather than truncating — the full address is the point
+                  whiteSpace: 'normal',
+                  wordBreak: 'break-word',
                 }}
               >
                 {formatPropertyAddress(d.client_info)}

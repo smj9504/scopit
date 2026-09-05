@@ -17,6 +17,7 @@ import {
   App,
   Tabs,
   Tooltip,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -104,6 +105,10 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   const [clientInfo, setClientInfo] = useState<ClientInfo>(defaultClientInfo());
   const [companyOverride, setCompanyOverride] = useState<CompanyInfoOverride>(defaultCompanyOverride());
   const [activeSessionId, setActiveSessionId] = useState<string | undefined>(sessionId);
+  // True while the restore effect below is fetching an existing session. Seeded
+  // from the prop so a deep-link/refresh shows the loading screen on the very
+  // first paint instead of flashing the empty wizard the effect is about to fill.
+  const [restoringSession, setRestoringSession] = useState(!!sessionId);
 
   // Quick estimate rooms
   const [rooms, setRooms] = useState<PackingRoom[]>([]);
@@ -209,16 +214,19 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
   useEffect(() => {
     if (!sessionId) {
       if (viewRef.current === 'editor') setHistoryKey((k) => k + 1); // force list refresh
+      setRestoringSession(false);
       setView('list');
       return;
     }
     if (skipNextRestoreRef.current) {
       skipNextRestoreRef.current = false;
+      setRestoringSession(false);
       setActiveSessionId(sessionId);
       setView('editor');
       return;
     }
     resetState();
+    setRestoringSession(true);
     setActiveSessionId(sessionId);
     setView('editor');
     toolService.getSession(sessionId).then((session) => {
@@ -267,6 +275,8 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       pendingBaselineSyncRef.current = true;
     }).catch(() => {
       message.error('Failed to load estimate.');
+    }).finally(() => {
+      setRestoringSession(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -970,6 +980,31 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
             </Card>
           </div>
         </Modal>
+      </div>
+    );
+  }
+
+  // ── Render: Loading an existing estimate ─────────────────────────────────
+  // The editor below renders from state the restore effect has yet to fill, so
+  // without this it shows an empty wizard ("No rooms added yet") that reads as
+  // a real, empty estimate until the fetch lands.
+  if (restoringSession) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          minHeight: '60vh',
+          width: '100%',
+        }}
+      >
+        <Spin size="large" />
+        <Text style={{ color: colors.textSecondary, fontFamily: fonts.body, fontSize: 14 }}>
+          Loading estimate...
+        </Text>
       </div>
     );
   }
