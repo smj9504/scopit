@@ -206,10 +206,10 @@ DEFAULT_PRICES = {
     "3089": {"price": 94.45, "name": "Packing Paper Bundle", "unit": "BN"},
 
     # Transport
-    "2932": {"price": 198.0, "name": "Moving Van 14'-15'", "unit": "EA"},
-    "2933": {"price": 206.0, "name": "Moving Van 16'-20'", "unit": "EA"},
-    "2934": {"price": 227.0, "name": "Moving Van 26'", "unit": "EA"},
-    "2935": {"price": 156.69, "name": "Cargo Van", "unit": "EA"},
+    "2932": {"price": 201.0, "name": "Moving Van 14'-15'", "unit": "EA"},
+    "2933": {"price": 230.0, "name": "Moving Van 16'-20'", "unit": "EA"},
+    "2934": {"price": 276.0, "name": "Moving Van 26'", "unit": "EA"},
+    "2935": {"price": 167.0, "name": "Cargo Van", "unit": "EA"},
 
     # Storage
     "2840": {"price": 2.18, "name": "Climate-Controlled Storage", "unit": "SF"},
@@ -878,19 +878,21 @@ class EstimateCalculator:
 
     def select_truck(self, storage_sf: int) -> tuple:
         """Select appropriate truck size based on storage SF.
+
+        The fallback is read from DEFAULT_PRICES rather than hardcoded: a
+        literal here silently went stale across two price increases, so a
+        company missing the code was billed the pre-2026 rate.
         Returns (code, rate) tuple."""
         if storage_sf <= 50:
             # Small job: 14'-15' van
             code = "2932"
-            fallback = 172.36
         elif storage_sf <= 150:
             # Medium job: 16'-20' van
             code = "2933"
-            fallback = 179.25
         else:
             # Large job: 21'-27' van
             code = "2934"
-            fallback = 197.36
+        fallback = DEFAULT_PRICES[code]["price"]
         return code, self.get_price(code) or fallback
 
     def estimate_storage_sf_from_rooms(
@@ -942,15 +944,11 @@ class EstimateCalculator:
             else:
                 # Size-based SF: use item size class for more accurate volume
                 # Each item contributes SF based on its physical size
-                ITEM_SIZE_SF = {
-                    "XS": 0.5, "S": 1.0, "M": 3.0,
-                    "L": 8.0, "XL": 15.0, "XXL": 25.0,
-                }
                 room_sf = 0.0
                 for item in room.items:
                     item_size = getattr(item, 'size', None)
-                    if item_size and item_size in ITEM_SIZE_SF:
-                        room_sf += ITEM_SIZE_SF[item_size] * (item.quantity or 1)
+                    if item_size and item_size in self.ITEM_SIZE_SF:
+                        room_sf += self.ITEM_SIZE_SF[item_size] * (item.quantity or 1)
                     else:
                         # Fallback: category-based estimate
                         cat = getattr(item, 'category', 'Other')
@@ -2554,6 +2552,46 @@ class EstimateCalculator:
         if current_blankets < needed:
             mat_counts["blanket"] = needed
 
+    # Storage volume (SF) contributed by one unit of each item size class.
+    # Shared by the storage-SF estimate and the load-weight multiplier so the
+    # two cannot drift apart.
+    ITEM_SIZE_SF = {
+        "XS": 0.5, "S": 1.0, "M": 3.0,
+        "L": 8.0, "XL": 15.0, "XXL": 25.0,
+    }
+
+    # Weight scaling for truck loading/securing. Milder than WEIGHT_CARRY_MULT
+    # (0.6-2.0x): loading is part volume-fitting, which heavy items do not slow
+    # down proportionally, and part lifting, which they very much do.
+    LOAD_WEIGHT_MULT = {
+        "light": 0.85, "medium": 1.0,
+        "heavy": 1.25, "extra_heavy": 1.5,
+    }
+
+    def _load_weight_multiplier(self, rooms: List[Any]) -> float:
+        """Volume-weighted average load-weight multiplier across all content.
+
+        Weighted by each item's storage volume, not its count, so one gun safe
+        moves the figure more than a dozen small light boxes -- matching how
+        the volume-based hour figure it scales is itself built.
+        Returns 1.0 when there is no usable volume, leaving hours unchanged.
+        """
+        total_sf = 0.0
+        weighted_sf = 0.0
+        for room in rooms:
+            for item in getattr(room, 'items', None) or []:
+                qty = getattr(item, 'quantity', 1) or 1
+                size = getattr(item, 'size', None)
+                sf = self.ITEM_SIZE_SF.get(size, 3.0) * qty
+                mult = self.LOAD_WEIGHT_MULT.get(
+                    getattr(item, 'weight', None) or 'medium', 1.0
+                )
+                total_sf += sf
+                weighted_sf += sf * mult
+        if total_sf <= 0:
+            return 1.0
+        return weighted_sf / total_sf
+
     def _calculate_relocation_hours(
         self, rooms: List[Any]
     ) -> Tuple[float, str]:
@@ -3267,10 +3305,19 @@ class EstimateCalculator:
         carry_person_hours, carry_floor_note = self._calculate_relocation_hours(request.rooms)
         # Carry-in (pack-back): items go UP to upper floors — uses different multipliers
         carry_in_person_hours, carry_in_floor_note = self._calculate_carry_in_hours(request.rooms)
-        # Truck loading/securing: based on content volume (storage_sf), not room count.
-        # ~1 person-hour per 100 SF of content (position items, strap, fill gaps).
+        # Truck loading/securing: driven by content volume (storage_sf), since
+        # the work is filling and securing a load space, then scaled by how
+        # heavy that volume actually is. Loading a van of gun safes is not the
+        # same job as loading the same cube of wardrobe boxes: heavy pieces
+        # need team lifts, ramp work and more strapping.
+        # The weight factor is deliberately milder than the carry-line
+        # multipliers (0.6-2.0x), because part of loading is fitting and
+        # securing volume, which heavy items do not slow down proportionally.
         storage_sf = self.estimate_storage_sf_from_items(request.rooms)
-        truck_load_person_hours = rh(max(1.0, storage_sf / 100.0))
+        load_weight_mult = self._load_weight_multiplier(request.rooms)
+        truck_load_person_hours = rh(
+            max(1.0, storage_sf / 100.0 * load_weight_mult)
+        )
         # Total person-hours for the full relocation operation
         loading_person_hours = carry_person_hours + truck_load_person_hours
         loading_cost = loading_person_hours * labor_rate_adj  # region-adjusted rate

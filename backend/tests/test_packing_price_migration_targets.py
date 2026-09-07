@@ -20,6 +20,7 @@ PRICE_MIGRATIONS = [
     "resync_moving_line_item_prices.py",
     "apply_2026_packing_price_increase.py",
     "raise_packing_labor_to_billable_rate.py",
+    "raise_transport_rates_to_market.py",
 ]
 # (code, from, to) rows in the migrations' correction tables.
 ROW_RE = re.compile(r'^    \("(\d+[A-Z]?)", ([\d.]+), ([\d.]+)\),', re.M)
@@ -97,7 +98,13 @@ def test_increase_migration_covers_every_repriced_code():
     """Any code whose price moved must be carried to existing companies."""
     table = _table()
     resync = {c: n for c, _o, n in _rows("resync_moving_line_item_prices.py")}
-    covered = {c for c, _o, _n in _rows("apply_2026_packing_price_increase.py")}
+    # Every migration after the resync can carry a stale code the rest of the
+    # way, so all of them count as coverage -- not just the 2026 increase.
+    covered = {
+        code
+        for filename in PRICE_MIGRATIONS[1:]
+        for code, _o, _n in _rows(filename)
+    }
     # Codes the resync migration wrote at a value the table has since moved past.
     stale = {
         code for code, written in resync.items()

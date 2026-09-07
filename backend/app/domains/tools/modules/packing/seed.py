@@ -13,8 +13,15 @@ across-the-board figure, because the cost drivers diverged this year:
   protective    +8%  -- containerboard up ~$100/ton over 2026 and
                         corrugated box prices +9.7% Apr-May; pulp and
                         resin drive the wrap/paper items alongside.
-  transport      0%  -- 26' truck retail day rates ($50-120) remain
-                        well under the billed rate; no support.
+  transport    var.  -- reconciled to ALL-IN retail cost, not the advertised
+                        base day rate. The $50-120 headline excludes mileage
+                        ($0.59-0.99/mi), fuel (26' diesel returns 8-10 mpg),
+                        the damage waiver (~$15/day) and fees; priced the way
+                        a contractor actually pays it, a 50-mile local move
+                        runs ~$145 (cargo) to ~$240 (26') mid-range. The 26'
+                        line had been billing under its own retail cost.
+                        Rates now target ~1.15x that mid, capped at the
+                        peak-demand high so each stays quote-defensible.
   storage        0%  -- self-storage rents SOFTENED in 2026
                         (climate-controlled flat YoY), so a raise here
                         would move against the market.
@@ -93,10 +100,10 @@ DEFAULT_MOVING_PRICES = [
     {"code": "3089", "name": "Packing Paper Bundle", "category": "protective", "unit": "BN", "price": 94.45},
 
     # Transport
-    {"code": "2932", "name": "Moving Van 14'-15'", "category": "transport", "unit": "EA", "price": 198.0},
-    {"code": "2933", "name": "Moving Van 16'-20'", "category": "transport", "unit": "EA", "price": 206.0},
-    {"code": "2934", "name": "Moving Van 26'", "category": "transport", "unit": "EA", "price": 227.0},
-    {"code": "2935", "name": "Cargo Van", "category": "transport", "unit": "EA", "price": 156.69},
+    {"code": "2932", "name": "Moving Van 14'-15'", "category": "transport", "unit": "EA", "price": 201.0},
+    {"code": "2933", "name": "Moving Van 16'-20'", "category": "transport", "unit": "EA", "price": 230.0},
+    {"code": "2934", "name": "Moving Van 26'", "category": "transport", "unit": "EA", "price": 276.0},
+    {"code": "2935", "name": "Cargo Van", "category": "transport", "unit": "EA", "price": 167.0},
 
     # Storage
     {"code": "2840", "name": "Climate-Controlled Storage", "category": "storage", "unit": "SF", "price": 2.18},
