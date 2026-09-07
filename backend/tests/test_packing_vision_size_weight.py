@@ -12,6 +12,7 @@ asserting on it would not protect the real behavior.
 
 import inspect
 
+from app.domains.tools.modules.packing import vision as vision_module
 from app.domains.tools.modules.packing.service import EstimateCalculator
 from app.domains.tools.modules.packing.vision import (
     ITEM_SIZE_VALUES,
@@ -21,7 +22,6 @@ from app.domains.tools.modules.packing.vision import (
     _clean_class,
     _merge_duplicate_items,
 )
-from app.domains.tools.modules.packing import vision as vision_module
 
 PASS1_ITEM = PASS1_TOOL["input_schema"]["properties"]["items"]["items"]
 
