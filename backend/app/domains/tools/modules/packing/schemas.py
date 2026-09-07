@@ -148,7 +148,7 @@ class QuickEstimateRequest(BaseModel):
     include_packback: bool = Field(default=True)
     include_op: bool = Field(default=True)
     op_rate: int = Field(default=20, ge=0, le=30)
-    material_rate: int = Field(default=0, ge=0, le=40,
+    material_rate: int = Field(default=20, ge=0, le=40,
         description="Handling & markup added on top of catalog material cost, %")
     include_contingency: bool = Field(default=False)
     contingency_rate: int = Field(default=0, ge=0, le=20)
@@ -355,7 +355,7 @@ class RoomsEstimateRequest(BaseModel):
     include_packback: bool = Field(default=True)
     include_op: bool = Field(default=True)
     op_rate: int = Field(default=20, ge=0, le=30)
-    material_rate: int = Field(default=0, ge=0, le=40,
+    material_rate: int = Field(default=20, ge=0, le=40,
         description="Handling & markup added on top of catalog material cost, %")
     materials_mode: Literal["pct_of_labor", "itemized"] = Field(
         default="pct_of_labor",

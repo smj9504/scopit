@@ -1003,42 +1003,58 @@ async def address_autocomplete(
     """
     import httpx
 
+    # Fail soft, like the public lead-form endpoint this mirrors: address
+    # autocomplete is a convenience over a field the user can always type by
+    # hand, so a missing key or an upstream hiccup returns no suggestions
+    # rather than an error. Raising 503 here put a red failure in the console
+    # on every keystroke and made a typeable field look broken.
     api_key = settings.GEOAPIFY_API_KEY
     if not api_key:
-        raise HTTPException(status_code=503, detail="Address autocomplete not configured. Set GEOAPIFY_API_KEY.")
+        logger.warning(
+            "Address autocomplete requested but GEOAPIFY_API_KEY is not set; "
+            "returning no suggestions"
+        )
+        return []
 
     if len(q.strip()) < 3:
         return []
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        resp = await client.get(
-            "https://api.geoapify.com/v1/geocode/autocomplete",
-            params={
-                "text": q,
-                "type": "street",
-                "filter": "countrycode:us",
-                "format": "json",
-                "limit": 5,
-                "apiKey": api_key,
-            },
-        )
-        if resp.status_code != 200:
-            return []
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                "https://api.geoapify.com/v1/geocode/autocomplete",
+                params={
+                    "text": q,
+                    "type": "street",
+                    "filter": "countrycode:us",
+                    "format": "json",
+                    "limit": 5,
+                    "apiKey": api_key,
+                },
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "Geoapify autocomplete returned %s", resp.status_code
+                )
+                return []
 
-        data = resp.json()
-        results = data.get("results", [])
+            data = resp.json()
+            results = data.get("results", [])
+    except Exception:
+        logger.warning("Address autocomplete upstream failed", exc_info=True)
+        return []
 
-        return [
-            {
-                "address": r.get("formatted", ""),
-                "street": r.get("address_line1", ""),
-                "city": r.get("city", ""),
-                "state": r.get("state", ""),
-                "zip": r.get("postcode", ""),
-            }
-            for r in results
-            if r.get("formatted")
-        ]
+    return [
+        {
+            "address": r.get("formatted", ""),
+            "street": r.get("address_line1", ""),
+            "city": r.get("city", ""),
+            "state": r.get("state", ""),
+            "zip": r.get("postcode", ""),
+        }
+        for r in results
+        if r.get("formatted")
+    ]
 
 
 # ── Photo Storage ──────────────────────────────────────────────────────────

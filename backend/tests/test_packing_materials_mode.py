@@ -16,6 +16,7 @@ from app.domains.tools.modules.packing.schemas import (
 )
 from app.domains.tools.modules.packing.service import (
     MATERIAL_CODES,
+    MATERIAL_MARKUP_CODE,
     EstimateCalculator,
 )
 
@@ -139,8 +140,15 @@ def test_calculate_estimate_from_content_itemized_mode(calc):
     assert result.materials_mode == "itemized"
     assert result.material_details, "itemized mode must produce material lines"
 
-    # Itemized lines have real quantities/units, not the LS/qty=1 hybrid shape
-    for m in result.material_details:
+    # Itemized lines have real quantities/units, not the LS/qty=1 hybrid shape.
+    # The markup line is exempt: it is derived from the materials it marks up
+    # rather than being a catalog SKU, so LS/qty=1 is its correct shape. It
+    # appears whenever material_rate is nonzero, which is now the default.
+    sku_lines = [
+        m for m in result.material_details if m.code != MATERIAL_MARKUP_CODE
+    ]
+    assert sku_lines, "itemized mode must produce per-SKU material lines"
+    for m in sku_lines:
         assert m.quantity >= 1
         assert m.unit != "LS"
 
