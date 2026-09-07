@@ -85,6 +85,24 @@ ITEM_SIZE_VALUES = ["XS", "S", "M", "L", "XL", "XXL"]
 # Item weight class — determines crew needs and labor time
 ITEM_WEIGHT_VALUES = ["light", "medium", "heavy", "extra_heavy"]
 
+
+def _clean_class(value, allowed: list) -> Optional[str]:
+    """Normalize an AI-returned size/weight class against its enum.
+
+    The model occasionally returns a case variant ("XL " / "Heavy") or a
+    value outside the enum. Salvage what we can and return None otherwise,
+    so the rule-based inference in EstimateCalculator._infer_size_weight()
+    fills the gap at calculate time rather than a bogus class sticking.
+    """
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    for candidate in allowed:
+        if cleaned.lower() == candidate.lower():
+            return candidate
+    return None
+
+
 MATERIAL_KEYS = [
     "wardrobe_box", "wardrobe_box_small", "wardrobe_box_large",
     "small_box", "medium_box", "large_box",
@@ -142,7 +160,10 @@ PASS1_TOOL = {
                 ),
                 "items": {
                     "type": "object",
-                    "required": ["name", "category", "quantity", "is_high_value", "is_fragile", "confidence"],
+                    "required": [
+                        "name", "category", "quantity", "is_high_value",
+                        "is_fragile", "size", "weight", "confidence",
+                    ],
                     "properties": {
                         "name": {
                             "type": "string",
@@ -190,6 +211,34 @@ PASS1_TOOL = {
                                 "lamps, certificates, plaques, plastic items. "
                                 "Fragile examples: TV/monitor, wine glasses, china dishes, mirrors, "
                                 "chandeliers, aquariums, marble/stone sculptures."
+                            ),
+                        },
+                        "size": {
+                            "type": "string",
+                            "enum": ITEM_SIZE_VALUES,
+                            "description": (
+                                "Physical size class of a SINGLE unit, "
+                                "ignoring quantity. Drives storage volume "
+                                "and box counts. "
+                                "XS: fits in one hand (mug, figurine). "
+                                "S: fits in a small box (lamp, books, dishes). "
+                                "M: two-hand carry (microwave, nightstand, TV). "
+                                "L: one-person furniture (dresser, sofa, fridge). "
+                                "XL: oversized (sectional, wardrobe, king bed). "
+                                "XXL: specialty rigging (piano, pool table)."
+                            ),
+                        },
+                        "weight": {
+                            "type": "string",
+                            "enum": ITEM_WEIGHT_VALUES,
+                            "description": (
+                                "Weight class of a SINGLE unit, ignoring "
+                                "quantity. Drives crew size and labor time. "
+                                "light: under 20 lb, one hand (pillow, lampshade). "
+                                "medium: 20-50 lb, one person (microwave, chair). "
+                                "heavy: 50-150 lb, two people (dresser, sofa). "
+                                "extra_heavy: 150 lb+ or awkward, needs "
+                                "equipment/rigging (piano, gun safe, fridge)."
                             ),
                         },
                         "confidence": {
@@ -1011,8 +1060,12 @@ def _build_room_analysis_response(
         detected = DetectedContentItem(
             name=item_data.get("name", "Unknown"),
             description=item_data.get("description"),
-            size=item_data.get("size"),
-            weight=item_data.get("weight"),
+            size=_clean_class(
+                item_data.get("size"), ITEM_SIZE_VALUES,
+            ),
+            weight=_clean_class(
+                item_data.get("weight"), ITEM_WEIGHT_VALUES,
+            ),
             category=item_data.get("category", "Other"),
             quantity=qty,
             is_high_value=is_hv,
