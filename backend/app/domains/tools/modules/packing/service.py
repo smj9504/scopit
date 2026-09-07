@@ -362,20 +362,66 @@ NOTABLE_CATEGORIES = {
 }
 
 
-def snap_to_storage_unit(raw_sf: float) -> int:
-    """Snap raw SF to the nearest standard self-storage unit size.
-    Always rounds UP to the next available unit. Returns 0 if no storage needed."""
+def allocate_storage_units(raw_sf: float) -> list:
+    """Allocate raw SF across standard self-storage units.
+
+    Contents beyond the largest standard unit (10x30 = 300 SF) do not vanish —
+    a facility rents a second unit. Fill with the largest unit while more than
+    one is needed, then snap the remainder up to the smallest unit that holds
+    it, which is what a facility would actually rent.
+
+    Returns a list of unit sizes in SF, largest first; empty when no storage
+    is needed. A job that fits one unit returns exactly one, so single-unit
+    jobs bill precisely as before.
+    """
     if raw_sf <= 0:
-        return 0
+        return []
+    largest = STANDARD_UNIT_SIZES[-1]
+    units = []
+    remaining = float(raw_sf)
+    # Guard against a pathological input spinning forever; 40 units is far
+    # past any real job and still terminates.
+    while remaining > largest and len(units) < 40:
+        units.append(largest)
+        remaining -= largest
     for size in STANDARD_UNIT_SIZES:
-        if raw_sf <= size:
-            return size
-    return STANDARD_UNIT_SIZES[-1]  # cap at largest
+        if remaining <= size:
+            units.append(size)
+            break
+    else:
+        units.append(largest)
+    return units
+
+
+def snap_to_storage_unit(raw_sf: float) -> int:
+    """Total billable storage SF for a job, across however many units it needs.
+
+    Historically this capped at the largest single unit, so a job needing more
+    space than one 10x30 was billed for a 10x30 — the overflow was simply not
+    charged. It now sums the allocation, so 424 SF bills as 10x30 + 10x15.
+    Jobs that fit one unit are unaffected.
+    """
+    return sum(allocate_storage_units(raw_sf))
 
 
 def get_storage_setup_fee(unit_sf: int) -> float:
-    """Get storage setup fee for a given unit size."""
-    return STORAGE_SETUP_BY_SIZE.get(unit_sf, 85.00)
+    """Setup fee for a job occupying ``unit_sf`` total SF.
+
+    Setup is per physical unit (shelving, padlock, placement, access
+    coordination), so a multi-unit job pays for each. ``unit_sf`` is a total
+    that may span several units, so it is re-allocated to fee them
+    individually rather than looked up as one impossible unit size.
+    """
+    if unit_sf <= 0:
+        return 0.0
+    units = allocate_storage_units(unit_sf)
+    if len(units) == 1:
+        # Exactly the historical lookup, including its 85.00 fallback for a
+        # size that is not a standard unit.
+        return STORAGE_SETUP_BY_SIZE.get(units[0], 85.00)
+    return round(
+        sum(STORAGE_SETUP_BY_SIZE.get(u, 85.00) for u in units), 2
+    )
 
 
 def build_storage_section_detail(
@@ -390,11 +436,36 @@ def build_storage_section_detail(
     Shows the unit dimensions, per-SF rate, and month breakdown so the
     adjuster can see exactly how the charge was computed.
     """
-    unit_label = STORAGE_UNIT_LABELS.get(storage_sf, f"{storage_sf} SF")
+    units = allocate_storage_units(storage_sf)
     monthly_sf_cost = round(storage_sf * sf_rate, 2)
+
+    # Name the units actually rented. One unit reads exactly as before; several
+    # are listed so the adjuster sees why the SF is what it is rather than a
+    # total that matches no single unit on any facility's price sheet.
+    def _label(sf):
+        return STORAGE_UNIT_LABELS.get(sf, f"{sf} SF")
+
+    if len(units) <= 1:
+        unit_label = _label(storage_sf)
+        name = f"Climate-Controlled Storage — {unit_label} unit ({storage_sf} SF)"
+        setup_detail = (
+            f"Shelving, padlock, item placement & first-access coordination  "
+            f"({unit_label} unit)"
+        )
+    else:
+        breakdown = " + ".join(_label(u) for u in units)
+        name = (
+            f"Climate-Controlled Storage — {len(units)} units "
+            f"({breakdown} = {storage_sf} SF)"
+        )
+        setup_detail = (
+            f"Shelving, padlock, item placement & first-access coordination  "
+            f"({len(units)} units: {breakdown})"
+        )
+
     lines = [
         {
-            "name": f"Climate-Controlled Storage — {unit_label} unit ({storage_sf} SF)",
+            "name": name,
             "qty": storage_months,
             "unit": "MO",
             "rate": monthly_sf_cost,
@@ -408,10 +479,7 @@ def build_storage_section_detail(
             "qty": 1,
             "unit": "EA",
             "rate": round(setup_fee, 2),
-            "detail": (
-                f"Shelving, padlock, item placement & first-access coordination  "
-                f"({unit_label} unit)"
-            ),
+            "detail": setup_detail,
             "amount": round(setup_fee, 2),
         },
     ]
