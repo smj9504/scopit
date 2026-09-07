@@ -150,26 +150,22 @@ def test_calculate_estimate_from_content_itemized_mode(calc):
     assert result.sections["Materials"] == line_sum
 
 
-def test_calculate_estimate_from_content_pct_of_labor_default_unchanged(calc):
+def test_calculate_estimate_from_content_pct_of_labor_shape(calc):
     request = _base_request("pct_of_labor")
     result = calc.calculate_estimate_from_content(request)
 
     assert result.materials_mode == "pct_of_labor"
     assert result.material_details
 
-    # Existing hybrid shape: 2-3 lump-sum category lines
+    # Rolled-up shape: 2-3 lump-sum category lines
     assert len(result.material_details) <= 3
     for m in result.material_details:
         assert m.unit == "LS"
         assert m.quantity == 1
 
-    # Materials total is anchored to pack-out labor cost x rate% -- allow a
-    # small tolerance since `sections["Pack-Out Labor"]` is itself reconciled
-    # from rounded line-item sums, not the raw float used internally.
-    pack_out_labor = result.sections.get("Pack-Out Labor", 0)
-    material_rate_pct = request.material_rate
-    expected = round(pack_out_labor * material_rate_pct / 100.0, 2)
-    assert abs(result.sections["Materials"] - expected) < 0.05
+    # The category lines sum to the section total
+    line_sum = round(sum(m.total for m in result.material_details), 2)
+    assert abs(result.sections["Materials"] - line_sum) < 0.05
 
 
 def test_materials_mode_omitted_defaults_to_pct_of_labor(calc):
@@ -180,15 +176,55 @@ def test_materials_mode_omitted_defaults_to_pct_of_labor(calc):
     assert result.materials_mode == "pct_of_labor"
 
 
-def test_itemized_vs_pct_of_labor_produce_different_bases(calc):
-    itemized = calc.calculate_estimate_from_content(_base_request("itemized"))
-    pct = calc.calculate_estimate_from_content(_base_request("pct_of_labor"))
+@pytest.mark.parametrize("markup", [0, 10, 25, 40])
+def test_the_two_modes_price_identically(calc, markup):
+    """The mode is a presentation choice, not a pricing one.
+
+    Both builders price the same materials from the same catalog and apply
+    the same markup, so the Materials total -- and therefore the grand total
+    -- must not move when the user flips the toggle. This is the regression
+    the modes used to have: pct_of_labor anchored to pack-out labor x 25%
+    while itemized summed the catalog, and the two disagreed by up to 10x
+    depending on item mix.
+    """
+    def _run(mode):
+        req = RoomsEstimateRequest(
+            rooms=_sample_rooms(), crew_size=4,
+            materials_mode=mode, material_rate=markup,
+        )
+        return calc.calculate_estimate_from_content(req)
+
+    itemized = _run("itemized")
+    pct = _run("pct_of_labor")
 
     assert itemized.sections["Materials"] > 0
-    assert pct.sections["Materials"] > 0
-    assert itemized.grand_total > 0
-    assert pct.grand_total > 0
-    # Not required to match -- different calculation bases entirely.
+    assert pct.sections["Materials"] == pytest.approx(
+        itemized.sections["Materials"], abs=0.02)
+    assert pct.grand_total == pytest.approx(itemized.grand_total, abs=0.05)
+
+
+def test_markup_scales_both_modes_off_the_same_catalog_cost(calc):
+    """A markup lifts both modes off the same base, by the same proportion."""
+    def _mat(mode, markup):
+        req = RoomsEstimateRequest(
+            rooms=_sample_rooms(), crew_size=4,
+            materials_mode=mode, material_rate=markup,
+        )
+        return calc.calculate_estimate_from_content(req).sections["Materials"]
+
+    for mode in ("itemized", "pct_of_labor"):
+        base = _mat(mode, 0)
+        assert _mat(mode, 20) == pytest.approx(base * 1.20, abs=0.02), mode
+
+
+def test_pct_of_labor_falls_back_to_labor_when_nothing_is_priced(calc):
+    """With no priced materials there is no cost to mark up, so the rolled-up
+    mode keeps the legacy labor-anchored figure rather than reporting $0."""
+    total, lines, details = calc.build_hybrid_materials(
+        pack_out_labor_cost=1000.0, markup_pct=0, materials={},
+    )
+    assert total == pytest.approx(250.0, abs=0.02)
+    assert lines and details
 
 
 def test_quick_estimate_always_sets_materials_mode_pct_of_labor(calc):

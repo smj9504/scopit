@@ -2092,7 +2092,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
         include_packback: settings.include_packback,
         include_op: settings.include_op,
         op_rate: settings.op_rate,
-        material_rate: settings.material_rate ?? 25,
+        material_rate: settings.material_rate ?? 0,
         materials_mode: materialsMode,
         include_contingency: false,
         contingency_rate: 0,
@@ -2509,8 +2509,13 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
           style={{ borderRadius: borderRadius.md, border: `1.5px solid ${colors.border}`, marginBottom: 20 }}
           styles={{ body: { padding: '12px 16px' } }}
         >
-          <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 10 }}>
-            MATERIAL CALCULATION METHOD
+          <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>
+            MATERIAL BREAKDOWN
+          </div>
+          <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 10, fontWeight: 400 }}>
+            Both price the same materials from the same catalog. The client
+            PDF always groups them into 3-4 category lines — this sets the
+            detail you work with here and in the Estimate.
           </div>
           <Radio.Group
             value={materialsMode}
@@ -2518,16 +2523,17 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
             style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}
           >
             <Radio value="pct_of_labor" style={{ fontSize: 13, color: colors.textPrimary }}>
-              % of Pack-Out Labor
+              Summary — 2-3 category lines
               <div style={{ fontSize: 12, color: colors.textSecondary, marginLeft: 24, fontWeight: 400 }}>
-                Recommended for most jobs — materials scale with job size.
+                Recommended for most jobs — supplies, protective wrapping and
+                specialty packaging as lump sums.
               </div>
             </Radio>
             <Radio value="itemized" style={{ fontSize: 13, color: colors.textPrimary }}>
               Itemized — by box &amp; protection type
               <div style={{ fontSize: 12, color: colors.textSecondary, marginLeft: 24, fontWeight: 400 }}>
-                Detailed line-by-line pricing that matches physical box counts.
-                {' '}Material Rate % (in Settings) is ignored for this method.
+                One line per material, so you can check the counts against
+                what the crew will actually load.
               </div>
             </Radio>
           </Radio.Group>
