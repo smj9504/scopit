@@ -8,6 +8,13 @@
             size: letter;
             margin: 0.5in 0.6in 0.5in 0.6in;
 
+            @bottom-left {
+                content: "Estimate #" string(doc-number);
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-size: 8pt;
+                color: #888;
+            }
+
             @bottom-right {
                 content: "Page " counter(page) " of " counter(pages);
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -16,6 +23,17 @@
             }
         }
 
+        /* Feeds the estimate number into the running page footer above.
+           WeasyPrint can only put a string() in a margin box, so the value
+           has to be set from an element in the flow. */
+        .page-header-data {
+            position: absolute;
+            visibility: hidden;
+            height: 0;
+            overflow: hidden;
+        }
+        .doc-number-setter { string-set: doc-number content(text); }
+
         @media screen {
             body {
                 padding: 0.5in 0.6in;
@@ -23,6 +41,8 @@
                 margin: 0 auto;
                 background: white;
             }
+            /* Only meaningful in paged media; keep it out of HTML preview. */
+            .page-header-data { display: none; }
         }
 
         * {
@@ -352,6 +372,11 @@
     </style>
 </head>
 <body>
+    <!-- String setter for the running page footer -->
+    <div class="page-header-data">
+        <span class="doc-number-setter">{{ estimate_number }}</span>
+    </div>
+
     <!-- Header -->
     <div class="header">
         <div class="header-left">
