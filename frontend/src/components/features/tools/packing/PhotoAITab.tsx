@@ -65,6 +65,7 @@ import {
 import { ITEM_CATEGORIES } from './types';
 import { SharedDetailsStep } from './SharedDetailsStep';
 import { RoomSpecialItems } from './RoomSpecialItems';
+import { formatPropertyAddress } from './propertyAddress';
 import type {
   PhotoRoom,
   PackingSettings,
@@ -2403,7 +2404,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
               <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 8 }}>CLIENT</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: colors.textPrimary }}>{clientInfo.name}</div>
               {clientInfo.property_address_line1 && (
-                <div style={{ fontSize: 13, color: colors.textSecondary }}>{[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}</div>
+                <div style={{ fontSize: 13, color: colors.textSecondary }}>{formatPropertyAddress(clientInfo)}</div>
               )}
               {clientInfo.phone && (
                 <div style={{ fontSize: 13, color: colors.textSecondary }}>{clientInfo.phone}</div>

@@ -50,6 +50,7 @@ import type {
   PhotoRoom,
 } from '@/components/features/tools/packing/types';
 import { packingApi } from '@/components/features/tools/packing/packingApi';
+import { formatPropertyAddress } from '@/components/features/tools/packing/propertyAddress';
 import {
   fetchDemoFixtures,
   installPackingDemoShims,
@@ -352,7 +353,10 @@ const PackingDemoPage: React.FC = () => {
                   {clientInfo.name}
                 </Text>
                 {clientInfo.property_address_line1 && (
+                  // Mirrors PackingTool's editor header: one line, full address
+                  // on the tooltip when it overflows.
                   <Text
+                    title={formatPropertyAddress(clientInfo)}
                     style={{
                       fontSize: 12,
                       color: colors.textMuted,
@@ -363,7 +367,7 @@ const PackingDemoPage: React.FC = () => {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}
+                    {formatPropertyAddress(clientInfo)}
                   </Text>
                 )}
               </div>

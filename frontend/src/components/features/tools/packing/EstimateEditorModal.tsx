@@ -48,6 +48,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { colors, fonts, borderRadius } from '@/styles/theme';
 import { packingApi } from './packingApi';
 import { getGrandTotal } from './sessionStatus';
+import { formatPropertyAddress, formatPropertyAddressForFilename } from './propertyAddress';
 import CustomerSelector from '@/components/features/CustomerSelector';
 import type { CustomerData } from '@/components/features/CustomerSelector';
 import type {
@@ -1641,7 +1642,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       // Save latest edits to session before exporting
       if (onSaveSession) await onSaveSession();
       const blob = await packingApi.exportPdf(activeSessionId, companyOverride, taxRate, showBreakdown);
-      const addr = [clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ').trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
+      const addr = formatPropertyAddressForFilename(clientInfo);
       const pdfName = addr ? `Pack_in_out Estimate - ${addr}.pdf` : `Pack_in_out Estimate-${activeSessionId}.pdf`;
       triggerDownload(blob, pdfName);
       message.success('PDF downloaded');
@@ -1661,7 +1662,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     try {
       if (onSaveSession) await onSaveSession();
       const blob = await packingApi.exportExcel(activeSessionId, companyOverride, taxRate, showBreakdown);
-      const addr = [clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ').trim().replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ');
+      const addr = formatPropertyAddressForFilename(clientInfo);
       const xlsName = addr ? `Pack_in_out Estimate - ${addr}.xlsx` : `Pack_in_out Estimate-${activeSessionId}.xlsx`;
       triggerDownload(blob, xlsName);
       message.success('Excel downloaded');
@@ -1685,7 +1686,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       const res = await toolService.createInvoiceFromSession(activeSessionId, {
         customer_name: clientInfo.name || undefined,
         title: clientInfo.property_address_line1
-          ? `Packing & Moving - ${[clientInfo.property_address_line1, clientInfo.property_city].filter(Boolean).join(', ')}`
+          ? `Packing & Moving - ${formatPropertyAddress(clientInfo)}`
           : 'Packing & Moving Invoice',
       });
       message.success(`Invoice ${res.invoiceNumber} created`);
@@ -2933,7 +2934,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
             {savedSessions.map((session) => {
               const d = session.data as any;
               const mode: string = d?.mode ?? 'quick';
-              const address: string = [d?.client_info?.property_address_line1, d?.client_info?.property_city].filter(Boolean).join(', ');
+              const address: string = formatPropertyAddress(d?.client_info);
               const updatedAt = new Date(session.updatedAt || session.createdAt).toLocaleDateString('en-US', {
                 month: 'short', day: 'numeric', year: 'numeric',
               });
@@ -2962,8 +2963,10 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                       {session.name}
                     </Text>
                     {address && (
+                      // One line per row in this picker, so the full address
+                      // lives on the tooltip when it overflows.
                       <Text
-                        ellipsis
+                        ellipsis={{ tooltip: address }}
                         style={{ fontSize: 12, color: colors.textSecondary, display: 'block' }}
                       >
                         {address}

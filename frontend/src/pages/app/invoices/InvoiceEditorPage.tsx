@@ -342,6 +342,54 @@ const Section: React.FC<{
     transition,
   };
 
+  // Two lines on a phone, one line with an ellipsis where there is room for it.
+  const sectionNameStyle: React.CSSProperties = isMobile
+    ? { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
+    : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
+  const subtotalNode = (
+    <span style={{ flexShrink: 0, fontWeight: 600 }}>
+      {formatCurrency(subtotal)}
+    </span>
+  );
+
+  const addItemNode = (
+    <Dropdown
+      menu={{
+        items: [
+          {
+            key: 'new',
+            icon: <PlusOutlined />,
+            label: 'Add Custom Item',
+            onClick: isMobile && onMobileAddItem ? onMobileAddItem : onAddItem,
+          },
+          {
+            key: 'library',
+            icon: <AppstoreAddOutlined />,
+            label: 'Add from Library',
+            onClick: onAddFromLibrary,
+          },
+          ...(clipboardCount > 0
+            ? [
+                { type: 'divider' as const },
+                {
+                  key: 'paste',
+                  icon: <CopyOutlined />,
+                  label: `Paste ${clipboardCount} item${clipboardCount !== 1 ? 's' : ''} here`,
+                  onClick: onPasteHere,
+                },
+              ]
+            : []),
+        ],
+      }}
+      trigger={['click']}
+    >
+      <Button type="text" icon={<PlusOutlined />} size="small" style={{ flexShrink: 0 }}>
+        Add Item
+      </Button>
+    </Dropdown>
+  );
+
   return (
     <div ref={setNodeRef} style={style}>
       <Card
@@ -352,118 +400,94 @@ const Section: React.FC<{
         }}
         styles={{ body: { padding: 0 } }}
       >
-        {/* Section Header */}
+        {/* Section Header — the name competes with the handle, checkbox,
+            subtotal and two buttons, which on a phone left it about 60px.
+            Mobile moves the subtotal and Add Item to a second row so the name
+            gets the width instead. */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
             padding: '8px 12px',
             background: colors.bgLight,
             borderBottom: `1px solid ${colors.border}`,
           }}
         >
-          {/* Drag Handle */}
-          <div
-            {...attributes}
-            {...listeners}
-            style={{ cursor: 'grab', color: colors.textMuted }}
-          >
-            <HolderOutlined />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Drag Handle */}
+            <div
+              {...attributes}
+              {...listeners}
+              style={{ cursor: 'grab', color: colors.textMuted, flexShrink: 0 }}
+            >
+              <HolderOutlined />
+            </div>
+
+            {/* Select All Checkbox */}
+            <Checkbox
+              checked={allSelected}
+              indeterminate={someSelected && !allSelected}
+              onChange={onSelectAllInSection}
+            />
+
+            {/* Collapse Toggle */}
+            <Button
+              type="text"
+              size="small"
+              icon={section.isCollapsed ? <CaretRightOutlined /> : <CaretDownOutlined />}
+              onClick={onToggleCollapse}
+              style={{ flexShrink: 0 }}
+            />
+
+            {/* Section Name — flex:1 also pushes the trailing controls right */}
+            {isEditing ? (
+              <Input
+                value={section.name}
+                onChange={(e) => onUpdateSection({ name: e.target.value })}
+                onBlur={() => setIsEditing(false)}
+                onPressEnter={() => setIsEditing(false)}
+                autoFocus
+                style={{ flex: 1, minWidth: 0, maxWidth: isMobile ? undefined : 320 }}
+              />
+            ) : (
+              <span
+                title={section.name}
+                style={{
+                  fontFamily: fonts.heading,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  flex: 1,
+                  minWidth: 0,
+                  ...sectionNameStyle,
+                }}
+                onClick={() => setIsEditing(true)}
+              >
+                {section.name}
+              </span>
+            )}
+
+            {!isMobile && subtotalNode}
+            {!isMobile && addItemNode}
+
+            {/* More Menu */}
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'rename', label: 'Rename Section', onClick: () => setIsEditing(true) },
+                  { type: 'divider' },
+                  { key: 'delete', label: 'Delete Section', danger: true, onClick: onDeleteSection },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <Button type="text" icon={<MoreOutlined />} size="small" style={{ flexShrink: 0 }} />
+            </Dropdown>
           </div>
 
-          {/* Select All Checkbox */}
-          <Checkbox
-            checked={allSelected}
-            indeterminate={someSelected && !allSelected}
-            onChange={onSelectAllInSection}
-          />
-
-          {/* Collapse Toggle */}
-          <Button
-            type="text"
-            size="small"
-            icon={section.isCollapsed ? <CaretRightOutlined /> : <CaretDownOutlined />}
-            onClick={onToggleCollapse}
-          />
-
-          {/* Section Name */}
-          {isEditing ? (
-            <Input
-              value={section.name}
-              onChange={(e) => onUpdateSection({ name: e.target.value })}
-              onBlur={() => setIsEditing(false)}
-              onPressEnter={() => setIsEditing(false)}
-              autoFocus
-              style={{ width: 200 }}
-            />
-          ) : (
-            <span
-              style={{
-                fontFamily: fonts.heading,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-              onClick={() => setIsEditing(true)}
-            >
-              {section.name}
-            </span>
+          {isMobile && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
+              {subtotalNode}
+              {addItemNode}
+            </div>
           )}
-
-          {/* Subtotal */}
-          <span style={{ marginLeft: 'auto', fontWeight: 600 }}>
-            {formatCurrency(subtotal)}
-          </span>
-
-          {/* Add Item Button */}
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'new',
-                  icon: <PlusOutlined />,
-                  label: 'Add Custom Item',
-                  onClick: isMobile && onMobileAddItem ? onMobileAddItem : onAddItem,
-                },
-                {
-                  key: 'library',
-                  icon: <AppstoreAddOutlined />,
-                  label: 'Add from Library',
-                  onClick: onAddFromLibrary,
-                },
-                ...(clipboardCount > 0
-                  ? [
-                      { type: 'divider' as const },
-                      {
-                        key: 'paste',
-                        icon: <CopyOutlined />,
-                        label: `Paste ${clipboardCount} item${clipboardCount !== 1 ? 's' : ''} here`,
-                        onClick: onPasteHere,
-                      },
-                    ]
-                  : []),
-              ],
-            }}
-            trigger={['click']}
-          >
-            <Button type="text" icon={<PlusOutlined />} size="small">
-              Add Item
-            </Button>
-          </Dropdown>
-
-          {/* More Menu */}
-          <Dropdown
-            menu={{
-              items: [
-                { key: 'rename', label: 'Rename Section', onClick: () => setIsEditing(true) },
-                { type: 'divider' },
-                { key: 'delete', label: 'Delete Section', danger: true, onClick: onDeleteSection },
-              ],
-            }}
-            trigger={['click']}
-          >
-            <Button type="text" icon={<MoreOutlined />} size="small" />
-          </Dropdown>
         </div>
 
         {/* Section Items */}
@@ -2157,9 +2181,12 @@ const InvoiceEditorPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, flexWrap: 'wrap' }}>
+      {/* Stacked layout must not wrap: a wrapping column flex line grows to its
+          widest child's min-content width, which pushed the editor past the
+          viewport and out of reach of the ancestor's overflow-x: hidden. */}
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
         {/* Main Editor */}
-        <div style={{ flex: 1, minWidth: isMobile ? 'auto' : 600 }}>
+        <div style={{ flex: 1, minWidth: isMobile ? 0 : 600, maxWidth: '100%' }}>
           {/* Customer Selection */}
           <div style={{ marginBottom: 16 }}>
             <h3 style={{ fontFamily: fonts.heading, fontWeight: 600, marginBottom: 12 }}>
@@ -2173,7 +2200,7 @@ const InvoiceEditorPage: React.FC = () => {
 
           {/* Invoice Details */}
           <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
+            <div style={{ display: 'flex', gap: 16, flexWrap: isMobile ? 'nowrap' : 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
               <Form.Item label="Invoice Date" style={{ marginBottom: 0, flex: isMobile ? 'none' : '1 1 auto', minWidth: isMobile ? 'auto' : 150 }}>
                 <DatePicker
                   value={invoiceDate}
