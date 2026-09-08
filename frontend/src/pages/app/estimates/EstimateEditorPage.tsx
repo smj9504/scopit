@@ -1917,12 +1917,6 @@ const EstimateEditorPage: React.FC = () => {
 
   // Save handler
   const handleSave = () => {
-    // Validate customer data
-    if (!customerData.name) {
-      message.error('Please select a customer or enter customer details');
-      return;
-    }
-
     // Build sections with items
     const sectionsData = sections.map((section) => ({
       name: section.name,

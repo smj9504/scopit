@@ -571,7 +571,7 @@ const CustomerSelector: React.FC<CustomerSelectorProps> = ({
             <Input
               value={directInput.name}
               onChange={(e) => handleDirectInputChange('name', e.target.value)}
-              placeholder="Customer Name *"
+              placeholder="Customer Name"
               disabled={disabled}
               size="large"
               style={{
