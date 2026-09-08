@@ -1026,6 +1026,56 @@ class EstimateCalculator:
             ))
         return summaries
 
+    def _room_multipliers(self, room: RoomInput, preset) -> float:
+        """Combined difficulty multiplier for a room.
+
+        Density, floor, contamination and dominant-content-type all make the
+        same room take longer. Shared by the person-hours and the room-price
+        calculations so the two can never drift apart.
+        """
+        density_mult = DENSITY_MULTIPLIERS.get(room.density.value, 1.0)
+        floor_mult = FLOOR_MULTIPLIERS.get(room.floor.value, 1.0)
+        contamination_str = (
+            room.contamination.value
+            if hasattr(room.contamination, 'value')
+            else str(getattr(room, 'contamination', 'clean'))
+        )
+        contamination_mult = CONTAMINATION_MULTIPLIERS.get(contamination_str, 1.0)
+
+        # Specialty content (fragile, artwork, instruments, valuables, wine)
+        # slows packing from 4-5 boxes/hr to 2-3. Take max() across hints, not
+        # a product — the dominant content type drives the rate. A 0.0 hint
+        # (plants/chemicals) marks non-packable items, not zero labour.
+        hints = room.hints or preset.default_hints or []
+        hint_labor_mult = 1.0
+        for hint in hints:
+            hint_str = hint.value if hasattr(hint, 'value') else str(hint)
+            mult = HINT_LABOR_MULTIPLIERS.get(hint_str, 1.0)
+            if mult == 0.0:
+                continue
+            hint_labor_mult = max(hint_labor_mult, mult)
+
+        return density_mult * floor_mult * contamination_mult * hint_labor_mult
+
+    def calculate_room_person_hours(self, room: RoomInput) -> float:
+        """Person-hours of packing labour for one room.
+
+        This is the primary labour quantity: how long the work actually takes,
+        derived from room size and difficulty. Cost is then hours x crew x
+        rate.
+
+        Hours used to be back-derived from the room's dollar price
+        (price / hourly_rate), which inverted cause and effect — raising the
+        hourly rate made the same job "take" proportionally fewer hours, and
+        the estimate silently absorbed the increase. Time is now an input and
+        money an output.
+        """
+        preset = self.presets.get(room.preset)
+        if not preset:
+            return 0.0
+        base_ph = self.ROOM_BASE_PERSON_HOURS.get(preset.size, 5.5)
+        return base_ph * self._room_multipliers(room, preset)
+
     def calculate_room_base(self, room: RoomInput) -> Tuple[float, int]:
         """Calculate base price and item count for a room"""
         preset = self.presets.get(room.preset)
@@ -1430,20 +1480,40 @@ class EstimateCalculator:
         region_str = request.region.value if hasattr(request.region, 'value') else str(getattr(request, 'region', 'midwest'))
         region_mult = REGION_MULTIPLIERS.get(region_str, 1.0)
 
-        # Room base rates represent the TOTAL COST to pack each room.
-        # Labor cost = room_base × region_mult.
-        # Person-hours = cost / rate. Elapsed = person-hours / crew.
-        labor_base = total_room_base * region_mult
-
-        # Calculate hours
-        labor_rate = self.get_price("2825")  # Content manipulation
-        person_hours_total = labor_base / labor_rate if labor_rate > 0 else 0
+        # Hours come from the WORK: room size and difficulty give person-hours,
+        # which divided by the crew give elapsed time on site. Cost follows as
+        # hours x crew x rate.
+        #
+        # This used to run backwards — person_hours = room_dollar_price / rate —
+        # which made estimated hours a function of the price list. Raising the
+        # hourly rate shrank the hours by the same factor, so the increase
+        # cancelled itself out, and a bigger crew could come out CHEAPER than a
+        # smaller one once rounding compounded. Time is the input now.
+        # The regional premium belongs on the RATE, not on the hours: a bedroom
+        # in Boston does not take longer to pack than the same bedroom in
+        # Ohio, it just costs more per hour. Applying it to person-hours made
+        # the quoted on-site duration vary by region — the figure an adjuster
+        # scrutinises — and let the premium land wherever the half-hour
+        # rounding fell rather than on the money. calculate_estimate_from_content()
+        # has always applied it to the rate; this now matches.
+        labor_rate = self.get_price("2825") * region_mult  # Content manipulation
+        person_hours_total = sum(
+            self.calculate_room_person_hours(room) for room in request.rooms
+        )
         # total_hours = ELAPSED time (what the client actually experiences on-site)
         total_hours = person_hours_total / request.crew_size if request.crew_size > 0 else person_hours_total
 
-        # Pack-out/pack-back split (elapsed hours)
-        pack_out_hours = max(0.5, rh(total_hours * 0.62))
-        pack_back_hours = rh(total_hours * 0.38) if request.include_packback else 0
+        # Pack-out/pack-back split (elapsed hours). Round the pack-out share and
+        # take the remainder for pack-back so the two always sum to the total
+        # the header shows — rounding each independently let them drift apart.
+        _packback_share = 0.38 if request.include_packback else 0.0
+        total_hours_rounded = max(0.5, rh(total_hours))
+        pack_back_hours = (
+            rh(total_hours_rounded * _packback_share) if request.include_packback else 0
+        )
+        pack_out_hours = max(0.5, round(total_hours_rounded - pack_back_hours, 2))
+        # The displayed total is the sum of the displayed parts.
+        total_hours = round(pack_out_hours + pack_back_hours, 2)
 
         # Supervision hours (1 person, not full crew)
         supervisor_hours = max(1.0, rh(total_hours * 0.1))
@@ -1570,18 +1640,20 @@ class EstimateCalculator:
         # Split Pack-Out Labor into sub-lines matching PDF format.
         # Line items show ELAPSED hours (wall-clock time on site);
         # rate = per-person rate × crew size, so amount = elapsed × crew_rate.
-        _po_elapsed_std = max(0.5, rh(pack_out_hours * 0.6))
-        _po_elapsed_fragile = rh(pack_out_hours * 0.15)
-        _po_elapsed_specialty = rh(pack_out_hours * 0.08)
-        _po_elapsed_furniture = rh(pack_out_hours * 0.1)
-        _po_elapsed_appliance = rh(pack_out_hours * 0.08)
+        # Sub-line shares of the pack-out hours. Rounding each share
+        # independently neither summed to pack_out_hours nor stayed stable as
+        # crew size moved the input — the shares themselves totalled 1.01, and
+        # five separate rh() calls then drifted further. Round the specialised
+        # slice and give the crew line the exact remainder, so the sub-lines
+        # always add back to the section total.
+        _po_specialized_elapsed = rh(pack_out_hours * 0.23)  # fragile + specialty
+        _po_crew_elapsed = max(0.5, round(pack_out_hours - _po_specialized_elapsed, 2))
         _po_inventory_hours = max(1.0, rh(total_hours * 0.06))  # 1 person, not crew
 
         crew_labor_rate = round(labor_rate * crew, 2)
         _specialty_rate = self.get_price("2912") or 125.00
         _specialty_crew_rate = round(_specialty_rate * crew, 2)
 
-        _po_crew_elapsed = rh(_po_elapsed_std + _po_elapsed_furniture + _po_elapsed_appliance)
         _po_crew_amt = round(_po_crew_elapsed * crew_labor_rate, 2)
         _sv_amt = round(supervisor_hours * supervisor_rate, 2)
         po_detail_lines = [
@@ -1594,7 +1666,6 @@ class EstimateCalculator:
              "detail": f"On-site supervision across {len(request.rooms)} rooms · {supervisor_hours} hr × {_fmt_money(supervisor_rate)}/hr = {_fmt_money(_sv_amt)}",
              "amount": _sv_amt},
         ]
-        _po_specialized_elapsed = rh(_po_elapsed_fragile + _po_elapsed_specialty)
         if _po_specialized_elapsed > 0:
             _spec_amt = round(_po_specialized_elapsed * _specialty_crew_rate, 2)
             po_detail_lines.append(
@@ -1649,12 +1720,13 @@ class EstimateCalculator:
                 )
         if request.include_packback:
             # Split Pack-Back into sub-lines (elapsed hours; rate = crew_labor_rate)
-            _pb_elapsed_base = max(0.5, rh(pack_back_hours * 0.70))
-            _pb_elapsed_reassembly = rh(pack_back_hours * 0.15)
-            _pb_elapsed_appliance = rh(pack_back_hours * 0.08)
+            # The three crew shares totalled 0.93, so 7% of the pack-back hours
+            # were dropped before they reached a line. The crew line now carries
+            # the whole of pack_back_hours; the supervisor works alongside it
+            # rather than out of it, so it is not deducted here.
             _pb_supervisor = max(1.0, rh(pack_back_hours * 0.12))  # 1 person
 
-            _pb_crew_elapsed = rh(_pb_elapsed_base + _pb_elapsed_reassembly + _pb_elapsed_appliance)
+            _pb_crew_elapsed = max(0.5, round(pack_back_hours, 2))
             _pb_crew_amt = round(_pb_crew_elapsed * crew_labor_rate, 2)
             _pb_sv_amt = round(_pb_supervisor * supervisor_rate, 2)
 
@@ -3243,7 +3315,11 @@ class EstimateCalculator:
         # Pack-out / pack-back split
         # Pack-out is more labor-intensive: inventory, assessment, wrapping, packing, documenting
         # Pack-back is simpler: unload, place, unpack (no inventory/wrapping needed)
-        packout_fraction = 0.62 if request.include_packback else 0.85
+        # The two fractions must sum to 1.0, or the difference is work that is
+        # scheduled and performed but billed to nobody. Without a pack-back
+        # phase all of the labour is pack-out; this used to read 0.85, quietly
+        # dropping 15% while total_hours still reported the full duration.
+        packout_fraction = 0.62 if request.include_packback else 1.0
         packback_fraction = 0.38 if request.include_packback else 0.0
 
         po_standard = labor_hours["standard"] * packout_fraction
@@ -3401,8 +3477,13 @@ class EstimateCalculator:
             pb_appliance = labor_hours["appliance"] * packback_fraction
             # Fragile/specialty unpacking: simpler than packing (no wrapping) but still careful
             # ~60% of pack-out fragile/specialty time for careful unwrapping and placement
-            pb_fragile = labor_hours["fragile"] * packback_fraction * 0.6
-            pb_specialty = labor_hours["specialty"] * packback_fraction * 0.6
+            # No extra haircut here. These carried an additional * 0.6, so
+            # fragile and specialty summed to 0.62 + 0.228 = 0.848 across the
+            # two phases — 15% of the two most expensive tiers was billed on
+            # neither side. Every tier now splits by the same fractions, which
+            # sum to 1.0.
+            pb_fragile = labor_hours["fragile"] * packback_fraction
+            pb_specialty = labor_hours["specialty"] * packback_fraction
             pb_supervisor = rh(total_labor_hours * packback_fraction * 0.10) if total_labor_hours > 2 else 0.5
             # Inventory verification: check items against pack-out inventory list
             pb_inventory = rh(inventory_hours * 0.5) if inventory_hours > 0 else 0
