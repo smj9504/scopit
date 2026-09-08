@@ -195,15 +195,15 @@ DEFAULT_PRICES = {
 
     # Protective
     "2915": {"price": 15.43, "name": "Moving Blanket", "unit": "EA"},
-    "2916": {"price": 19.72, "name": "Furniture Pad", "unit": "EA"},
+    "2916": {"price": 14.00, "name": "Furniture Pad", "unit": "EA"},
     "2917": {"price": 5.79, "name": "Chair Cover", "unit": "EA"},
     "2918": {"price": 9.64, "name": "Couch/Sofa Cover", "unit": "EA"},
     "2936": {"price": 32.22, "name": "Shrink Wrap 20\"", "unit": "RL"},
     "3018": {"price": 23.76, "name": "Bubble Wrap 24\"", "unit": "RL"},
     "3022": {"price": 37.98, "name": "Corner Protectors (100)", "unit": "BX"},
     "3023": {"price": 11.88, "name": "Bubble Wrap 12\"", "unit": "RL"},
-    "3035": {"price": 4.82, "name": "Packing Tape Roll", "unit": "EA"},
-    "3089": {"price": 94.45, "name": "Packing Paper Bundle", "unit": "BN"},
+    "3035": {"price": 5.21, "name": "Packing Tape Roll", "unit": "EA"},
+    "3089": {"price": 34.00, "name": "Packing Paper Bundle (25 lb)", "unit": "BN"},
 
     # Transport
     "2932": {"price": 201.0, "name": "Moving Van 14'-15'", "unit": "EA"},
@@ -498,15 +498,19 @@ UNIT_HINT_MATERIAL_MAP = {
     "sofa":          {"sofa_cover": 1, "blanket": 2, "shrink_wrap": 1},
     "loveseat":      {"sofa_cover": 1, "blanket": 1},
     "armchair":      {"chair_cover": 1, "blanket": 1},
-    "bed_large":     {"blanket": 2, "shrink_wrap": 1, "furniture_pad": 1},
+    # One padding article per piece, never both: a blanket and a furniture pad
+    # cover the same surface, so charging both bills the wrap twice. Case goods
+    # and large flat surfaces (dresser, wardrobe, dining table, desk, bookcase)
+    # take the heavy-duty pad; upholstered and lighter pieces take blankets.
+    "bed_large":     {"blanket": 3, "shrink_wrap": 1},
     "bed_small":     {"blanket": 1, "shrink_wrap": 1},
-    "dresser":       {"blanket": 2, "shrink_wrap": 1, "furniture_pad": 1},
-    "wardrobe":      {"blanket": 3, "shrink_wrap": 1, "furniture_pad": 2},
-    "dining_table":  {"blanket": 2, "furniture_pad": 2},
+    "dresser":       {"furniture_pad": 2, "shrink_wrap": 1},
+    "wardrobe":      {"furniture_pad": 3, "shrink_wrap": 1},
+    "dining_table":  {"furniture_pad": 2},
     "dining_chair":  {"chair_cover": 1},
-    "coffee_table":  {"blanket": 1, "furniture_pad": 1},
-    "bookcase":      {"blanket": 1, "furniture_pad": 1},
-    "desk":          {"blanket": 2, "furniture_pad": 1},
+    "coffee_table":  {"blanket": 1},
+    "bookcase":      {"furniture_pad": 1},
+    "desk":          {"furniture_pad": 2},
     "bicycles":      {"blanket": 1, "shrink_wrap": 1},
     "instruments":   {"blanket": 2, "bubble_12": 1},
     # Category hints — per-unit = one closet section / dresser / appliance set.
@@ -522,8 +526,57 @@ UNIT_HINT_MATERIAL_MAP = {
 # These represent collections (not individual items), so per-unit values
 # should be adjusted by room size ratio (room_scale / 80).
 CATEGORY_UNIT_HINTS = {
-    "clothing_hanging", "clothing_folded", "appliances_small",
+    "clothing_hanging", "clothing_folded",
+    "appliances_small", "appliances_large",
 }
+
+# How many physical articles one catalog unit covers, for the materials whose
+# catalog unit is a roll/box/bundle rather than a single piece.
+#
+# The hint maps below count PHYSICAL WRAPS — a sofa needs wrapping once, an
+# instrument gets bubble-wrapped once. The catalog charges CATALOG UNITS: 2936
+# is a 20" x 1000-1500 ft roll (RL), 3023/3018 are bubble rolls (RL), 3022 is a
+# box of 100 corner protectors (BX). Counting wraps and pricing rolls bills a
+# whole roll per piece.
+#
+# These divisors are the same ratios ITEMS_PER_BOX already uses on the photo-AI
+# path (see EstimateCalculator.ITEMS_PER_BOX), so both paths now convert
+# wraps -> catalog units identically. Applied once, at the accumulation site in
+# calculate_materials, so the maps stay readable as physical counts.
+MATERIAL_UNIT_COVERAGE = {
+    "shrink_wrap": 8,        # 20" x 1000-1500 ft roll wraps ~8 furniture pieces
+    "bubble_12": 20,         # 12" roll covers ~20 medium fragile items
+    "bubble_24": 8,          # 24" roll covers ~8 large fragile items
+    "corner_protector": 100,  # sold as a box of 100 protectors
+}
+
+
+# Consumable coverage, shared by both calculation paths so a hint-built and a
+# photo-built estimate of the same job order the same paper and tape.
+# Catalog 3089 is a 25-lb bundle (~235 sheets of 24x36 newsprint); a mixed job
+# averages ~15 sheets per box. Catalog 3035 is a 55 yd / 165 ft roll and a box
+# takes ~4 ft, so ~41 boxes/roll theoretical, derated to 30 for waste.
+PAPER_BOXES_PER_BUNDLE = 16.0
+TAPE_BOXES_PER_ROLL = 30.0
+# Below this box count a job cannot justify opening a full bundle.
+MIN_BOXES_FOR_PAPER_BUNDLE = 6
+
+
+def _to_catalog_units(mat_key: str, physical_qty: float) -> float:
+    """Convert a count of physical wraps into catalog units to be priced.
+
+    Only the roll/box-issued materials in MATERIAL_UNIT_COVERAGE are divided;
+    everything else (boxes, blankets, covers, mattress bags) is already
+    one-catalog-unit-per-article and passes through unchanged.
+
+    Note this applies to UNIT_HINT_MATERIAL_MAP only. HINT_MATERIAL_MAP's
+    factors are already expressed per catalog unit of volume scale
+    (e.g. shrink_wrap 0.01/unit, not 1 per piece), so dividing those again
+    would under-count.
+    """
+    coverage = MATERIAL_UNIT_COVERAGE.get(mat_key)
+    return physical_qty / coverage if coverage else physical_qty
+
 
 HINT_MATERIAL_MAP = {
     # ── Clothing & Textiles ──────────────────────────────────────────────
@@ -541,53 +594,126 @@ HINT_MATERIAL_MAP = {
     # ── Electronics ──────────────────────────────────────────────────────
     # Most rooms have 1 TV at most; other electronics (consoles, routers) use medium boxes
     # Target: 0-1 TV box, 2 medium boxes, 1 bubble roll per room
-    "electronics":       {"box_tv": 0.006, "box_medium": 0.025, "bubble_12": 0.008},
+    "electronics":       {"box_tv": 0.006, "box_medium": 0.025, "bubble_12": 0.004},
 
     # ── Kitchen ──────────────────────────────────────────────────────────
     # Target: 3-4 dish boxes, 2-3 medium, 1-2 bundles packing paper
     "kitchenware":       {"box_dish": 0.04, "box_medium": 0.025, "packing_paper": 0.006},
     # Fragile & Valuables
-    "fragile":           {"box_dish": 0.04, "packing_paper": 0.008, "bubble_12": 0.004},
-    "artwork":           {"box_mirror": 0.018, "corner_protector": 0.004, "bubble_24": 0.003},
-    "collectibles":      {"box_small": 0.04, "bubble_12": 0.006, "packing_paper": 0.004},
+    "fragile":           {"box_dish": 0.04, "packing_paper": 0.008, "bubble_12": 0.002},
+    "artwork":           {"box_mirror": 0.018, "corner_protector": 0.0004, "bubble_24": 0.003},
+    "collectibles":      {"box_small": 0.04, "bubble_12": 0.003, "packing_paper": 0.004},
     "valuables":         {"box_small": 0.015, "bubble_24": 0.008, "packing_paper": 0.006},
-    "wine_collection":   {"box_small": 0.06, "bubble_12": 0.015, "packing_paper": 0.015},
+    "wine_collection":   {"box_small": 0.06, "bubble_12": 0.008, "packing_paper": 0.015},
 
     # ── Furniture ────────────────────────────────────────────────────────
     # Typical bedroom: bed frame(2 blankets) + dresser(1) + nightstands(0) = 2-3 blankets, 1 pad
     # Typical living: sofa(2) + coffee table(1) + TV stand(1) = 3-4 blankets, 1 pad
-    # Target large(80): blanket=2-3, pad=1, chair_cover=0, sofa_cover=0, shrink=1
+    # Target large(80): blanket=2-3, pad=1, chair_cover=0, sofa_cover=0
     # sofa/chair covers only meaningful at scale ≥120 (living rooms with multiple seating)
-    "furniture":         {"blanket": 0.035, "shrink_wrap": 0.01, "furniture_pad": 0.012, "chair_cover": 0.004, "sofa_cover": 0.003},
-    "rugs":              {"shrink_wrap": 0.012, "blanket": 0.008},
-    "lamps_lighting":    {"box_lamp": 0.025, "box_medium": 0.012, "bubble_12": 0.008},
+    # shrink_wrap is a shared roll, not a per-piece item: ~0.28 RL at scale 80,
+    # so a whole roll is reached only once a job has ~8 wrappable pieces.
+    # A room-level furniture hint covers a mix of pieces, so both padding
+    # articles appear — but each piece takes ONE of them, so the two factors
+    # together must not exceed the padded pieces in the room. At scale 80 this
+    # is 2.2 blankets + 1.0 pad for the ~3 padded pieces a bedroom or living
+    # room holds; previously 2.8 + 1.0 covered the same pieces twice.
+    "furniture":         {"blanket": 0.0275, "shrink_wrap": 0.0035, "furniture_pad": 0.0125, "chair_cover": 0.004, "sofa_cover": 0.003},
+    "rugs":              {"shrink_wrap": 0.004, "blanket": 0.008},
+    "lamps_lighting":    {"box_lamp": 0.025, "box_medium": 0.012, "bubble_12": 0.004},
 
     # ── Appliances ───────────────────────────────────────────────────────
-    "appliances_small":  {"box_medium": 0.03, "bubble_12": 0.004},
-    "appliances_large":  {"blanket": 0.08, "shrink_wrap": 0.025},         # 80×0.08=6.4 → only for heavy appliance rooms
+    "appliances_small":  {"box_medium": 0.03, "bubble_12": 0.002},
+    "appliances_large":  {"blanket": 0.08, "shrink_wrap": 0.008},         # 80×0.08=6.4 → only for heavy appliance rooms
 
     # ── Recreation ───────────────────────────────────────────────────────
     "toys":              {"box_large": 0.03, "box_medium": 0.02},         # 80×0.03=2-3 large + 2 med
     "sports":            {"box_xlarge": 0.02, "blanket": 0.025},
-    "bicycles":          {"blanket": 0.015, "shrink_wrap": 0.008},
+    "bicycles":          {"blanket": 0.015, "shrink_wrap": 0.003},
 
     # ── Tools & Equipment ────────────────────────────────────────────────
     "tools":             {"box_small": 0.03, "blanket": 0.025},
-    "equipment_heavy":   {"blanket": 0.08, "shrink_wrap": 0.02},
+    "equipment_heavy":   {"blanket": 0.08, "shrink_wrap": 0.007},
 
     # ── Storage ──────────────────────────────────────────────────────────
-    "boxes_stored":      {"shrink_wrap": 0.008},
-    "holiday_decor":     {"box_medium": 0.025, "box_large": 0.012, "packing_paper": 0.006, "bubble_12": 0.006},
+    "boxes_stored":      {"shrink_wrap": 0.003},
+    "holiday_decor":     {"box_medium": 0.025, "box_large": 0.012, "packing_paper": 0.006, "bubble_12": 0.003},
 
     # ── Music & Arts ─────────────────────────────────────────────────────
     "instruments":       {"blanket": 0.06, "bubble_24": 0.012},
 
     # ── Specialty ────────────────────────────────────────────────────────
     "baby_items":        {"box_medium": 0.03, "box_large": 0.015, "blanket": 0.008},
-    "outdoor_furniture": {"blanket": 0.04, "shrink_wrap": 0.012, "furniture_pad": 0.012},
+    # Same one-article-per-piece rule as "furniture" above.
+    "outdoor_furniture": {"blanket": 0.03, "shrink_wrap": 0.004, "furniture_pad": 0.012},
     "plants":            {},  # not packable — excluded from insurance contents claims
     "chemicals":         {},  # hazmat — disposal only per OSHA/EPA; not transported
 }
+
+# Hints that produce no materials and no labor because the contents are not
+# transported at all. Excluding them is correct — every van line's non-allowable
+# list covers live plants, aerosols, paint and solvents — but "excluded" is a
+# statement the customer has to see. Selecting one of these and getting a
+# silent zero is what creates the dispute on move day, so each carries the
+# sentence that goes on the estimate.
+EXCLUDED_HINT_NOTES = {
+    "plants": (
+        "Live plants are not packed or transported — they are excluded from "
+        "contents coverage. Client to relocate before the move."
+    ),
+    "chemicals": (
+        "Cleaning chemicals, aerosols, paint and fuels are non-allowable "
+        "hazmat and are not transported. Disposal by client, or quoted "
+        "separately as a hazmat line."
+    ),
+}
+
+
+def material_load_note(markup_pct: int, include_op: bool, op_rate: int) -> Optional[str]:
+    """Disclose the real multiple materials are billed at, when two loads stack.
+
+    The material markup line names its own percentage truthfully, but O&P is
+    then applied to a subtotal that already contains it — so a 20% markup under
+    20% O&P bills materials at 1.44x catalog cost while the only percentage on
+    the page says 20%. Compounding is normal contractor practice; presenting it
+    as a single 20% is what an adjuster challenges in a pack-out audit.
+    """
+    if not markup_pct or not include_op or not op_rate:
+        return None
+    effective = (1 + markup_pct / 100.0) * (1 + op_rate / 100.0)
+    return (
+        f"Materials carry {markup_pct}% handling & markup, and O&P at "
+        f"{op_rate}% applies to the marked-up subtotal — an effective "
+        f"{effective:.2f}x catalog material cost."
+    )
+
+
+def exclusion_notes_for(rooms: List[Any], presets: Dict[str, Any]) -> List[str]:
+    """Exclusion sentences for any non-transportable content the job selected.
+
+    Deduplicated and in a stable order, so the same job always reads the same
+    way regardless of which room the hint came from.
+    """
+    selected = set()
+    for room in rooms or []:
+        # A photo-analysed room's hints are not what drove its estimate, so
+        # only read hints from rooms actually calculated from a preset.
+        if hasattr(room, "use_preset") and not room.use_preset:
+            continue
+        preset = presets.get(getattr(room, "preset", None))
+        hints = getattr(room, "hints", None) or (
+            preset.default_hints if preset else []
+        ) or []
+        for hint in hints:
+            hint_str = hint.value if hasattr(hint, "value") else str(hint)
+            if hint_str in EXCLUDED_HINT_NOTES:
+                selected.add(hint_str)
+    return [
+        EXCLUDED_HINT_NOTES[h]
+        for h in EXCLUDED_HINT_NOTES
+        if h in selected
+    ]
+
 
 # The materials markup line. Not a catalog SKU — it is derived from the
 # materials it marks up — so it carries its own code rather than one from
@@ -695,8 +821,12 @@ MATERIAL_DETAIL = {
     "mattress_full": "Mattress protection — Full size",
     "mattress_queen": "Mattress protection — Queen size",
     "mattress_king": "Mattress protection — King size",
-    "blanket": "Furniture wrapping and surface protection",
-    "furniture_pad": "Heavy-duty padding for large furniture",
+    # One padding article per piece, never both. The pad is the heavier
+    # article and costs less per unit only because a blanket is quilted; the
+    # descriptions say which piece each is for so the two lines read as a
+    # deliberate choice rather than a duplicate charge.
+    "blanket": "Quilted wrap for upholstered and lighter pieces",
+    "furniture_pad": "Heavy-duty pad for case goods and large flat surfaces",
     "chair_cover": "Fitted cover for dining/accent chairs",
     "sofa_cover": "Fitted cover for sofas and sectionals",
     "bubble_12": "Fragile item wrap: electronics, glassware, ceramics",
@@ -774,9 +904,16 @@ class EstimateCalculator:
             })()
 
     def get_price(self, code: str) -> float:
-        """Get price by code, with fallback to DEFAULT_PRICES."""
+        """Get price by code, with fallback to DEFAULT_PRICES.
+
+        A catalog row holding a non-positive price is treated as absent, not
+        as free: a zero arises from ordinary operator behaviour (clearing the
+        field while editing, a partial import) and there is no material a
+        contractor buys for $0. Without this, a zeroed row rendered a real
+        quantity at a $0.00 rate and silently understated the estimate.
+        """
         p = self.prices.get(code)
-        if p:
+        if p and p.price > 0:
             return p.price
         default = DEFAULT_PRICES.get(code)
         return default["price"] if default else 0
@@ -1131,10 +1268,18 @@ class EstimateCalculator:
             # Base room-size volume scale (density applied per-hint below)
             base_vol_scale = MAT_SCALE_PER_SIZE.get(preset.size, 80) * density_mult
 
-            # Add mattress if applicable (always 1 per room, not fraction-based)
+            # Add mattress if applicable (always 1 per room, not fraction-based).
+            # A bed is bagged twice: the mattress and the box spring beneath it,
+            # which is a separately handled article on a contents inventory. A
+            # king foundation is normally two split units, so it takes two
+            # twin-size bags rather than one king.
             if preset.mattress:
                 mat_key = f"mattress_{preset.mattress}"
                 mattresses[mat_key] = mattresses.get(mat_key, 0) + 1
+                if preset.mattress == "king":
+                    mattresses["mattress_twin"] = mattresses.get("mattress_twin", 0) + 2
+                else:
+                    mattresses[mat_key] = mattresses.get(mat_key, 0) + 1
 
             # Base materials per room — misc drawer/shelf/decor contents
             base_mats = BASE_ROOM_MATERIALS.get(preset.size, BASE_ROOM_MATERIALS["large"])
@@ -1150,14 +1295,17 @@ class EstimateCalculator:
                 # Unit-based hint: qty × per-piece materials (no volume scaling)
                 if hint_str in UNIT_HINT_MATERIAL_MAP:
                     qty = hint_qty.get(hint_str, 1)
-                    # Category hints scale with room size (calibrated for large=80)
+                    # Category hints are collections, so they scale with room
+                    # size (calibrated for large=80). Per-piece hints do not —
+                    # a sofa is one sofa in any size of room — but both scale
+                    # with density: a denser room holds more of both.
                     if hint_str in CATEGORY_UNIT_HINTS:
                         size_ratio = MAT_SCALE_PER_SIZE.get(preset.size, 80) / 80.0
-                        for mat_key, per_unit in UNIT_HINT_MATERIAL_MAP[hint_str].items():
-                            mat_floats[mat_key] = mat_floats.get(mat_key, 0.0) + qty * per_unit * size_ratio * density_mult
                     else:
-                        for mat_key, per_unit in UNIT_HINT_MATERIAL_MAP[hint_str].items():
-                            mat_floats[mat_key] = mat_floats.get(mat_key, 0.0) + qty * per_unit
+                        size_ratio = 1.0
+                    for mat_key, per_unit in UNIT_HINT_MATERIAL_MAP[hint_str].items():
+                        raw = qty * per_unit * size_ratio * density_mult
+                        mat_floats[mat_key] = mat_floats.get(mat_key, 0.0) + _to_catalog_units(mat_key, raw)
                     continue
                 # Volume-based hint: vol_scale × factor
                 vol_level_idx = hint_volume.get(hint_str, 1)
@@ -1184,19 +1332,25 @@ class EstimateCalculator:
         box_keys = {k for k in materials if k.startswith("box_")}
         total_boxes = sum(materials.get(k, 0) for k in box_keys)
 
-        # Packing paper: 1 bundle per ~15 boxes (50-lb bundle covers wrapping
-        # and void fill for ~15 packed boxes), minimum 1 per 3 rooms.
+        # Packing paper: a 25-lb bundle is ~235 sheets of 24x36 newsprint.
+        # A dish pack draws ~40-60 sheets, a general box ~10-15 of void fill,
+        # so a mixed job averages ~15 sheets/box -> ~16 boxes per bundle.
         num_rooms = len(rooms)
         paper_from_hints = mat_floats.get("packing_paper", 0.0)
-        paper_from_boxes = total_boxes / 15.0
-        paper_from_rooms = num_rooms / 3.0
-        materials["packing_paper"] = max(1, math.ceil(
-            max(paper_from_hints, paper_from_boxes, paper_from_rooms)
-        ))
+        paper_from_boxes = total_boxes / PAPER_BOXES_PER_BUNDLE
+        paper_from_rooms = num_rooms / 6.0
+        paper_need = max(paper_from_hints, paper_from_boxes, paper_from_rooms)
+        # Don't force a whole bundle onto a job too small to open one — a
+        # 3-box bathroom drew a full bundle, 75% of its material cost.
+        if paper_need < 0.5 and total_boxes < MIN_BOXES_FOR_PAPER_BUNDLE:
+            materials["packing_paper"] = 0
+        else:
+            materials["packing_paper"] = max(1, math.ceil(paper_need))
 
-        # Packing tape: 1 roll per ~10 boxes (each box needs ~4ft of tape,
-        # standard roll is 55yd/165ft), minimum 1 per job.
-        materials["packing_tape"] = max(1, math.ceil(total_boxes / 10.0))
+        # Packing tape: each box takes ~4 ft (H-tape, top and bottom) and a
+        # standard roll is 55 yd / 165 ft, so a roll seals ~41 boxes. Divide by
+        # 30 to leave a ~35% waste allowance.
+        materials["packing_tape"] = max(1, math.ceil(total_boxes / TAPE_BOXES_PER_ROLL))
 
         return materials
 
@@ -1797,6 +1951,15 @@ class EstimateCalculator:
             quick_notes.append(
                 schedule_note(total_hours, request.crew_size, quick_work_days)
             )
+        # Non-transportable content the customer selected produces no line at
+        # all, so say so rather than letting it vanish off the estimate.
+        quick_notes.extend(exclusion_notes_for(request.rooms, self.presets))
+        load_note = material_load_note(
+            getattr(request, 'material_rate', 0) or 0,
+            request.include_op, request.op_rate,
+        )
+        if load_note:
+            quick_notes.append(load_note)
 
         return EstimateResponse(
             total_rooms=len(request.rooms),
@@ -2559,7 +2722,14 @@ class EstimateCalculator:
             if keyword in method_lower:
                 inferred.extend(mats)
         # Deduplicate while preserving order
-        return list(dict.fromkeys(inferred))
+        inferred = list(dict.fromkeys(inferred))
+        # A piece is padded once. Keyword matching is substring-based, so a
+        # method reading "blanket wrap, pad corners" matches both articles and
+        # would bill a blanket AND a pad for the same surface. Keep the heavier
+        # one, which is the article the crew actually reached for.
+        if "furniture_pad" in inferred and "blanket" in inferred:
+            inferred.remove("blanket")
+        return inferred
 
     # How many items fit per box/material unit (packing ratio)
     ITEMS_PER_BOX = {
@@ -2845,6 +3015,12 @@ class EstimateCalculator:
                     norm = self._normalize_material_key(mat_key)
                     if not norm:
                         continue
+                    # A mattress bag is size-specific — a queen bag (60x80)
+                    # will not close over a king mattress (76x80). The alias
+                    # table is size-blind, so promote to the real size here,
+                    # where the item name is in scope.
+                    if norm.startswith("mattress_"):
+                        norm = self._mattress_bag_for(item, norm)
                     if norm == "packing_paper":
                         # Accumulate raw item count; convert to bundles after loop.
                         packing_paper_raw += item.quantity
@@ -2896,15 +3072,17 @@ class EstimateCalculator:
 
         # Packing paper: max of (item-based, box-based, room-based)
         paper_from_items = packing_paper_raw / 150.0
-        paper_from_boxes = total_boxes / 15.0
-        paper_from_rooms = num_rooms / 3.0
-        materials["packing_paper"] = max(1, math.ceil(
-            max(paper_from_items, paper_from_boxes, paper_from_rooms)
-        ))
+        paper_from_boxes = total_boxes / PAPER_BOXES_PER_BUNDLE
+        paper_from_rooms = num_rooms / 6.0
+        paper_need = max(paper_from_items, paper_from_boxes, paper_from_rooms)
+        if paper_need < 0.5 and total_boxes < MIN_BOXES_FOR_PAPER_BUNDLE:
+            materials["packing_paper"] = 0
+        else:
+            materials["packing_paper"] = max(1, math.ceil(paper_need))
 
-        # Packing tape: 1 roll per ~10 boxes
+        # Packing tape: ~30 boxes per 55 yd roll (see TAPE_BOXES_PER_ROLL)
         materials["packing_tape"] = max(
-            1, math.ceil(total_boxes / 10.0)
+            1, math.ceil(total_boxes / TAPE_BOXES_PER_ROLL)
         )
 
         return materials
@@ -2993,6 +3171,33 @@ class EstimateCalculator:
 
         return results
 
+    # Size words that appear in item names, longest-first so "king" inside
+    # "california king" still resolves and "twin" is not shadowed.
+    _MATTRESS_SIZE_WORDS = (
+        ("california king", "mattress_king"),
+        ("cal king", "mattress_king"),
+        ("king", "mattress_king"),
+        ("queen", "mattress_queen"),
+        ("double", "mattress_full"),
+        ("full", "mattress_full"),
+        ("single", "mattress_twin"),
+        ("twin", "mattress_twin"),
+    )
+
+    @classmethod
+    def _mattress_bag_for(cls, item: Any, default_key: str) -> str:
+        """Resolve the size-specific mattress bag for an item.
+
+        taxonomy.py already resolves bed sizes and deliberately leaves an
+        unsized bed unsized, so an item named only "Mattress" keeps
+        ``default_key`` rather than being promoted to a size nobody observed.
+        """
+        name = (getattr(item, "name", "") or "").lower()
+        for word, key in cls._MATTRESS_SIZE_WORDS:
+            if word in name:
+                return key
+        return default_key
+
     @staticmethod
     def _normalize_material_key(key: str) -> str | None:
         """Map AI-returned material names to our internal keys."""
@@ -3004,7 +3209,13 @@ class EstimateCalculator:
             "book_box": "box_book", "tv_box": "box_tv", "mirror_box": "box_mirror",
             "lamp_box": "box_lamp", "bubble_wrap_12": "bubble_12",
             "bubble_wrap_24": "bubble_24", "packing_paper": "packing_paper",
-            "corner_protector": "corner_protector", "mattress_bag": "mattress_queen",
+            "corner_protector": "corner_protector",
+            # Unsized bag resolves to the standard double; aggregate_item_materials
+            # promotes it to the real size from the item name where one is given.
+            "mattress_bag": "mattress_full",
+            # A box spring is bagged in the same-size mattress bag — which is
+            # what a supply house substitutes — rather than its own SKU.
+            "box_spring_bag": "mattress_full", "boxspring_bag": "mattress_full",
             # New item aliases
             "chair_cover": "chair_cover", "plastic_chair_cover": "chair_cover",
             "sofa_cover": "sofa_cover", "couch_cover": "sofa_cover",
@@ -3022,6 +3233,17 @@ class EstimateCalculator:
             "box_dish": "box_dish", "box_wardrobe": "box_wardrobe",
             "box_mirror": "box_mirror", "box_tv": "box_tv", "box_lamp": "box_lamp",
             "box_book": "box_book", "bubble_12": "bubble_12", "bubble_24": "bubble_24",
+            # Keys the estimator itself emits. Without these, a material that
+            # round-trips through normalization is dropped and the estimate
+            # silently shrinks.
+            "packing_tape": "packing_tape",
+            "mattress_twin": "mattress_twin", "mattress_full": "mattress_full",
+            "mattress_queen": "mattress_queen", "mattress_king": "mattress_king",
+            # Common near-miss spellings from the vision model.
+            "bubble_wrap": "bubble_12", "stretch_film": "shrink_wrap",
+            "moving_pad": "furniture_pad", "corner_protectors": "corner_protector",
+            "picture_box": "box_mirror", "dish_pack": "box_dish",
+            "tape": "packing_tape", "packing_tape_roll": "packing_tape",
         }
         return ALIASES.get(key)
 
@@ -3775,6 +3997,15 @@ class EstimateCalculator:
             notes.append(
                 schedule_note(total_hours_calc, crew, work_days)
             )
+        # Non-transportable content the customer selected produces no line at
+        # all, so say so rather than letting it vanish off the estimate.
+        notes.extend(exclusion_notes_for(request.rooms, self.presets))
+        load_note = material_load_note(
+            getattr(request, 'material_rate', 0) or 0,
+            request.include_op, request.op_rate,
+        )
+        if load_note:
+            notes.append(load_note)
 
         return EstimateResponse(
             total_rooms=len(request.rooms),

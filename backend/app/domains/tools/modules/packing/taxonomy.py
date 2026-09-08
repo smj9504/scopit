@@ -58,7 +58,11 @@ PACKING_TAXONOMY: list[CanonicalItem] = [
     CanonicalItem("Bed Frame", "Furniture",
                   ["bed frame", "platform bed", "bed base", "bedframe"]),
     CanonicalItem("Mattress", "Furniture",
-                  ["mattress and box spring", "box spring"]),
+                  ["mattress and box spring"]),
+    # A box spring is bagged, inventoried and claimed separately from the
+    # mattress above it, so it is its own article rather than an alias of one.
+    CanonicalItem("Box Spring", "Furniture",
+                  ["box spring", "boxspring", "bed foundation", "foundation"]),
     CanonicalItem("King Mattress", "Furniture",
                   ["king size mattress", "california king mattress"]),
     CanonicalItem("Queen Mattress", "Furniture",

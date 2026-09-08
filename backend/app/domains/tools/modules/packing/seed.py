@@ -89,15 +89,15 @@ DEFAULT_MOVING_PRICES = [
 
     # Protective
     {"code": "2915", "name": "Moving Blanket", "category": "protective", "unit": "EA", "price": 15.43},
-    {"code": "2916", "name": "Furniture Pad", "category": "protective", "unit": "EA", "price": 19.72},
+    {"code": "2916", "name": "Furniture Pad", "category": "protective", "unit": "EA", "price": 14.00},
     {"code": "2917", "name": "Chair Cover", "category": "protective", "unit": "EA", "price": 5.79},
     {"code": "2918", "name": "Couch/Sofa Cover", "category": "protective", "unit": "EA", "price": 9.64},
     {"code": "2936", "name": "Shrink Wrap 20\"", "category": "protective", "unit": "RL", "price": 32.22},
     {"code": "3018", "name": "Bubble Wrap 24\"", "category": "protective", "unit": "RL", "price": 23.76},
     {"code": "3022", "name": "Corner Protectors (100)", "category": "protective", "unit": "BX", "price": 37.98},
     {"code": "3023", "name": "Bubble Wrap 12\"", "category": "protective", "unit": "RL", "price": 11.88},
-    {"code": "3035", "name": "Packing Tape Roll", "category": "protective", "unit": "EA", "price": 4.82},
-    {"code": "3089", "name": "Packing Paper Bundle", "category": "protective", "unit": "BN", "price": 94.45},
+    {"code": "3035", "name": "Packing Tape Roll", "category": "protective", "unit": "EA", "price": 5.21},
+    {"code": "3089", "name": "Packing Paper Bundle (25 lb)", "category": "protective", "unit": "BN", "price": 34.00},
 
     # Transport
     {"code": "2932", "name": "Moving Van 14'-15'", "category": "transport", "unit": "EA", "price": 201.0},

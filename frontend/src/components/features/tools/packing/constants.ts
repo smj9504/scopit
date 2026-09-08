@@ -161,8 +161,12 @@ export const HINT_VOLUME_LEVELS: Record<string, VolumeLevelOption[]> = {
   holiday_decor:    [{ key:'S', label:'2-3 bins',         hint:'~3 boxes',  mult:0.4 }, { key:'M', label:'4-8 bins',           hint:'~7 boxes',  mult:1.0 }, { key:'L', label:'9-15 bins',          hint:'~12 boxes', mult:1.8 }, { key:'XL', label:'Whole room',       hint:'~20 boxes', mult:3.0 }],
   baby_items:       [{ key:'S', label:'Small items',      hint:'~3 boxes',  mult:0.4 }, { key:'M', label:'Standard nursery',   hint:'~8 boxes',  mult:1.0 }, { key:'L', label:'Full nursery',       hint:'~14 boxes', mult:1.8 }, { key:'XL', label:'Twins/multiples',  hint:'~22 boxes', mult:3.0 }],
   outdoor_furniture:[{ key:'S', label:'1-2 pieces',       hint:'~2 pads',   mult:0.4 }, { key:'M', label:'Patio set',          hint:'~5 pads',   mult:1.0 }, { key:'L', label:'Full patio',         hint:'~9 pads',   mult:1.8 }, { key:'XL', label:'Large outdoor',    hint:'~15 pads',  mult:3.0 }],
-  plants:           [{ key:'S', label:'1-5 pots',         hint:'~2 boxes',  mult:0.4 }, { key:'M', label:'6-15 pots',          hint:'~5 boxes',  mult:1.0 }, { key:'L', label:'16-30 pots',         hint:'~10 boxes', mult:1.8 }, { key:'XL', label:'30+ pots',         hint:'~18 boxes', mult:3.0 }],
-  chemicals:        [{ key:'S', label:'Few products',     hint:'~1 box',    mult:0.4 }, { key:'M', label:'Standard supply',    hint:'~2 boxes',  mult:1.0 }, { key:'L', label:'Large supply',       hint:'~4 boxes',  mult:1.8 }, { key:'XL', label:'Storage room',     hint:'~8 boxes',  mult:3.0 }],
+  // Not transported: live plants are excluded from contents coverage, so the
+  // backend produces no materials or labor for them. The estimate carries an
+  // exclusion note instead -- never advertise a box count here.
+  plants:           [{ key:'S', label:'1-5 pots',         hint:'not transported', mult:0.4 }, { key:'M', label:'6-15 pots',          hint:'not transported', mult:1.0 }, { key:'L', label:'16-30 pots',         hint:'not transported', mult:1.8 }, { key:'XL', label:'30+ pots',         hint:'not transported', mult:3.0 }],
+  // Non-allowable hazmat -- disposal only, not transported. Same rule as plants.
+  chemicals:        [{ key:'S', label:'Few products',     hint:'hazmat - excluded', mult:0.4 }, { key:'M', label:'Standard supply',    hint:'hazmat - excluded', mult:1.0 }, { key:'L', label:'Large supply',       hint:'hazmat - excluded', mult:1.8 }, { key:'XL', label:'Storage room',     hint:'hazmat - excluded', mult:3.0 }],
 };
 
 // Allowed content hint keys per room preset category.
