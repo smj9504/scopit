@@ -22,6 +22,7 @@ PRICE_MIGRATIONS = [
     "raise_packing_labor_to_billable_rate.py",
     "raise_transport_rates_to_market.py",
     "correct_packing_material_unit_prices.py",
+    "reconcile_storage_rate_to_unit_size.py",
 ]
 # (code, from, to) rows in the migrations' correction tables.
 ROW_RE = re.compile(r'^    \("(\d+[A-Z]?)", ([\d.]+), ([\d.]+)\),', re.M)

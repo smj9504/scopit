@@ -109,7 +109,9 @@ DEFAULT_PRICES = {
     'packing_paper': 18.00, 'shrink_wrap': 29.83,
     'poly_bags': 24.00, 'furniture_bags': 8.57, 'appliance_tape': 29.90,
     'packing_tape': 8.59, 'inventory_tags': 60.11, 'box_liners': 6.50,
-    'truck_26': 197.00, 'storage_sf': 2.20,
+    # storage_sf is the 10x10 anchor rate (price code 2840); larger units
+    # are scaled down from it by STORAGE_RATE_MULT_BY_SIZE.
+    'truck_26': 197.00, 'storage_sf': 1.35,
     'waste_removal': 67.63,
 }
 
@@ -485,35 +487,43 @@ def get_line_items_from_estimate(
         # ========== SECTION 4: STORAGE ==========
         if storage_months > 0:
             storage_items = []
-            sf_rate = P.get('storage_sf', 2.20)
-            # Guard: storage sf rate must be a realistic per-SF/mo value (not a total cost)
-            if not (1.0 <= sf_rate <= 10.0):
-                sf_rate = 2.20
-            # Snap to standard storage unit sizes (5x5, 5x10, 10x10, etc.)
-            STANDARD_UNITS = [25, 50, 100, 150, 200, 250, 300]
-            storage_sf = max(25, storage_sf)
-            for unit in STANDARD_UNITS:
-                if storage_sf <= unit:
-                    storage_sf = unit
-                    break
-            else:
-                storage_sf = STANDARD_UNITS[-1]
-            monthly_cost = storage_sf * sf_rate
+            # Sizing, pricing and setup all come from the calculator rather
+            # than a private copy. The copy here had drifted: it lacked the
+            # 5x15 size, capped at 10x30 instead of renting a second unit, and
+            # carried its own $2.20 fallback -- so an exported PDF could show a
+            # different unit and a different total than the estimate it was
+            # exporting.
+            from .service import (
+                STORAGE_UNIT_LABELS,
+                get_storage_setup_fee,
+                snap_to_storage_unit,
+                storage_monthly_rent,
+            )
+            sf_rate = P.get('storage_sf', 1.35)
+            # Guard: must be a per-SF/mo rate, not a total cost.
+            if not (0.5 <= sf_rate <= 10.0):
+                sf_rate = 1.35
+            storage_sf = snap_to_storage_unit(max(25, storage_sf))
+            monthly_cost = storage_monthly_rent(storage_sf, sf_rate)
+            effective_rate = (
+                monthly_cost / storage_sf if storage_sf else 0.0
+            )
             storage_items.append({
                 'name': 'Climate-Controlled Off-Site Storage & Insurance',
                 'detail': (
                     f'{storage_sf} SF required; temp 55\u201380\u00b0F; '
-                    f'humidity controlled; ${sf_rate:.2f}/SF/mo'
+                    f'humidity controlled; ${effective_rate:.2f}/SF/mo'
                 ),
                 'qty': storage_months, 'unit': 'MO',
                 'price': round(monthly_cost, 2)
             })
-            # Setup fee scales with unit size (power-law ^0.65, base $85 for 10x10)
-            SETUP_BY_SIZE = {25: 42, 50: 54, 100: 85, 150: 109, 200: 131, 250: 152, 300: 172}
-            setup_fee = SETUP_BY_SIZE.get(storage_sf, 85)
+            setup_fee = get_storage_setup_fee(storage_sf)
             storage_items.append({
                 'name': 'Initial Storage Setup — Unit Preparation & Organization',
-                'detail': f'{storage_sf} SF unit — shelving, inventory placement, padlock',
+                'detail': (
+                    f'{STORAGE_UNIT_LABELS.get(storage_sf, str(storage_sf))} unit '
+                    f'({storage_sf} SF) — shelving, inventory placement, padlock'
+                ),
                 'qty': 1, 'unit': 'EA', 'price': setup_fee
             })
             sections.append({'title': 'CLIMATE-CONTROLLED STORAGE', 'items': storage_items})

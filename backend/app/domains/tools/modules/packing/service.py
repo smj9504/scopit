@@ -212,7 +212,7 @@ DEFAULT_PRICES = {
     "2935": {"price": 167.0, "name": "Cargo Van", "unit": "EA"},
 
     # Storage
-    "2840": {"price": 2.18, "name": "Climate-Controlled Storage", "unit": "SF"},
+    "2840": {"price": 1.35, "name": "Climate-Controlled Storage", "unit": "SF"},
     "2844": {"price": 17.33, "name": "Padlock", "unit": "EA"},
 }
 
@@ -238,10 +238,20 @@ SF_PER_ITEM = {
 # SF per room size for hint-based (quick) estimates
 # Values reflect stacked storage (items packed floor-to-ceiling ~7 ft),
 # not flat floor area. Industry rule: 3BR house fits ~150-200 SF unit.
+# Storage floor area consumed per room, at normal density.
+#
+# Storage is a volume problem sold by floor area: units stack to an 8 ft
+# ceiling, so a room's contents occupy far less floor than the room itself.
+# The previous values summed a whole house to ~2,110 cu ft against the ~1,600
+# cu ft that operators (Public Storage, Extra Space, CubeSmart, U-Haul) size a
+# 3-bedroom house at -- 1.32x too much, which pushed a routine 3BR from the
+# 10×20 it needs into a 10×30. Scaled by 0.75 to land on the published
+# capacity; the shape across sizes is unchanged, so relative room weighting
+# and every density multiplier still behave as before.
 SF_PER_ROOM_SIZE = {
-    "small": 8,     # bathroom, closet → ~5×5 portion of unit
-    "large": 25,    # standard bedroom, kitchen → ~quarter of 10×10
-    "xlarge": 45,   # master, basement, garage → ~half of 10×10
+    "small": 6,     # bathroom, closet
+    "large": 19,    # standard bedroom, kitchen
+    "xlarge": 34,   # master, basement, garage
 }
 
 # Room-size-based material volume scale (replaces item count for material calculations).
@@ -271,9 +281,15 @@ HINT_VOLUME_MULTS = [0.4, 1.0, 1.8, 3.0]
 # Standard self-storage unit sizes (width × depth = SF)
 # Industry-standard sizes used by Public Storage, Extra Space Storage,
 # CubeSmart, StorageMart, Life Storage, etc.
-STANDARD_UNIT_SIZES = [25, 50, 75, 100, 150, 200, 250, 300]
+STANDARD_UNIT_SIZES = [25, 50, 75, 100, 150, 200, 250, 300, 350, 400]
 # 5×5=25  | 5×10=50  | 5×15=75  | 10×10=100
 # 10×15=150 | 10×20=200 | 10×25=250 | 10×30=300
+# 10×35=350 | 10×40=400 — larger units are stocked by Public Storage, Extra
+# Space and U-Haul (10×40 is "the largest at most facilities"). Without them a
+# 380 SF job was split into 10×30 + 10×15, renting 450 SF and paying two setup
+# fees for space one real unit covers. Sizes past 10×40 (12×30, 20×30) exist
+# but are facility-specific, so quoting them would invent a unit the local
+# facility may not rent.
 
 # Human-readable labels for each unit size (shown in section_details)
 STORAGE_UNIT_LABELS = {
@@ -285,6 +301,36 @@ STORAGE_UNIT_LABELS = {
     200: "10×20",
     250: "10×25",
     300: "10×30",
+    350: "10×35",
+    400: "10×40",
+}
+
+# Per-SF rent multiplier by unit size, relative to the 10×10 anchor price.
+#
+# Self-storage does not price linearly: fixed per-unit costs (door, climate
+# control, security, access) spread over more floor area, so $/SF/mo falls
+# sharply as units grow. 2026 market rates for climate-controlled space run
+# ~$2.46/SF at 5×5 but ~$1.13/SF at 10×30 — the large unit is a little over
+# half the per-SF price, not the same. Billing one flat rate across every size
+# therefore overcharged roughly 2x on the large units that most house-sized
+# jobs land on, and undercharged on the small ones.
+#
+# The multipliers are normalised so 10×10 == 1.00. That keeps price code 2840
+# ("Climate-Controlled Storage", per SF) the single company-editable anchor: a
+# company that sets its own 2840 rate has that rate applied at 10×10 and the
+# same market-shaped curve scaled around it, rather than a second independent
+# price table to maintain.
+STORAGE_RATE_MULT_BY_SIZE = {
+    25:  1.82,  # 5×5   — ~$2.46/SF at the $1.35 anchor
+    50:  1.26,  # 5×10  — ~$1.70/SF
+    75:  1.11,  # 5×15  — ~$1.50/SF (interpolated between 5×10 and 10×10)
+    100: 1.00,  # 10×10 — anchor, ~$1.35/SF
+    150: 0.81,  # 10×15 — ~$1.10/SF
+    200: 0.83,  # 10×20 — ~$1.12/SF
+    250: 0.84,  # 10×25 — ~$1.14/SF
+    300: 0.84,  # 10×30 — ~$1.13/SF
+    350: 0.83,  # 10×35 — large-unit plateau
+    400: 0.83,  # 10×40 — large-unit plateau
 }
 
 # Storage setup fee by unit size (scales with unit size)
@@ -299,6 +345,8 @@ STORAGE_SETUP_BY_SIZE = {
     200: 131.00,  # 10×20 — ~2.0-2.5 hr setup
     250: 152.00,  # 10×25 — ~2.5-3.0 hr setup
     300: 172.00,  # 10×30 — ~3.0-4.0 hr setup
+    350: 191.00,  # 10×35 — same ^0.65 curve off the $85 10×10 anchor
+    400: 209.00,  # 10×40 — same ^0.65 curve off the $85 10×10 anchor
 }
 
 
@@ -404,6 +452,28 @@ def snap_to_storage_unit(raw_sf: float) -> int:
     return sum(allocate_storage_units(raw_sf))
 
 
+def storage_monthly_rent(storage_sf: int, anchor_sf_rate: float) -> float:
+    """Monthly rent for ``storage_sf``, priced per unit actually rented.
+
+    ``anchor_sf_rate`` is the company's per-SF price (code 2840) expressed at
+    the 10×10 anchor. Each allocated unit is charged at its own size's market
+    multiplier, because a job spanning a 10×30 plus a 5×10 rents two units at
+    two different per-SF prices -- pricing the 380 SF total at one blended rate
+    would match neither unit's real price sheet.
+
+    This is the single place rent is computed. The estimate total and the
+    Storage detail lines both call it, so the two cannot drift apart or apply
+    the size adjustment twice.
+    """
+    if storage_sf <= 0 or anchor_sf_rate <= 0:
+        return 0.0
+    total = 0.0
+    for unit in allocate_storage_units(storage_sf):
+        mult = STORAGE_RATE_MULT_BY_SIZE.get(unit, 1.0)
+        total += unit * anchor_sf_rate * mult
+    return round(total, 2)
+
+
 def get_storage_setup_fee(unit_sf: int) -> float:
     """Setup fee for a job occupying ``unit_sf`` total SF.
 
@@ -437,7 +507,10 @@ def build_storage_section_detail(
     adjuster can see exactly how the charge was computed.
     """
     units = allocate_storage_units(storage_sf)
-    monthly_sf_cost = round(storage_sf * sf_rate, 2)
+    # Priced through the shared helper so this line always equals the rent
+    # folded into the estimate total, at each unit's own size-tiered rate.
+    monthly_sf_cost = storage_monthly_rent(storage_sf, sf_rate)
+    effective_rate = (monthly_sf_cost / storage_sf) if storage_sf else 0.0
 
     # Name the units actually rented. One unit reads exactly as before; several
     # are listed so the adjuster sees why the SF is what it is rather than a
@@ -470,9 +543,10 @@ def build_storage_section_detail(
             "unit": "MO",
             "rate": monthly_sf_cost,
             "detail": (
-                f"{storage_sf} SF × ${sf_rate:.2f}/SF/mo = ${monthly_sf_cost:.2f}/mo"
+                f"{storage_sf} SF × ${effective_rate:.2f}/SF/mo "
+                f"= ${monthly_sf_cost:.2f}/mo"
             ),
-            "amount": round(storage_sf * sf_rate * storage_months, 2),
+            "amount": round(monthly_sf_cost * storage_months, 2),
         },
         {
             "name": "Storage Setup & Inventory Placement",
@@ -1707,9 +1781,10 @@ class EstimateCalculator:
         storage_cost = 0
         if not is_on_site and request.storage_months > 0:
             setup_fee = get_storage_setup_fee(storage_sf)
-            sf_rate = self.get_price("2840") or 2.18
+            sf_rate = self.get_price("2840") or 1.35
             storage_cost = (
-                storage_sf * sf_rate * request.storage_months
+                storage_monthly_rent(storage_sf, sf_rate)
+                * request.storage_months
                 + setup_fee
             )
 
@@ -1866,7 +1941,7 @@ class EstimateCalculator:
                 section_details["Transport Back"] = {"lines": _t_back_lines}
                 sections["Transport Back"] = sum(ln["amount"] for ln in _t_back_lines)
             if storage_cost > 0:
-                _sf_rate = self.get_price("2840") or 2.18
+                _sf_rate = self.get_price("2840") or 1.35
                 _setup_fee = get_storage_setup_fee(storage_sf)
                 section_details["Storage"] = build_storage_section_detail(
                     storage_sf, _sf_rate, request.storage_months,
@@ -1914,7 +1989,7 @@ class EstimateCalculator:
         # Build Storage section_details when storage is included but cost is 0
         if "Storage" not in section_details:
             if not is_on_site and storage_sf > 0:
-                _sf_rate = self.get_price("2840") or 2.18
+                _sf_rate = self.get_price("2840") or 1.35
                 _setup_fee = get_storage_setup_fee(storage_sf)
                 section_details["Storage"] = build_storage_section_detail(
                     storage_sf, _sf_rate, request.storage_months or 0,
@@ -3631,9 +3706,10 @@ class EstimateCalculator:
         storage_cost = 0
         if not is_on_site and request.storage_months > 0:
             setup_fee = get_storage_setup_fee(storage_sf)
-            sf_rate = self.get_price("2840") or 2.18
+            sf_rate = self.get_price("2840") or 1.35
             storage_cost = (
-                storage_sf * sf_rate * request.storage_months
+                storage_monthly_rent(storage_sf, sf_rate)
+                * request.storage_months
                 + setup_fee
             )
 
@@ -3894,7 +3970,7 @@ class EstimateCalculator:
             if "Transport Back" in sections:
                 section_details["Transport Back"] = {"lines": _transport_back_lines(truck_trips, truck_rate)}
             if storage_cost > 0:
-                _sf_rate = self.get_price("2840") or 2.18
+                _sf_rate = self.get_price("2840") or 1.35
                 _setup_fee = get_storage_setup_fee(storage_sf)
                 section_details["Storage"] = build_storage_section_detail(
                     storage_sf, _sf_rate, request.storage_months,

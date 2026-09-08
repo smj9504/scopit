@@ -106,7 +106,7 @@ DEFAULT_MOVING_PRICES = [
     {"code": "2935", "name": "Cargo Van", "category": "transport", "unit": "EA", "price": 167.0},
 
     # Storage
-    {"code": "2840", "name": "Climate-Controlled Storage", "category": "storage", "unit": "SF", "price": 2.18},
+    {"code": "2840", "name": "Climate-Controlled Storage", "category": "storage", "unit": "SF", "price": 1.35},
     {"code": "2844", "name": "Padlock", "category": "storage", "unit": "EA", "price": 17.33},
 ]
 
