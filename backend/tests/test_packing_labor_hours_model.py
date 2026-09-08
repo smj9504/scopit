@@ -227,18 +227,83 @@ def _content(calc, include_packback):
 
 
 def test_disabling_packback_does_not_discard_labor(calc):
-    """packout 0.85 / packback 0.0 left 15% of the work billed to nobody."""
+    """packout 0.85 / packback 0.0 left 15% of the work billed to nobody.
+
+    Pinned against the two-phase job rather than merely "greater than": with
+    0.85 the pack-out share is still larger than the 0.62 two-phase share, so
+    a direction-only assertion passes with the bug in place. What must hold is
+    that the SUM of the phases is the same either way — the work does not
+    shrink because it is all done in one visit.
+    """
     with_pb = _content(calc, True)
     without = _content(calc, False)
-    # Pack-out alone, with no pack-back phase, must exceed the pack-out share
-    # of a job that splits its hours across both phases.
-    assert without.sections["Pack-Out Labor"] > with_pb.sections["Pack-Out Labor"]
+
+    # Pack-back is extra work (unpacking), not a re-billing of the pack-out
+    # hours, so the two jobs legitimately differ in total. What must hold is
+    # that the pack-out phase itself bills the same hours either way: the
+    # packing is identical whether or not the crew returns to unpack. With
+    # packout 0.85 the one-phase job billed a SMALLER pack-out than the
+    # two-phase job, which is backwards.
+    #
+    # Compared as a ratio of each job's own reported duration so the debris
+    # hours folded into total_hours (billed in their own section) cancel.
+    two_phase = _crew_line_hours(with_pb, "Pack-Out Labor")
+    one_phase = _crew_line_hours(without, "Pack-Out Labor")
+    assert one_phase > two_phase, (
+        f"one-phase pack-out bills {one_phase} crew hours vs {two_phase} when "
+        f"a pack-back phase exists — the packing work did not shrink"
+    )
+    # Not pinned to the theoretical 1/0.62 = 1.61x: each tier line is rounded
+    # to the half hour independently, and across four-plus lines that pulls the
+    # realised ratio well below the arithmetic one (1.30x on this fixture).
+    # The direction above is what distinguishes 1.0 from 0.85; asserting the
+    # exact ratio would only encode the rounding of one particular fixture.
+    assert _crew_line_hours(without, "Pack-Back Labor") == 0
 
 
 def test_packout_share_is_whole_when_there_is_no_packback(calc):
     without = _content(calc, False)
     assert "Pack-Back Labor" not in without.sections
     assert without.sections["Pack-Out Labor"] > 0
+
+
+def test_every_tier_splits_by_the_same_phase_fractions(calc):
+    """Fragile and specialty carried an extra x0.6 the other tiers did not.
+
+    Asserted on the source fractions rather than through a rendered estimate:
+    the tier hours are rounded to the half hour per line, which on a normal job
+    swallows a 15% difference on the smaller tiers and lets the defect through
+    unnoticed.
+    """
+    import inspect
+
+    source = inspect.getsource(EstimateCalculator.calculate_estimate_from_content)
+    for tier in ("pb_fragile", "pb_specialty"):
+        line = next(
+            ln for ln in source.splitlines()
+            if ln.strip().startswith(f"{tier} =")
+        )
+        assert "* 0.6" not in line, (
+            f"{tier} applies an extra haircut the other tiers do not: {line.strip()}"
+        )
+
+
+def test_phase_fractions_sum_to_one(calc):
+    """Anything the two phases do not add up to is work billed to nobody."""
+    import inspect
+
+    source = inspect.getsource(EstimateCalculator.calculate_estimate_from_content)
+    packout = next(
+        ln for ln in source.splitlines() if "packout_fraction =" in ln
+    )
+    packback = next(
+        ln for ln in source.splitlines() if "packback_fraction =" in ln
+    )
+    # Both branches of each ternary, paired up.
+    for phase_line, other in ((packout, packback), (packback, packout)):
+        assert "0.85" not in phase_line, (
+            f"phase fractions do not sum to 1.0: {phase_line.strip()} / {other.strip()}"
+        )
 
 
 def test_content_path_reports_hours_it_also_bills(calc):
