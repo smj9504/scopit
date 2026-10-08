@@ -9,6 +9,7 @@
  *   const PdfEditorTool = lazy(() => import('./pdf-editor/PdfEditorTool'));
  */
 import React, { useState, useCallback, useEffect } from 'react';
+import { createAnnotationSaver } from './annotationSaver';
 import {
   Button,
   Card,
@@ -865,6 +866,8 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const annotationsRef = React.useRef(annotations);
+  annotationsRef.current = annotations;
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [isPdfPageReady, setIsPdfPageReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -913,6 +916,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
       const prev = stack[stack.length - 1];
       setRedoStack((r) => [...r, annotations]);
       setAnnotations(prev);
+      setIsDirty(true);
       return stack.slice(0, -1);
     });
   }, [annotations]);
@@ -923,6 +927,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
       const next = stack[stack.length - 1];
       setUndoStack((u) => [...u, annotations]);
       setAnnotations(next);
+      setIsDirty(true);
       return stack.slice(0, -1);
     });
   }, [annotations]);
@@ -960,27 +965,44 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   }, [pushUndo]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
+  const saveLatestAnnotations = React.useMemo(() => createAnnotationSaver(
+    () => annotationsRef.current,
+    async (snapshot) => {
+      const saved = await pdfEditorApi.saveAnnotations(documentId, snapshot);
+      queryClient.setQueryData(['pdf-document', documentId], saved);
+    },
+  ), [documentId, queryClient]);
+
+  // Share uploads and include edits made during saving. A failure must stop
+  // export/navigation so the editor retains the user's unsaved changes.
   const handleSave = useCallback(async () => {
     try {
       setIsSaving(true);
-      await pdfEditorApi.saveAnnotations(documentId, annotations);
+      await saveLatestAnnotations();
       setIsDirty(false);
       message.success('Saved');
+      return true;
     } catch {
-      message.error('Save failed');
+      message.error('Save failed. Your changes are still in the editor. Please try again.');
+      return false;
     } finally {
       setIsSaving(false);
     }
-  }, [documentId, annotations, message]);
+  }, [saveLatestAnnotations, message]);
+
+  const handleBack = useCallback(async () => {
+    if ((isDirty || isSaving) && !(await handleSave())) return;
+    onBack();
+  }, [isDirty, isSaving, handleSave, onBack]);
 
   // Auto-save every 5 seconds when dirty
   useEffect(() => {
-    if (!isDirty) return;
+    if (!isDirty || isSaving) return;
     const timer = setTimeout(() => {
       handleSave();
     }, 5000);
     return () => clearTimeout(timer);
-  }, [isDirty, annotations, handleSave]);
+  }, [isDirty, isSaving, annotations, handleSave]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1065,6 +1087,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
 
   // ── Export ────────────────────────────────────────────────────────────────
   const handleExport = useCallback(async () => {
+    if (!(await handleSave())) return;
     try {
       const blob = await pdfEditorApi.downloadDocument(documentId, true);
       const url = URL.createObjectURL(blob);
@@ -1078,7 +1101,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
     } catch {
       message.error('Export failed');
     }
-  }, [documentId, doc, message]);
+  }, [documentId, doc, message, handleSave]);
 
   // ── Page operations ───────────────────────────────────────────────────────
   const [pdfRefreshKey, setPdfRefreshKey] = useState(0);
@@ -1154,7 +1177,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
         isSaving={isSaving}
         isDirty={isDirty}
         documentName={docName}
-        onBack={onBack}
+        onBack={handleBack}
         drawColor={drawColor}
         drawWidth={drawWidth}
         onDrawColorChange={setDrawColor}
