@@ -100,7 +100,7 @@ class AnnotationStyle(BaseModel):
 class Annotation(BaseModel):
     id: str
     type: str  # text, image, drawing, stamp, sign_field
-    page: int
+    page: int  # 1-indexed, matching the editor and PDF.js
     x: float
     y: float
     width: float

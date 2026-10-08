@@ -113,8 +113,9 @@ def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> byte
             pg = ann.get("page", 0)
             by_page.setdefault(pg, []).append(ann)
 
-        for i, page in enumerate(reader.pages):
-            page_anns = by_page.get(i, [])
+        # Editor annotations store one-based page numbers, just like PDF.js.
+        for page_number, page in enumerate(reader.pages, start=1):
+            page_anns = by_page.get(page_number, [])
             if page_anns:
                 media_box = page.mediabox
                 pw = float(media_box.width)
