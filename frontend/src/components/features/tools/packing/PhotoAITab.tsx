@@ -549,10 +549,10 @@ const AddRoomPanel: React.FC<AddRoomPanelProps> = ({ presets, presetsLoading, on
 
 // ── Inline-Editable Item Row ────────────────────────────────────────────────
 
-const ITEM_ROW_GRID = '1fr 60px 108px 100px 40px 30px';
-// Fixed columns (Size+Weight+Category+Qty+Delete) + gaps + a readable Name floor.
+const ITEM_ROW_GRID = '1fr 60px 108px 100px 68px 40px 30px';
+// Fixed columns (Size+Weight+Category+Fragile+Qty+Delete) + gaps + a readable Name floor.
 // Below this width the table scrolls horizontally instead of clipping columns.
-const ITEM_ROW_MIN_WIDTH = 500;
+const ITEM_ROW_MIN_WIDTH = 576;
 // Single source of truth for the item-name font size so the detected-items
 // list and the "needs review" list render item names at the same size.
 const ITEM_NAME_FONT_SIZE = 12;
@@ -565,6 +565,7 @@ interface ItemRowProps {
   onStartEdit: (cell: EditingCell) => void;
   onCommitEdit: (roomId: string, itemIndex: number, field: EditingCell['field'], value: string | number) => void;
   onCancelEdit: () => void;
+  onToggleFragile: () => void;
   onDelete: () => void;
 }
 
@@ -576,6 +577,7 @@ const ItemRow: React.FC<ItemRowProps> = ({
   onStartEdit,
   onCommitEdit,
   onCancelEdit,
+  onToggleFragile,
   onDelete,
 }) => {
   const [editValue, setEditValue] = useState<string | number>('');
@@ -646,11 +648,6 @@ const ItemRow: React.FC<ItemRowProps> = ({
             {item.is_high_value && (
               <Tooltip title="High value">
                 <StarOutlined style={{ color: colors.warning, fontSize: 11, flexShrink: 0 }} />
-              </Tooltip>
-            )}
-            {item.is_fragile && (
-              <Tooltip title="Fragile">
-                <WarningOutlined style={{ color: colors.error, fontSize: 11, flexShrink: 0 }} />
               </Tooltip>
             )}
           </div>
@@ -754,6 +751,29 @@ const ItemRow: React.FC<ItemRowProps> = ({
         </Tag>
       )}
 
+      {/* Fragile — the AI's call is only a starting point; one click flips it */}
+      <Tooltip title={item.is_fragile ? 'Fragile (click to remove)' : 'Mark as fragile'}>
+        <Button
+          type="text"
+          size="small"
+          aria-pressed={item.is_fragile}
+          aria-label={`${item.is_fragile ? 'Unmark' : 'Mark'} ${item.name} as fragile`}
+          icon={<WarningOutlined />}
+          onClick={onToggleFragile}
+          style={{
+            padding: '0 4px',
+            height: 22,
+            fontSize: 11,
+            justifySelf: 'start',
+            color: item.is_fragile ? colors.error : colors.textMuted,
+            background: item.is_fragile ? colors.errorBg : 'transparent',
+            opacity: item.is_fragile ? 1 : 0.6,
+          }}
+        >
+          {item.is_fragile ? 'Fragile' : null}
+        </Button>
+      </Tooltip>
+
       {/* Quantity */}
       {isEditing('quantity') ? (
         <InputNumber
@@ -807,6 +827,7 @@ interface RoomCardProps {
   onAddPhoto: (id: string, files: FileList) => void;
   onRemovePhoto: (id: string, index: number) => void;
   onAddItem: (id: string) => void;
+  onToggleFragile: (roomId: string, itemIndex: number) => void;
   onDeleteItem: (roomId: string, itemIndex: number) => void;
   analysisFailed?: boolean;
 }
@@ -825,6 +846,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
   onAddPhoto,
   onRemovePhoto,
   onAddItem,
+  onToggleFragile,
   onDeleteItem,
   analysisFailed,
 }) => {
@@ -1392,10 +1414,10 @@ const RoomCard: React.FC<RoomCardProps> = ({
                           <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                             <div style={{ minWidth: ITEM_ROW_MIN_WIDTH }}>
                               <div style={{ display: 'grid', gridTemplateColumns: ITEM_ROW_GRID, gap: 8, padding: '7px 8px', background: colors.bgLight, borderBottom: `1px solid ${colors.border}`, fontSize: 11, fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.body }}>
-                                <span>Name</span><span>Size</span><span>Weight</span><span>Category</span><span style={{ textAlign: 'center' }}>Qty</span><span />
+                                <span>Name</span><span>Size</span><span>Weight</span><span>Category</span><span>Fragile</span><span style={{ textAlign: 'center' }}>Qty</span><span />
                               </div>
                               {room.items.map((item, idx) => (
-                                <ItemRow key={idx} item={item} roomId={room.id} itemIndex={idx} editingCell={editingCell} onStartEdit={onStartEdit} onCommitEdit={onCommitEdit} onCancelEdit={onCancelEdit} onDelete={() => onDeleteItem(room.id, idx)} />
+                                <ItemRow key={idx} item={item} roomId={room.id} itemIndex={idx} editingCell={editingCell} onStartEdit={onStartEdit} onCommitEdit={onCommitEdit} onCancelEdit={onCancelEdit} onToggleFragile={() => onToggleFragile(room.id, idx)} onDelete={() => onDeleteItem(room.id, idx)} />
                               ))}
                             </div>
                           </div>
@@ -2025,6 +2047,21 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
     [setPhotoRooms],
   );
 
+  const handleToggleFragile = useCallback(
+    (roomId: string, itemIndex: number) => {
+      setPhotoRooms((prev) =>
+        prev.map((r) => {
+          if (r.id !== roomId) return r;
+          const items = r.items.map((item, i) =>
+            i === itemIndex ? { ...item, is_fragile: !item.is_fragile } : item,
+          );
+          return { ...r, items };
+        }),
+      );
+    },
+    [setPhotoRooms],
+  );
+
   const handleDeleteItem = useCallback(
     (roomId: string, itemIndex: number) => {
       setPhotoRooms((prev) =>
@@ -2333,6 +2370,7 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
               onAddPhoto={handleAddPhotos}
               onRemovePhoto={handleRemovePhoto}
               onAddItem={handleAddItem}
+              onToggleFragile={handleToggleFragile}
               onDeleteItem={handleDeleteItem}
               analysisFailed={batchState.failedRooms.some((f) => f.id === room.id)}
             />
