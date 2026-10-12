@@ -4,18 +4,12 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
-import { Layout, Menu, Button, Dropdown, Avatar, Badge, Drawer } from 'antd';
+import { Layout, Button, Dropdown, Avatar, Drawer, Tooltip } from 'antd';
 import {
-  FileTextOutlined,
-  DollarOutlined,
-  UserOutlined,
-  UnorderedListOutlined,
   SettingOutlined,
   LogoutOutlined,
-  HomeOutlined,
   MenuOutlined,
   CloseOutlined,
-  AppstoreOutlined,
   ArrowLeftOutlined,
   DashboardOutlined,
   LeftOutlined,
@@ -25,8 +19,85 @@ import { useAuthStore } from '@/stores/authStore';
 import { colors, fonts, shadows } from '@/styles/theme';
 import { HeaderNavProvider, useHeaderNav } from '@/hooks/useHeaderNav';
 import { useIsMobile, useIsNarrow } from '@/hooks/useIsMobile';
+import { StrokeIcon, GridIcon, ORDERED_TOOL_META } from '@/components/features/tools/toolMeta';
 
 const { Sider, Content, Header } = Layout;
+
+// Nav item text — gray-700, a step softer than textPrimary so the dark
+// selected pill stands out, still ~10:1 on white.
+const NAV_TEXT = '#374151';
+const BOTTOM_NAV_HEIGHT = 64;
+
+// ── Nav icons (same stroke family as the tool icons) ──────────────────────────
+
+const DashboardIcon = ({ size = 18 }: { size?: number }) => (
+  <StrokeIcon size={size}>
+    <path d="M3 11l9-7 9 7" />
+    <path d="M5 10v10h5v-6h4v6h5V10" />
+  </StrokeIcon>
+);
+const EstimatesIcon = ({ size = 18 }: { size?: number }) => (
+  <StrokeIcon size={size}>
+    <path d="M7 3h7l5 5v13H7z" />
+    <path d="M14 3v5h5" />
+  </StrokeIcon>
+);
+const InvoicesIcon = ({ size = 18 }: { size?: number }) => (
+  <StrokeIcon size={size}>
+    <path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z" />
+    <path d="M9 9h6M9 13h6" />
+  </StrokeIcon>
+);
+const CustomersIcon = ({ size = 18 }: { size?: number }) => (
+  <StrokeIcon size={size}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
+  </StrokeIcon>
+);
+const LineItemsIcon = ({ size = 18 }: { size?: number }) => (
+  <StrokeIcon size={size}>
+    <path d="M9 6h12M9 12h12M9 18h12" />
+    <path d="M4 6h.01M4 12h.01M4 18h.01" />
+  </StrokeIcon>
+);
+const SettingsIcon = ({ size = 18 }: { size?: number }) => (
+  <StrokeIcon size={size}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" />
+  </StrokeIcon>
+);
+
+interface NavEntry {
+  to: string;
+  label: string;
+  icon: React.ReactNode;
+  /** Tool icons render in the accent color when not selected. */
+  accentIcon?: boolean;
+  /** Match only the exact path, not nested routes. */
+  exact?: boolean;
+}
+
+const RECORD_ITEMS: NavEntry[] = [
+  { to: '/app/estimates', label: 'Estimates', icon: <EstimatesIcon /> },
+  { to: '/app/invoices', label: 'Invoices', icon: <InvoicesIcon /> },
+  { to: '/app/customers', label: 'Customers', icon: <CustomersIcon /> },
+  { to: '/app/line-items', label: 'Line Items', icon: <LineItemsIcon /> },
+];
+
+const TOOL_ITEMS: NavEntry[] = ORDERED_TOOL_META.map((meta) => ({
+  to: `/app/tools/${meta.id}`,
+  label: meta.navLabel,
+  icon: <meta.Icon />,
+  accentIcon: true,
+}));
+
+const BOTTOM_TABS = [
+  { to: '/app/dashboard', label: 'Home', icon: <DashboardIcon size={20} /> },
+  { to: '/app/tools', label: 'Tools', icon: <GridIcon size={20} /> },
+  { to: '/app/estimates', label: 'Estimates', icon: <EstimatesIcon size={20} /> },
+  { to: '/app/invoices', label: 'Invoices', icon: <InvoicesIcon size={20} /> },
+  { to: '/app/customers', label: 'Customers', icon: <CustomersIcon size={20} /> },
+];
 
 // Back navigation button rendered in the header
 const HeaderBackNav: React.FC = () => {
@@ -64,49 +135,13 @@ const AppLayout: React.FC = () => {
   // Tablet: 768-1023px — treat like mobile (drawer nav) but wider drawer
   const isNarrow = useIsNarrow();
   const useDrawer = isMobile || isNarrow;
+  // Icons-only rail: desktop sidebar collapsed. The drawer always shows labels.
+  const isRail = collapsed && !useDrawer;
 
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
-
-  const menuItems = [
-    {
-      key: '/app/dashboard',
-      icon: <HomeOutlined />,
-      label: 'Dashboard',
-    },
-    {
-      key: '/app/estimates',
-      icon: <FileTextOutlined />,
-      label: 'Estimates',
-    },
-    {
-      key: '/app/invoices',
-      icon: <DollarOutlined />,
-      label: 'Invoices',
-    },
-    {
-      key: '/app/customers',
-      icon: <UserOutlined />,
-      label: 'Customers',
-    },
-    {
-      key: '/app/line-items',
-      icon: <UnorderedListOutlined />,
-      label: 'Line Items',
-    },
-    {
-      key: '/app/tools',
-      icon: <AppstoreOutlined />,
-      label: 'Tools',
-    },
-    {
-      key: '/app/settings',
-      icon: <SettingOutlined />,
-      label: 'Settings',
-    },
-  ];
 
   const userMenuItems = [
     {
@@ -141,88 +176,200 @@ const AppLayout: React.FC = () => {
     },
   ];
 
-  const getSelectedKey = () => {
-    const path = location.pathname;
-    const item = menuItems.find((item) => path.startsWith(item.key));
-    return item?.key || '/app/dashboard';
+  // Selected state. Prefix match on whole path segments so nested routes
+  // (/app/tools/packing/<sessionId>, /app/estimates/<id>/edit) keep their
+  // parent highlighted. /app/tools itself selects no tool — only "All".
+  const path = location.pathname.replace(/\/+$/, '') || '/';
+  const isUnder = (base: string) => path === base || path.startsWith(`${base}/`);
+  const isToolsIndex = path === '/app/tools';
+
+  const itemHeight = useDrawer ? 44 : 40;
+
+  const renderNavLink = (item: NavEntry, extraStyle?: React.CSSProperties) => {
+    const active = item.exact ? path === item.to : isUnder(item.to);
+    const link = (
+      <Link
+        key={item.to}
+        to={item.to}
+        className="app-nav-item"
+        aria-current={active ? 'page' : undefined}
+        aria-label={isRail ? item.label : undefined}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isRail ? 'center' : 'flex-start',
+          gap: 12,
+          height: itemHeight,
+          padding: isRail ? 0 : '0 16px',
+          borderRadius: 8,
+          background: active ? colors.primary : 'transparent',
+          color: active ? colors.textWhite : NAV_TEXT,
+          fontWeight: active ? 600 : 500,
+          flexShrink: 0,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          ...extraStyle,
+        }}
+      >
+        <span
+          style={{
+            display: 'inline-flex',
+            color: item.accentIcon && !active ? colors.accent : 'currentColor',
+          }}
+        >
+          {item.icon}
+        </span>
+        {!isRail && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>}
+      </Link>
+    );
+    return isRail ? (
+      <Tooltip key={item.to} title={item.label} placement="right">
+        {link}
+      </Tooltip>
+    ) : (
+      link
+    );
   };
 
-  const handleMenuClick = (key: string) => {
-    navigate(key);
-    if (useDrawer) {
-      setMobileMenuOpen(false);
-    }
-  };
+  // Group heading; in the icon rail it collapses to a hairline divider.
+  const renderGroupLabel = (label: string, action?: React.ReactNode) =>
+    isRail ? (
+      <div
+        role="separator"
+        style={{ height: 1, background: colors.border, margin: '12px 16px', flexShrink: 0 }}
+      />
+    ) : (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: `${useDrawer ? 16 : 18}px 16px 6px`,
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 600, color: colors.textSecondary }}>{label}</span>
+        {action}
+      </div>
+    );
 
-  // Sidebar content (shared between desktop Sider and mobile/tablet Drawer)
-  const SidebarContent = () => (
-    <>
-      {/* Logo */}
+  const allToolsLink = (
+    <Link
+      to="/app/tools"
+      aria-current={isToolsIndex ? 'page' : undefined}
+      aria-label="All tools"
+      style={{
+        fontSize: 12,
+        fontWeight: 600,
+        lineHeight: '20px',
+        borderRadius: 9999,
+        // Pill when current, plain link otherwise; vertical padding grows the
+        // touch target in the drawer.
+        padding: isToolsIndex ? '2px 8px' : `${useDrawer ? 4 : 2}px 0`,
+        background: isToolsIndex ? colors.primary : 'transparent',
+        color: isToolsIndex ? colors.textWhite : '#1d4ed8',
+      }}
+    >
+      All
+    </Link>
+  );
+
+  // Sidebar content (shared between desktop Sider and mobile/tablet Drawer).
+  // A render function, not a nested component, so it doesn't remount on
+  // every parent render.
+  const renderSidebar = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Logo (+ close button in the drawer) */}
       <div
         style={{
           height: 64,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: collapsed && !useDrawer ? 'center' : 'flex-start',
-          padding: collapsed && !useDrawer ? 0 : '0 24px',
+          justifyContent: isRail ? 'center' : 'space-between',
+          // Drawer: room for the top notch, and a tighter right edge for the close button
+          padding: isRail ? 0 : useDrawer ? 'env(safe-area-inset-top) 8px 0 24px' : '0 24px',
+          borderBottom: useDrawer ? `1px solid ${colors.border}` : 'none',
+          boxSizing: 'content-box',
           flexShrink: 0,
         }}
       >
-        <Link to="/app/dashboard" style={{ textDecoration: 'none' }}>
+        <Link to="/app/dashboard" aria-label="Scopit dashboard" style={{ textDecoration: 'none' }}>
           <span
             style={{
               fontFamily: fonts.heading,
-              fontSize: collapsed && !useDrawer ? 18 : 20,
+              fontSize: isRail ? 18 : 20,
               fontWeight: 800,
               color: colors.primary,
               letterSpacing: '-0.02em',
             }}
           >
-            {collapsed && !useDrawer ? 'S' : 'Scopit'}
+            {isRail ? 'S' : 'Scopit'}
           </span>
         </Link>
+        {useDrawer && (
+          <Button
+            type="text"
+            icon={<CloseOutlined />}
+            onClick={() => setMobileMenuOpen(false)}
+            aria-label="Close menu"
+            style={{ width: 44, height: 44 }}
+          />
+        )}
       </div>
 
-      {/* Menu */}
-      <Menu
-        mode="inline"
-        selectedKeys={[getSelectedKey()]}
-        items={menuItems}
-        onClick={({ key }) => handleMenuClick(key)}
+      {/* Nav */}
+      <nav
+        aria-label="Main"
         style={{
-          border: 'none',
-          padding: '16px 8px',
           flex: 1,
+          minHeight: 0,
+          padding: '12px 8px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
           overflowY: 'auto',
           overflowX: 'hidden',
-          fontSize: 14,
+          fontSize: useDrawer ? 15 : 14,
         }}
-      />
+      >
+        {renderNavLink({ to: '/app/dashboard', label: 'Dashboard', icon: <DashboardIcon /> })}
 
-      {/* Beta Badge */}
-      {(!collapsed || useDrawer) && (
-        <div
-          style={{
-            padding: '8px 24px 24px',
-            flexShrink: 0,
-          }}
-        >
-          <Badge.Ribbon text="Beta" color={colors.primary}>
-            <div
-              style={{
-                background: colors.bgLight,
-                borderRadius: 8,
-                padding: '12px 50px 12px 16px',
-                fontSize: 13,
-                color: colors.textSecondary,
-              }}
-            >
-              All features free during beta
-            </div>
-          </Badge.Ribbon>
+        {renderGroupLabel('Tools', allToolsLink)}
+        {/* The rail has no room for the "All" link, so it becomes an item */}
+        {isRail && renderNavLink({ to: '/app/tools', label: 'All tools', icon: <GridIcon />, exact: true })}
+        {TOOL_ITEMS.map((item) => renderNavLink(item))}
+
+        {renderGroupLabel('Records')}
+        {RECORD_ITEMS.map((item) => renderNavLink(item))}
+
+        {renderNavLink(
+          { to: '/app/settings', label: 'Settings', icon: <SettingsIcon /> },
+          { marginTop: 'auto' },
+        )}
+      </nav>
+
+      {/* Beta note */}
+      {!isRail && (
+        <div style={{ padding: '8px 16px 20px', flexShrink: 0 }}>
+          <div
+            style={{
+              background: colors.bgLight,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 10,
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              fontSize: 13,
+            }}
+          >
+            <span style={{ fontWeight: 600, color: colors.textPrimary }}>Free beta</span>
+            {/* Non-breaking spaces keep the date on one line when the text wraps */}
+            <span style={{ color: colors.textSecondary }}>Every tool, through Dec&nbsp;31,&nbsp;2026</span>
+          </div>
         </div>
       )}
-    </>
+    </div>
   );
 
   return (
@@ -249,13 +396,14 @@ const AppLayout: React.FC = () => {
               overflow: 'hidden',
             }}
           >
-            <SidebarContent />
+            {renderSidebar()}
           </Sider>
 
           {/* Edge toggle button — large enough touch target on all devices */}
           <button
             onClick={() => setCollapsed(!collapsed)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
             style={{
               position: 'fixed',
               left: collapsed ? 80 - 16 : 240 - 16,
@@ -322,29 +470,7 @@ const AppLayout: React.FC = () => {
             paddingLeft: 'env(safe-area-inset-left)',
           }}
         >
-          {/* Close button row */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              padding: '12px 16px',
-              borderBottom: `1px solid ${colors.border}`,
-              // Account for top notch
-              paddingTop: 'calc(12px + env(safe-area-inset-top))',
-              flexShrink: 0,
-            }}
-          >
-            <Button
-              type="text"
-              icon={<CloseOutlined />}
-              onClick={() => setMobileMenuOpen(false)}
-              style={{
-                width: 44,
-                height: 44,
-              }}
-            />
-          </div>
-          <SidebarContent />
+          {renderSidebar()}
         </div>
       </Drawer>
 
@@ -400,7 +526,9 @@ const AppLayout: React.FC = () => {
 
             {/* Right side - User menu */}
             <Dropdown menu={{ items: userMenuItems }} trigger={['click']}>
-              <div
+              <button
+                type="button"
+                aria-label="Account menu"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -408,6 +536,9 @@ const AppLayout: React.FC = () => {
                   cursor: 'pointer',
                   padding: '6px 10px',
                   borderRadius: 10,
+                  border: 0,
+                  background: 'transparent',
+                  font: 'inherit',
                   transition: 'background 0.15s ease',
                   minHeight: 44,
                 }}
@@ -443,7 +574,7 @@ const AppLayout: React.FC = () => {
                     {user?.fullName || 'User'}
                   </span>
                 )}
-              </div>
+              </button>
             </Dropdown>
           </Header>
 
@@ -455,7 +586,7 @@ const AppLayout: React.FC = () => {
               background: colors.bgLight,
               overflowX: 'hidden',
               paddingBottom: isMobile
-                ? 'calc(60px + 16px + env(safe-area-inset-bottom))'
+                ? `calc(${BOTTOM_NAV_HEIGHT}px + 16px + env(safe-area-inset-bottom))`
                 : useDrawer
                 ? 'calc(16px + env(safe-area-inset-bottom))'
                 : 24,
@@ -472,6 +603,7 @@ const AppLayout: React.FC = () => {
       {/* Mobile Bottom Navigation */}
       {isMobile && (
         <nav
+          aria-label="Bottom"
           style={{
             position: 'fixed',
             bottom: 0,
@@ -484,46 +616,37 @@ const AppLayout: React.FC = () => {
             alignItems: 'stretch',
             zIndex: 100,
             paddingBottom: 'env(safe-area-inset-bottom)',
-            height: 60,
+            height: BOTTOM_NAV_HEIGHT,
           }}
         >
-          {[
-            { key: '/app/dashboard', icon: <HomeOutlined />, label: 'Home' },
-            { key: '/app/estimates', icon: <FileTextOutlined />, label: 'Estimates' },
-            { key: '/app/invoices', icon: <DollarOutlined />, label: 'Invoices' },
-            { key: '/app/customers', icon: <UserOutlined />, label: 'Customers' },
-            { key: '/app/tools', icon: <AppstoreOutlined />, label: 'Tools' },
-          ].map((tab) => {
-            const isActive = location.pathname.startsWith(tab.key);
+          {BOTTOM_TABS.map((tab) => {
+            const isActive = isUnder(tab.to);
             return (
-              <button
-                key={tab.key}
-                onClick={() => navigate(tab.key)}
+              <Link
+                key={tab.to}
+                to={tab.to}
                 style={{
                   flex: 1,
+                  minWidth: 0,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 2,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
+                  gap: 4,
                   padding: '6px 0',
-                  color: isActive ? colors.primary : colors.textMuted,
-                  fontSize: 20,
+                  color: isActive ? colors.primary : colors.textSecondary,
                   transition: 'color 0.15s ease',
                   position: 'relative',
                 }}
-                aria-label={tab.label}
                 aria-current={isActive ? 'page' : undefined}
               >
-                {/* Active indicator dot */}
+                {/* Active indicator dot — a non-color cue alongside the weight change */}
                 {isActive && (
                   <span
+                    aria-hidden="true"
                     style={{
                       position: 'absolute',
-                      top: 2,
+                      top: 3,
                       left: '50%',
                       transform: 'translateX(-50%)',
                       width: 4,
@@ -536,7 +659,7 @@ const AppLayout: React.FC = () => {
                 {tab.icon}
                 <span
                   style={{
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: isActive ? 600 : 500,
                     lineHeight: 1,
                     letterSpacing: '0.01em',
@@ -544,7 +667,7 @@ const AppLayout: React.FC = () => {
                 >
                   {tab.label}
                 </span>
-              </button>
+              </Link>
             );
           })}
         </nav>

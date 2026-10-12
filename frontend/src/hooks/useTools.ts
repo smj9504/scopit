@@ -22,6 +22,34 @@ export function useToolSessions(toolId?: string) {
   });
 }
 
+/**
+ * Latest saved work across all tools, for the dashboard. The unfiltered
+ * list also returns internal per-company records stored as tool sessions
+ * (e.g. packing company profiles under their own tool id), so callers must
+ * filter to user-facing tool ids — over-fetch a little to leave room.
+ */
+export function useRecentToolSessions(limit = 10) {
+  return useQuery({
+    queryKey: ['tool-sessions', 'recent', limit],
+    queryFn: () => toolService.listSessionsPaged({ limit }),
+    staleTime: 30000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * Saved-work count and newest item for one tool, for the Tools page footer.
+ * limit=1 keeps the response tiny; the total comes from X-Total-Count.
+ */
+export function useToolSessionSummary(toolId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['tool-sessions', 'summary', toolId],
+    queryFn: () => toolService.listSessionsPaged({ toolId, limit: 1 }),
+    enabled,
+    staleTime: 60000,
+  });
+}
+
 export function useToolSession(sessionId: string) {
   return useQuery({
     queryKey: ['tool-session', sessionId],
