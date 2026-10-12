@@ -9,6 +9,7 @@ Allow: /water-damage-contents-estimate
 Allow: /fire-damage-contents-estimate
 Allow: /demo/packing
 Allow: /packing-estimate
+Allow: /in-person-contract-signing
 
 # Authenticated app - not useful to searchers, keep out of the index
 Disallow: /app/

@@ -1,0 +1,30 @@
+# Scopit
+
+> Scopit is estimating and invoicing software for restoration contractors (water, fire and contents/pack-out work), with standalone tools for pack-out pricing, roof report reading, line-item lookup and on-site e-signatures. It runs in the browser on desktop, phone and tablet. Free during the beta through December 31, 2026.
+
+Scopit is built for small and mid-size U.S. restoration contractors. Each tool works on its own, and results can be carried into Scopit estimates and invoices.
+
+- **Packing & moving estimator**: builds an itemized pack-out, storage and pack-back estimate from room photos, priced at the contractor's own rates (labor, materials, moving, storage), exportable as a PDF or Excel packing report. A free demo runs without signup.
+- **PDF & e-sign**: contractors upload their own PDFs (work authorizations, contracts, direction-to-pay forms, change orders), auto-fill customer and company details, and get them signed in person by opening the signing link on their own phone or tablet, or by email. Signers need no account or app. Scopit records consent, timestamps, IP address and device, and emails the signed PDF to every party. Scopit does not supply contract templates.
+- **Roof analyzer**: reads EagleView roof reports and lays out every face, slope and area. Priced roof estimates are not available yet.
+- **Line-item finder**: search by work type to get the pre-work, main, material, trim and post-work line items for a job.
+- **Estimates & invoices**: create and manage restoration estimates and invoices.
+
+## Pages
+
+- [Home](https://www.scopit.work/): overview of every tool and beta pricing
+- [In-person contract signing](https://www.scopit.work/in-person-contract-signing): on-site e-signatures for restoration contractors
+- [Packing calculator](https://www.scopit.work/packing-calculator): photo-based pack-out estimates
+- [Pack-out & pack-back estimate](https://www.scopit.work/pack-out-estimate)
+- [Insurance packing estimate](https://www.scopit.work/insurance-packing-estimate)
+- [Packing report (PDF & Excel)](https://www.scopit.work/packing-report)
+- [Xactimate packing estimate alternative](https://www.scopit.work/xactimate-packing-estimate)
+- [Water damage contents estimate](https://www.scopit.work/water-damage-contents-estimate)
+- [Fire damage contents estimate](https://www.scopit.work/fire-damage-contents-estimate)
+- [Free packing estimate demo](https://www.scopit.work/demo/packing): try it with sample rooms, no signup
+
+## Optional
+
+- [Privacy policy](https://www.scopit.work/privacy)
+- [Terms of service](https://www.scopit.work/terms)
+- Contact: hello@scopit.work

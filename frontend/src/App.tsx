@@ -42,6 +42,7 @@ const PackingReportPage = lazy(() => import('@/pages/public/PackingReportPage'))
 const XactimatePackingEstimatePage = lazy(() => import('@/pages/public/XactimatePackingEstimatePage'));
 const WaterDamageContentsEstimatePage = lazy(() => import('@/pages/public/WaterDamageContentsEstimatePage'));
 const FireDamageContentsEstimatePage = lazy(() => import('@/pages/public/FireDamageContentsEstimatePage'));
+const InPersonContractSigningPage = lazy(() => import('@/pages/public/InPersonContractSigningPage'));
 const PackingLeadFormPage = lazy(() => import('@/pages/public/PackingLeadFormPage'));
 const PackingLeadVerifyPage = lazy(() => import('@/pages/public/PackingLeadVerifyPage'));
 const PackingLeadResultPage = lazy(() => import('@/pages/public/PackingLeadResultPage'));
@@ -161,6 +162,9 @@ const router = createBrowserRouter(
 
       {/* Public E-Sign Page (no auth required) */}
       <Route path="/sign/:token" element={<SignPage />} />
+
+      {/* Public E-Sign SEO content page (no auth required) */}
+      <Route path="/in-person-contract-signing" element={<InPersonContractSigningPage />} />
 
       {/* Public Packing Estimator Demo (no auth required) */}
       <Route path="/demo/packing" element={<PackingDemoPage />} />

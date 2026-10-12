@@ -73,6 +73,12 @@ const routes = [
       'Price fire & smoke contents from room photos — clean-and-store vs total loss, off-site cleaning pack-out, storage, itemized per room for the claim.',
   },
   {
+    path: '/in-person-contract-signing',
+    title: 'In-Person Contract Signing for Restoration | Scopit',
+    description:
+      'Get work authorizations signed on-site: open the signing link on your phone or tablet and hand it to the homeowner. No app or account needed.',
+  },
+  {
     path: '/demo/packing',
     title: 'Free Packing Estimate Demo | Scopit',
     description:

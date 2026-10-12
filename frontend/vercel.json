@@ -37,6 +37,10 @@
       "destination": "/fire-damage-contents-estimate/index.html"
     },
     {
+      "source": "/in-person-contract-signing",
+      "destination": "/in-person-contract-signing/index.html"
+    },
+    {
       "source": "/packing-estimate",
       "destination": "/packing-estimate/index.html"
     },

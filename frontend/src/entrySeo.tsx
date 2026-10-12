@@ -26,6 +26,7 @@ import PackingReportPage from './pages/public/PackingReportPage';
 import XactimatePackingEstimatePage from './pages/public/XactimatePackingEstimatePage';
 import WaterDamageContentsEstimatePage from './pages/public/WaterDamageContentsEstimatePage';
 import FireDamageContentsEstimatePage from './pages/public/FireDamageContentsEstimatePage';
+import InPersonContractSigningPage from './pages/public/InPersonContractSigningPage';
 import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
 import TermsPage from './pages/public/TermsPage';
 import LandingPage from './pages/public/LandingPage';
@@ -39,6 +40,7 @@ const ROUTES: Record<string, React.ComponentType> = {
   '/xactimate-packing-estimate': XactimatePackingEstimatePage,
   '/water-damage-contents-estimate': WaterDamageContentsEstimatePage,
   '/fire-damage-contents-estimate': FireDamageContentsEstimatePage,
+  '/in-person-contract-signing': InPersonContractSigningPage,
   '/privacy': PrivacyPolicyPage,
   '/terms': TermsPage,
 };

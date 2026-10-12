@@ -2,7 +2,8 @@
  * Scopit - Packing SEO landing layout
  *
  * Shared presentation for the packing topic-cluster pages (a hub at
- * /packing-calculator plus keyword-specific spokes). Each page supplies its own
+ * /packing-calculator plus keyword-specific spokes), also reused by other
+ * tool landing pages (e.g. /in-person-contract-signing) via the CTA props. Each page supplies its own
  * copy as data so the pages stay genuinely distinct (not duplicate/doorway
  * content) while sharing one validated layout, header/footer, CTAs, and the
  * BreadcrumbList + FAQPage structured data. Every claim in the supplied copy
@@ -62,7 +63,15 @@ export interface PackingLandingLayoutProps {
   bottomCtaBody: string;
   /** Sibling/hub links for internal linking within the cluster. */
   related?: RelatedLink[];
+  /** Hero/bottom CTAs. Defaults to the packing demo + free packing estimate. */
+  primaryCta?: RelatedLink;
+  secondaryCta?: RelatedLink;
+  /** Small print under the hero CTAs. */
+  heroNote?: string;
 }
+
+const DEFAULT_PRIMARY_CTA: RelatedLink = { label: 'Try the live demo', to: '/demo/packing' };
+const DEFAULT_SECONDARY_CTA: RelatedLink = { label: 'Get a free packing estimate', to: '/packing-estimate' };
 
 const PackingLandingLayout: React.FC<PackingLandingLayoutProps> = ({
   path,
@@ -80,6 +89,9 @@ const PackingLandingLayout: React.FC<PackingLandingLayoutProps> = ({
   bottomCtaHeading,
   bottomCtaBody,
   related,
+  primaryCta = DEFAULT_PRIMARY_CTA,
+  secondaryCta = DEFAULT_SECONDARY_CTA,
+  heroNote = 'Free during beta — no signup required to try the demo.',
 }) => {
   const isMobile = useIsMobile();
 
@@ -188,19 +200,19 @@ const PackingLandingLayout: React.FC<PackingLandingLayoutProps> = ({
             {subhead}
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link to="/demo/packing">
+            <Link to={primaryCta.to}>
               <Button type="primary" size="large" style={{ fontWeight: 600, background: colors.primary }}>
-                Try the live demo
+                {primaryCta.label}
               </Button>
             </Link>
-            <Link to="/packing-estimate">
+            <Link to={secondaryCta.to}>
               <Button size="large" style={{ fontWeight: 600 }}>
-                Get a free packing estimate
+                {secondaryCta.label}
               </Button>
             </Link>
           </div>
           <p style={{ fontSize: 13, color: colors.textMuted, margin: '16px 0 0' }}>
-            Free during beta — no signup required to try the demo.
+            {heroNote}
           </p>
         </section>
 
@@ -358,14 +370,14 @@ const PackingLandingLayout: React.FC<PackingLandingLayoutProps> = ({
               {bottomCtaBody}
             </p>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <Link to="/demo/packing">
+              <Link to={primaryCta.to}>
                 <Button size="large" style={{ fontWeight: 600, background: colors.bgWhite, borderColor: colors.bgWhite }}>
-                  Try the live demo
+                  {primaryCta.label}
                 </Button>
               </Link>
-              <Link to="/packing-estimate">
+              <Link to={secondaryCta.to}>
                 <Button size="large" ghost style={{ fontWeight: 600, color: colors.textWhite, borderColor: '#4b5563' }}>
-                  Get a free estimate
+                  {secondaryCta === DEFAULT_SECONDARY_CTA ? 'Get a free estimate' : secondaryCta.label}
                 </Button>
               </Link>
             </div>

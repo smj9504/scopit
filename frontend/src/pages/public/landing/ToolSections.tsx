@@ -104,7 +104,10 @@ const ESignSection: React.FC = () => (
         <span className="lp-tool__meta">PDF &amp; E-Sign · All jobs</span>
         <h2 className="lp-tool__title">Signed before you leave the driveway.</h2>
         <p className="lp-tool__body">Forms fill themselves from your records. Send for signature by link.</p>
-        <Link to="/register" className="lp-btn">Send a document to sign</Link>
+        <div className="lp-tool__ctas">
+          <Link to="/register" className="lp-btn">Send a document to sign</Link>
+          <Link to="/in-person-contract-signing" className="lp-link">How on-site signing works</Link>
+        </div>
       </div>
       <div className="lp-tray" aria-hidden="true">
         <div className="lp-doc" data-anim="sig-doc">
