@@ -2327,6 +2327,7 @@ const SubscriptionSettings: React.FC = () => {
             You have access to all features during the beta period.
           </div>
           <ul style={{ color: colors.textSecondary, paddingLeft: 20, marginBottom: 0 }}>
+            <li>Every tool included</li>
             <li>Unlimited estimates & invoices</li>
             <li>Unlimited customers & line items</li>
             <li>PDF export & email</li>
@@ -2336,7 +2337,7 @@ const SubscriptionSettings: React.FC = () => {
       </Badge.Ribbon>
 
       <div style={{ marginTop: 24, padding: 20, background: '#fefce8', borderRadius: 8, maxWidth: 500 }}>
-        <div style={{ fontWeight: 600, color: '#854d0e', marginBottom: 4 }}>Beta ends June 30, 2026</div>
+        <div style={{ fontWeight: 600, color: '#854d0e', marginBottom: 4 }}>Beta ends December 31, 2026</div>
         <div style={{ color: '#a16207', fontSize: 14 }}>
           You'll receive special pricing as a beta user when we launch.
         </div>
