@@ -7,9 +7,9 @@
  * keyword-targeted packing content pages to static HTML, so search crawlers
  * (and non-JS link scrapers) see the real headings and copy before any JS runs.
  *
- * Only the PackingLandingLayout-based content pages are rendered here — they are
- * pure, data-driven, and SSR-safe (no window/document/data-fetching at render).
- * The interactive pages (demo, lead form) stay meta-only.
+ * Only pure, SSR-safe pages are rendered here (no window/document/data-fetching
+ * at render): the landing page, the PackingLandingLayout content pages and the
+ * legal pages. The interactive pages (demo, lead form) stay meta-only.
  *
  * This bundle is built with vite.config.ssr.ts into dist-ssr/ and is NOT
  * deployed — it is a build-time-only artifact.
@@ -23,12 +23,24 @@ import PackingCalculatorPage from './pages/public/PackingCalculatorPage';
 import PackOutEstimatePage from './pages/public/PackOutEstimatePage';
 import InsurancePackingEstimatePage from './pages/public/InsurancePackingEstimatePage';
 import PackingReportPage from './pages/public/PackingReportPage';
+import XactimatePackingEstimatePage from './pages/public/XactimatePackingEstimatePage';
+import WaterDamageContentsEstimatePage from './pages/public/WaterDamageContentsEstimatePage';
+import FireDamageContentsEstimatePage from './pages/public/FireDamageContentsEstimatePage';
+import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
+import TermsPage from './pages/public/TermsPage';
+import LandingPage from './pages/public/LandingPage';
 
 const ROUTES: Record<string, React.ComponentType> = {
+  '/': LandingPage,
   '/packing-calculator': PackingCalculatorPage,
   '/pack-out-estimate': PackOutEstimatePage,
   '/insurance-packing-estimate': InsurancePackingEstimatePage,
   '/packing-report': PackingReportPage,
+  '/xactimate-packing-estimate': XactimatePackingEstimatePage,
+  '/water-damage-contents-estimate': WaterDamageContentsEstimatePage,
+  '/fire-damage-contents-estimate': FireDamageContentsEstimatePage,
+  '/privacy': PrivacyPolicyPage,
+  '/terms': TermsPage,
 };
 
 /** Routes this SSR entry can render a static body for. */

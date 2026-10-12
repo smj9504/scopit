@@ -7,7 +7,7 @@
 //
 // This writes a per-route copy of the shell with the real meta baked in,
 // so routes listed here get correct signals before any JS runs.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -152,4 +152,35 @@ for (const route of routes) {
   console.log(
     `Prerendered SEO shell${rendered ? ' + SSR body' : ''}: ${route.path} -> ${join(outDir, 'index.html')}`,
   );
+}
+
+// The landing page ("/") keeps the template's own meta, but its body is baked
+// into dist/index.html too. That file is also the SPA fallback for every other
+// route (vercel.json catch-all, PWA navigateFallback), so an inline guard hides
+// the prerendered landing body on any other path until React replaces #root —
+// otherwise /app/* would flash the marketing page before the app mounts.
+let landing = null;
+try {
+  landing = renderRoute('/');
+} catch (err) {
+  console.warn('[prerender-seo] render failed for /:', err?.message ?? err);
+}
+if (landing) {
+  // LandingPage is a lazy chunk, so its CSS isn't linked from the shell. Link
+  // it (and preload the JS) so the baked body is styled before any JS runs.
+  const assets = readdirSync(join(distDir, 'assets'));
+  const landingCss = assets.filter((f) => /^LandingPage-.*\.css$/.test(f));
+  const landingJs = assets.filter((f) => /^LandingPage-.*\.js$/.test(f));
+  const guard =
+    landingCss.map((f) => `<link rel="stylesheet" crossorigin href="/assets/${f}">\n    `).join('') +
+    landingJs.map((f) => `<link rel="modulepreload" crossorigin href="/assets/${f}">\n    `).join('') +
+    `<script>if(location.pathname!=='/')document.documentElement.setAttribute('data-spa-route','')</script>\n` +
+    `    <style>[data-spa-route] [data-prerendered]{display:none}</style>\n  `;
+  let html = template.replace('</head>', `${guard}</head>`);
+  html = html.replace(
+    /<div id="root"><\/div>/,
+    `<div id="root"><div data-prerendered style="display:contents">${landing.appHtml}</div></div>`,
+  );
+  writeFileSync(join(distDir, 'index.html'), html);
+  console.log(`Prerendered SSR body: / -> ${join(distDir, 'index.html')}`);
 }
