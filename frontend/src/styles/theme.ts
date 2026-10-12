@@ -25,11 +25,13 @@ export const colors = {
   // Text
   textPrimary: '#111827',
   textSecondary: '#4b5563',
-  textMuted: '#9ca3af',
+  // #6b7280 keeps muted text at 4.8:1 on white (WCAG AA); #9ca3af was 2.5:1
+  textMuted: '#6b7280',
   textWhite: '#ffffff',
 
   // Status
-  success: '#059669',
+  // #047857 reads at 5.2:1 on successBg; #059669 was 3.6:1
+  success: '#047857',
   successBg: '#ecfdf5',
   warning: '#d97706',
   warningBg: '#fffbeb',
