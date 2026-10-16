@@ -61,6 +61,7 @@ import {
   BorderOutlined,
   MinusSquareOutlined,
   CheckOutlined,
+  FormOutlined,
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius, fontSizes, fontWeights } from '@/styles/theme';
 
@@ -142,6 +143,7 @@ const TOOL_DEFS: { key: string; label: string; icon: React.ReactNode }[] = [
       </svg>
     ),
   },
+  { key: 'edit_text',  label: 'Edit Text',  icon: <FormOutlined /> },
   { key: 'text',       label: 'Text',       icon: <FontSizeOutlined /> },
   { key: 'image',      label: 'Image',      icon: <PictureOutlined /> },
   { key: 'draw',       label: 'Draw',       icon: <EditOutlined /> },

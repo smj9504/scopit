@@ -445,11 +445,18 @@ def _burn_one_annotation(c, ann: dict) -> bool:
             c.rect(-w / 2, -h / 2, w, h, fill=0, stroke=1)
         return True
 
-    stroke_width = style.get("border_width") or 2
+    # 0 means no outline (e.g. Edit Text's cover boxes), same as the editor;
+    # only a missing width falls back to the default
+    stroke_width = style.get("border_width")
+    if stroke_width is None:
+        stroke_width = 2
+    stroke = 1 if stroke_width > 0 else 0
     c.setStrokeColorRGB(*_hex_to_rgb(style.get("color"), default=(0.07, 0.09, 0.16)))
     c.setLineWidth(stroke_width)
 
     if ann_type == "drawing":
+        if not stroke:
+            return False
         segs = _path_segments(_parse_drawing_path(ann.get("content") or ""))
         bbox = _segments_bbox(segs)
         if not bbox:
@@ -483,12 +490,16 @@ def _burn_one_annotation(c, ann: dict) -> bool:
         c.setFillColorRGB(*_hex_to_rgb(fill_hex))
 
     kind = ann.get("content")
+    if kind in ("rect", "circle") and not (has_fill or stroke):
+        return False
     if kind == "rect" and w and h:
-        c.rect(-w / 2, -h / 2, w, h, fill=1 if has_fill else 0, stroke=1)
+        c.rect(-w / 2, -h / 2, w, h, fill=1 if has_fill else 0, stroke=stroke)
         return True
     if kind == "circle" and w and h:
-        c.ellipse(-w / 2, -h / 2, w / 2, h / 2, fill=1 if has_fill else 0, stroke=1)
+        c.ellipse(-w / 2, -h / 2, w / 2, h / 2, fill=1 if has_fill else 0, stroke=stroke)
         return True
+    if not stroke:
+        return False
     if kind == "line" and w:
         c.line(-w / 2, 0, w / 2, 0)
         return True

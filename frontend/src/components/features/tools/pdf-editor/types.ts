@@ -216,7 +216,7 @@ export function isMultilineText(field: Pick<FieldDefinition, 'type' | 'height'>)
   return field.type === 'text' && field.height >= TEXT_MULTILINE_HEIGHT;
 }
 
-export type EditorTool = 'select' | 'text' | 'image' | 'draw' | 'stamp' | 'sign' | 'sign_field' | 'shape_rect' | 'shape_circle' | 'shape_line';
+export type EditorTool = 'select' | 'edit_text' | 'text' | 'image' | 'draw' | 'stamp' | 'sign' | 'sign_field' | 'shape_rect' | 'shape_circle' | 'shape_line';
 
 export interface EditorState {
   documentId: string | null;

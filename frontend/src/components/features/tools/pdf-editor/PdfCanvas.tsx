@@ -25,6 +25,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { useAuthStore } from '@/stores/authStore';
 import './pdfWorker';
+import { extractTextRuns, sampleRunColors, type PdfTextLayer } from './pdfTextRuns';
 // Theme not needed – bare canvas only
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -42,11 +43,14 @@ export interface PdfCanvasProps {
   onCanvasResize?: (width: number, height: number) => void;
   /** Called when the page render completes (true) or starts (false) */
   onPageReady?: (ready: boolean) => void;
+  /** The page's existing text, for the Edit Text tool (null while rendering) */
+  onTextLayer?: (layer: PdfTextLayer | null) => void;
 }
 
 // Cursor styles mapped to tool names
 const TOOL_CURSOR: Record<string, string> = {
   select: 'default',
+  edit_text: 'text',
   text: 'text',
   image: 'crosshair',
   draw: 'crosshair',
@@ -66,11 +70,16 @@ const PdfCanvas: React.FC<PdfCanvasProps> = ({
   refreshKey = 0,
   onCanvasResize,
   onPageReady,
+  onTextLayer,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
   const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
+  // Bumped per render so a slow text extraction can't report a stale page
+  const renderGenRef = useRef(0);
+  const onTextLayerRef = useRef(onTextLayer);
+  onTextLayerRef.current = onTextLayer;
 
   const [isLoading, setIsLoading] = useState(true);
   const [isPageRendering, setIsPageRendering] = useState(false);
@@ -148,6 +157,8 @@ const PdfCanvas: React.FC<PdfCanvasProps> = ({
 
       setIsPageRendering(true);
       onPageReady?.(false);
+      const gen = ++renderGenRef.current;
+      onTextLayerRef.current?.(null);
 
       let page: PDFPageProxy | null = null;
       try {
@@ -177,6 +188,21 @@ const PdfCanvas: React.FC<PdfCanvasProps> = ({
         renderTaskRef.current = null;
         setIsPageRendering(false);
         onPageReady?.(true);
+
+        if (onTextLayerRef.current) {
+          try {
+            const runs = await extractTextRuns(page, page.getViewport({ scale: 1 }));
+            if (gen === renderGenRef.current) {
+              const pixelScale = scale * dpr;
+              onTextLayerRef.current?.({
+                runs,
+                sampleColors: (run) => sampleRunColors(canvas, run, pixelScale),
+              });
+            }
+          } catch (err) {
+            console.warn('[PdfCanvas] Text extraction failed:', err);
+          }
+        }
       } catch (err: unknown) {
         // RenderingCancelledException is expected when we cancel; ignore it
         if (

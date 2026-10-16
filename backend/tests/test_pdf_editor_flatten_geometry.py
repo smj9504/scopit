@@ -160,3 +160,24 @@ def test_field_rotation_round_trips():
     for _ in range(4):
         turned = _rotate_field(turned, 90)
     assert {k: turned[k] for k in field} == pytest.approx(field)
+
+
+def rect_ann(style):
+    return {
+        "id": "r", "type": "shape", "page": 1, "x": 100, "y": 100,
+        "width": 80, "height": 20, "rotation": 0, "content": "rect", "style": style,
+    }
+
+
+def test_zero_width_border_draws_fill_only():
+    # Edit Text's cover box: filled, no outline, as the editor shows it
+    page = flatten(source_pdf(), [rect_ann({"background_color": "#ffffff", "border_width": 0})])
+    ops = [op for _, op in page.get_contents().operations]
+    assert b"f*" in ops
+    assert not {b"S", b"B", b"B*"} & set(ops)
+
+
+def test_missing_border_width_keeps_default_outline():
+    page = flatten(source_pdf(), [rect_ann({"background_color": "#ffffff"})])
+    ops = [op for _, op in page.get_contents().operations]
+    assert b"B*" in ops

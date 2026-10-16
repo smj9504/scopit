@@ -50,6 +50,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { pdfEditorApi } from './pdfEditorApi';
 import type { PdfDocument, SignRequest, Annotation } from './types';
+import type { PdfTextLayer } from './pdfTextRuns';
 import type { ToolComponentProps } from '../registry';
 import { colors, fonts, borderRadius, shadows } from '@/styles/theme';
 import PdfCanvas from './PdfCanvas';
@@ -914,6 +915,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   annotationsRef.current = annotations;
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [isPdfPageReady, setIsPdfPageReady] = useState(false);
+  const [textLayer, setTextLayer] = useState<PdfTextLayer | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [undoStack, setUndoStack] = useState<Annotation[][]>([]);
   const [redoStack, setRedoStack] = useState<Annotation[][]>([]);
@@ -998,6 +1000,12 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
     commitAnnotations([...annotationsRef.current, ann]);
     // One placement per tool pick; freehand drawing stays on for more strokes
     if (ann.type !== 'drawing') setActiveTool('select');
+  }, [commitAnnotations]);
+
+  // Edit Text: the cover box and its replacement text are one undo step
+  const handleTextReplace = useCallback((added: Annotation[]) => {
+    if (added.length) commitAnnotations([...annotationsRef.current, ...added]);
+    setActiveTool('select');
   }, [commitAnnotations]);
 
   const rememberCheckSize = useCallback((ann: Annotation) => {
@@ -1453,6 +1461,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
               refreshKey={pdfRefreshKey}
               onCanvasResize={(w, h) => setCanvasSize({ width: w, height: h })}
               onPageReady={setIsPdfPageReady}
+              onTextLayer={setTextLayer}
             />
             {canvasSize.width > 0 && canvasSize.height > 0 && (
               <div
@@ -1483,6 +1492,8 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
                   drawWidth={drawWidth}
                   checkSize={checkSize}
                   onSignRequest={handleSignRequest}
+                  textLayer={textLayer}
+                  onTextReplace={handleTextReplace}
                 />
               </div>
             )}

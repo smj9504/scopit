@@ -43,6 +43,7 @@ import {
   util,
 } from 'fabric';
 import type { Annotation, AnnotationStyle } from './types';
+import { findRunAt, runPoint, type PdfTextLayer, type PdfTextRun } from './pdfTextRuns';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,19 @@ const DEFAULT_LINE_LENGTH = 150;
 export const DEFAULT_CHECK_SIZE = 24;
 const UPDATE_DEBOUNCE_MS = 120;
 
+/**
+ * Edit Text replaces a piece of the PDF's own text with a pair of
+ * annotations: a box in the page's background color over the original
+ * (id = text id + this suffix) and the new text on top. The id link lets a
+ * second click on the same spot reopen the replacement instead of stacking
+ * another one. Deleting just the text leaves the box: the original stays
+ * hidden, which is how text gets removed.
+ */
+export const TEXT_COVER_SUFFIX = ':cover';
+// fabric IText: a single line is fontSize * 1.13 tall with the baseline at
+// 77.8% of that (see _FABRIC_* in the backend's burn code)
+const FABRIC_BASELINE_RATIO = 1 - 0.222;
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 export interface AnnotationLayerProps {
@@ -98,6 +112,15 @@ export interface AnnotationLayerProps {
   checkSize?: number;
   /** Called when user clicks canvas with sign tool – provides click position */
   onSignRequest?: (pos: { x: number; y: number }) => void;
+  /** The page's existing text, for the edit_text tool */
+  textLayer?: PdfTextLayer | null;
+  /**
+   * The edit_text tool covered a piece of PDF text: `added` is [cover, text]
+   * (or just [text] if the cover already existed), already on the canvas
+   * with the text in editing mode. Empty when the click reopened an
+   * existing replacement instead.
+   */
+  onTextReplace?: (added: Annotation[]) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -183,6 +206,16 @@ function foldTextScale(obj: IText): number | null {
   obj.initDimensions(); // fabric re-measures text lazily; we need the new size now
   obj.setCoords();
   return fontSize;
+}
+
+/** Whether a page point lies inside an annotation's (rotated) box. */
+function annotationContains(ann: Annotation, px: number, py: number): boolean {
+  const a = (-(ann.rotation || 0) * Math.PI) / 180;
+  const dx = px - ann.x;
+  const dy = py - ann.y;
+  const lx = dx * Math.cos(a) - dy * Math.sin(a);
+  const ly = dx * Math.sin(a) + dy * Math.cos(a);
+  return Math.abs(lx) <= ann.width / 2 && Math.abs(ly) <= ann.height / 2;
 }
 
 /** Image border, drawn by fabric as a stroke around the image. */
@@ -550,6 +583,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   drawWidth,
   checkSize,
   onSignRequest,
+  textLayer,
+  onTextReplace,
 }) => {
   const canvasElRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<Canvas | null>(null);
@@ -583,6 +618,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     onAnnotationAdd,
     onAnnotationDelete,
     onSignRequest,
+    onTextReplace,
   });
   useEffect(() => {
     callbacksRef.current = {
@@ -591,6 +627,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       onAnnotationAdd,
       onAnnotationDelete,
       onSignRequest,
+      onTextReplace,
     };
   });
 
@@ -615,6 +652,14 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
   const checkSizeRef = useRef(checkSize ?? DEFAULT_CHECK_SIZE);
   useEffect(() => { checkSizeRef.current = checkSize ?? DEFAULT_CHECK_SIZE; }, [checkSize]);
+
+  const textLayerRef = useRef(textLayer ?? null);
+  useEffect(() => { textLayerRef.current = textLayer ?? null; }, [textLayer]);
+
+  // PDF text under the pointer while the edit_text tool is active
+  const [hoverRun, setHoverRun] = useState<PdfTextRun | null>(null);
+  useEffect(() => { if (activeTool !== 'edit_text') setHoverRun(null); }, [activeTool]);
+  useEffect(() => { setHoverRun(null); }, [textLayer]);
 
   // ── Initialize fabric canvas on mount ────────────────────────────────────
   useLayoutEffect(() => {
@@ -800,6 +845,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     fc.isDrawingMode = isDrawing;
     fc.selection = isSelect;
     fc.skipTargetFind = !isSelect && !isDrawing;
+    fc.defaultCursor = 'default';
 
     // Make existing objects selectable/moveable only in select mode.
     // Keep evented=true for all tools so the canvas-level mouse:down event
@@ -897,7 +943,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
       // For text tool: if an IText is currently in editing mode, exit editing
       // first and skip placing a new text object (user just wants to deselect).
-      if (tool === 'text') {
+      if (tool === 'text' || tool === 'edit_text') {
         const active = fc.getActiveObject();
         if (active instanceof IText && active.isEditing) {
           active.exitEditing();
@@ -945,6 +991,90 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             },
           };
           callbacksRef.current.onAnnotationAdd(newAnn);
+          break;
+        }
+
+        case 'edit_text': {
+          const layer = textLayerRef.current;
+          const run = layer ? findRunAt(layer.runs, cx, cy) : null;
+          if (!layer || !run) break;
+          const pg = pageNumberRef.current;
+          const runCenter = runPoint(run, run.width / 2, (run.descent - run.ascent) / 2);
+
+          // Already replaced here: reopen that text rather than stack another
+          const cover = annotationsRef.current.find(
+            (a) => a.id.endsWith(TEXT_COVER_SUFFIX) && annotationContains(a, runCenter.x, runCenter.y),
+          );
+          const textId = cover ? cover.id.slice(0, -TEXT_COVER_SUFFIX.length) : generateId();
+          if (cover) {
+            const existing = fc.getObjects().find((o) => getAnnotationId(o) === textId);
+            if (existing instanceof IText) {
+              fc.setActiveObject(existing);
+              existing.enterEditing();
+              existing.selectAll();
+              fc.renderAll();
+              callbacksRef.current.onTextReplace?.([]);
+              break;
+            }
+          }
+
+          const sampled = layer.sampleColors(run);
+          const rotation = ((run.angle % 360) + 360) % 360;
+          const added: Annotation[] = [];
+
+          if (!cover) {
+            const pad = Math.max(1, run.fontSize * 0.08);
+            const fill = sampled?.background ?? '#ffffff';
+            const coverAnn: Annotation = {
+              id: textId + TEXT_COVER_SUFFIX,
+              type: 'shape',
+              page: pg,
+              x: runCenter.x,
+              y: runCenter.y,
+              width: run.width + pad * 2,
+              height: run.ascent + run.descent + pad * 2,
+              rotation,
+              content: 'rect',
+              style: { backgroundColor: fill, color: fill, borderWidth: 0 },
+            };
+            fc.add(buildShapeRectObject(coverAnn));
+            added.push(coverAnn);
+          }
+
+          const textAnn: Annotation = {
+            id: textId,
+            type: 'text',
+            page: pg,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            rotation,
+            content: run.text,
+            style: {
+              fontSize: Math.round(run.fontSize * 10) / 10,
+              fontFamily: run.fontFamily,
+              fontWeight: run.bold ? 'bold' : 'normal',
+              fontStyle: run.italic ? 'italic' : 'normal',
+              color: sampled?.text ?? DEFAULT_TEXT_COLOR,
+            },
+          };
+          const textObj = buildTextObject(textAnn);
+          // Put the new text's baseline-left where the original's was
+          const tw = textObj.width ?? 0;
+          const th = textObj.height ?? 0;
+          const center = runPoint(run, tw / 2, th / 2 - th * FABRIC_BASELINE_RATIO);
+          textObj.set({ left: center.x, top: center.y });
+          textObj.setCoords();
+          Object.assign(textAnn, { x: center.x, y: center.y, width: tw, height: th });
+
+          fc.add(textObj);
+          fc.setActiveObject(textObj);
+          textObj.enterEditing();
+          textObj.selectAll();
+          fc.renderAll();
+          added.push(textAnn);
+          callbacksRef.current.onTextReplace?.(added);
           break;
         }
 
@@ -1102,9 +1232,21 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       }
     };
 
+    // Edit Text: highlight the PDF text that a click would replace
+    const handleMouseMove = (opt: { scenePoint?: { x: number; y: number } }) => {
+      if (activeToolRef.current !== 'edit_text') return;
+      const layer = textLayerRef.current;
+      const sp = opt.scenePoint;
+      const run = layer && sp ? findRunAt(layer.runs, sp.x, sp.y) : null;
+      fc.defaultCursor = run ? 'text' : 'default';
+      setHoverRun((prev) => (prev === run ? prev : run));
+    };
+
     fc.on('mouse:down' as never, handleMouseDown as never);
+    fc.on('mouse:move' as never, handleMouseMove as never);
     return () => {
       fc.off('mouse:down' as never, handleMouseDown as never);
+      fc.off('mouse:move' as never, handleMouseMove as never);
     };
     // Register once — handler reads tool/page from refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1482,6 +1624,26 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           y={stampPicker.screenY}
           onSelect={handleStampSelect}
           onDismiss={() => setStampPicker(null)}
+        />
+      )}
+
+      {hoverRun && activeTool === 'edit_text' && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            left: hoverRun.x * zoom,
+            top: hoverRun.y * zoom,
+            width: hoverRun.width * zoom,
+            height: (hoverRun.ascent + hoverRun.descent) * zoom,
+            transform: `rotate(${hoverRun.angle}deg) translateY(${-hoverRun.ascent * zoom}px)`,
+            transformOrigin: '0 0',
+            outline: '1.5px solid #3b82f6',
+            outlineOffset: 2,
+            background: 'rgba(59, 130, 246, 0.08)',
+            borderRadius: 2,
+            pointerEvents: 'none',
+          }}
         />
       )}
 
