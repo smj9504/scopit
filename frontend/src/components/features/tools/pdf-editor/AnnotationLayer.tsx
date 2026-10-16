@@ -1347,10 +1347,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           existingObj.set(shapeProps);
         }
 
-        // Update opacity (all types)
-        if (s.opacity !== undefined) {
-          existingObj.set({ opacity: s.opacity });
-        }
+        // Update opacity (all types). A saved style can carry opacity: null,
+        // and fabric multiplies globalAlpha by it, so null would hide the object
+        existingObj.set({ opacity: s.opacity ?? 1 });
 
         existingObj.setCoords();
         needsRender = true;

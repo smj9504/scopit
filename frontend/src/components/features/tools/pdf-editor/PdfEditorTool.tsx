@@ -412,19 +412,22 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
       width: 48,
       align: 'right' as const,
       render: (_: unknown, doc: PdfDocument) => (
-        <Dropdown
-          menu={{ items: getRowActions(doc) }}
-          trigger={['click']}
-          placement="bottomRight"
-        >
-          <Button
-            type="text"
-            size="small"
-            icon={<MoreOutlined />}
-            onClick={(e) => e.stopPropagation()}
-            style={{ color: colors.textSecondary }}
-          />
-        </Dropdown>
+        // The menu renders in a portal, but React still bubbles its clicks
+        // up this tree to the row, whose onClick opens the editor
+        <span onClick={(e) => e.stopPropagation()}>
+          <Dropdown
+            menu={{ items: getRowActions(doc) }}
+            trigger={['click']}
+            placement="bottomRight"
+          >
+            <Button
+              type="text"
+              size="small"
+              icon={<MoreOutlined />}
+              style={{ color: colors.textSecondary }}
+            />
+          </Dropdown>
+        </span>
       ),
     },
   ];

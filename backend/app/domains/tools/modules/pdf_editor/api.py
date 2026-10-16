@@ -57,20 +57,23 @@ def _annotation_to_camel(ann: dict) -> dict:
     converting at this response boundary, same reasoning as
     _field_def_to_camel below."""
     style = ann.get("style") or {}
+    camel = {
+        "fontFamily": style.get("font_family"),
+        "fontSize": style.get("font_size"),
+        "fontWeight": style.get("font_weight"),
+        "fontStyle": style.get("font_style"),
+        "textDecoration": style.get("text_decoration"),
+        "color": style.get("color"),
+        "backgroundColor": style.get("background_color"),
+        "borderColor": style.get("border_color"),
+        "borderWidth": style.get("border_width"),
+        "opacity": style.get("opacity"),
+    }
+    # Leave unset keys out rather than sending null: the editor treats a
+    # present key as a value to apply (opacity: null renders invisible)
     return {
         **ann,
-        "style": {
-            "fontFamily": style.get("font_family"),
-            "fontSize": style.get("font_size"),
-            "fontWeight": style.get("font_weight"),
-            "fontStyle": style.get("font_style"),
-            "textDecoration": style.get("text_decoration"),
-            "color": style.get("color"),
-            "backgroundColor": style.get("background_color"),
-            "borderColor": style.get("border_color"),
-            "borderWidth": style.get("border_width"),
-            "opacity": style.get("opacity"),
-        },
+        "style": {k: v for k, v in camel.items() if v is not None},
     }
 
 
