@@ -360,36 +360,37 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ open, onClose, onApply,
 
   const title = fieldType === 'initials' ? 'Enter Initials' : 'Sign Document';
 
+  // The canvas remounts every time the Draw tab is shown, so each mount gets
+  // its own pad and the strokes carry over through savedDataRef
   useEffect(() => {
     if (!open || mode !== 'draw') return;
     const timer = setTimeout(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      if (!padRef.current) {
-        const ratio = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * ratio;
-        canvas.height = rect.height * ratio;
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.scale(ratio, ratio);
-        padRef.current = new SignaturePad(canvas, { penColor: '#111827', backgroundColor: 'rgba(0,0,0,0)' });
-      }
-      if (savedDataRef.current && padRef.current) {
-        padRef.current.fromDataURL(savedDataRef.current);
-      }
+      // offsetWidth/Height ignore the modal's zoom-in transform, which
+      // getBoundingClientRect includes and would shrink the drawable area
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = canvas.offsetWidth * ratio;
+      canvas.height = canvas.offsetHeight * ratio;
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.scale(ratio, ratio);
+      const pad = new SignaturePad(canvas, { penColor: '#111827', backgroundColor: 'rgba(0,0,0,0)' });
+      padRef.current = pad;
+      if (savedDataRef.current) pad.fromDataURL(savedDataRef.current);
     }, 50);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      const pad = padRef.current;
+      if (pad) {
+        savedDataRef.current = pad.isEmpty() ? null : pad.toDataURL();
+        pad.off();
+        padRef.current = null;
+      }
+    };
   }, [open, mode]);
 
   useEffect(() => {
-    if (mode !== 'draw' && padRef.current && !padRef.current.isEmpty()) {
-      savedDataRef.current = padRef.current.toDataURL();
-    }
-  }, [mode]);
-
-  useEffect(() => {
     if (!open) {
-      if (padRef.current) { padRef.current.off(); padRef.current = null; }
       savedDataRef.current = null;
       setTypedName('');
       setMode('draw');

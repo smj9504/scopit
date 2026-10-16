@@ -89,7 +89,9 @@ function renderTextToDataUrl(text: string, fontFamily: string): string {
 
 // ── Draw Canvas Hook ─────────────────────────────────────────────────────────
 
-function useDrawCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
+function useDrawCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const detachRef = useRef<(() => void) | null>(null);
   const drawingRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
   const hasContentRef = useRef(false);
@@ -110,8 +112,15 @@ function useDrawCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
     };
   };
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
+  // Callback ref: the Draw tab's canvas mounts only after the modal has
+  // switched to create mode and the tab is opened, so listeners must be
+  // attached whenever a canvas element actually appears
+  const ref = useCallback((canvas: HTMLCanvasElement | null) => {
+    detachRef.current?.();
+    detachRef.current = null;
+    canvasRef.current = canvas;
+    drawingRef.current = false;
+    hasContentRef.current = false;
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
 
@@ -149,7 +158,7 @@ function useDrawCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
     canvas.addEventListener('touchmove', onMove, { passive: false });
     canvas.addEventListener('touchend', onEnd);
 
-    return () => {
+    detachRef.current = () => {
       canvas.removeEventListener('mousedown', onStart);
       canvas.removeEventListener('mousemove', onMove);
       canvas.removeEventListener('mouseup', onEnd);
@@ -158,7 +167,7 @@ function useDrawCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
       canvas.removeEventListener('touchmove', onMove);
       canvas.removeEventListener('touchend', onEnd);
     };
-  }, [canvasRef]);
+  }, []);
 
   const clear = useCallback(() => {
     const canvas = canvasRef.current;
@@ -166,7 +175,7 @@ function useDrawCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     hasContentRef.current = false;
-  }, [canvasRef]);
+  }, []);
 
   const getDataUrl = useCallback((): string | null => {
     if (!hasContentRef.current) return null;
@@ -197,9 +206,9 @@ function useDrawCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
     const cctx = cropped.getContext('2d')!;
     cctx.drawImage(canvas, minX - pad, minY - pad, cw, ch, 0, 0, cw, ch);
     return cropped.toDataURL('image/png');
-  }, [canvasRef]);
+  }, []);
 
-  return { clear, getDataUrl };
+  return { ref, clear, getDataUrl };
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -216,9 +225,8 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const [fontStyle, setFontStyle] = useState(FONT_STYLES[0].key);
   const [saveChecked, setSaveChecked] = useState(true);
   const [uploadDataUrl, setUploadDataUrl] = useState<string | null>(null);
-  const drawCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const draw = useDrawCanvas(drawCanvasRef);
+  const draw = useDrawCanvas();
 
   // Load saved signatures
   useEffect(() => {
@@ -528,7 +536,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                   }}
                 >
                   <canvas
-                    ref={drawCanvasRef}
+                    ref={draw.ref}
                     width={CANVAS_W}
                     height={CANVAS_H}
                     style={{
