@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Fictional sample agreement for the demo video. Blank boxes are filled by
+     the field definitions in record_screens.mjs (positions in inches). -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@700;800&display=block" rel="stylesheet">
+<style>
+  @page { size: Letter; margin: 0; }
+  * { margin: 0; box-sizing: border-box; }
+  body { width: 8.5in; height: 11in; position: relative; font-family: Inter, sans-serif; color: #111827; }
+  .abs { position: absolute; left: 0.75in; }
+  .label { font: 600 7.5pt Inter; letter-spacing: .08em; text-transform: uppercase; color: #6b7280; }
+  .blank { border-bottom: 1px solid #d1d5db; }
+  h1 { font: 800 21pt 'Plus Jakarta Sans'; letter-spacing: -.01em; }
+  .rule { left: 0.75in; right: 0.75in; border-top: 2px solid #111827; }
+  .terms { top: 3.75in; width: 7in; font: 400 10pt/1.55 Inter; color: #374151; }
+  .terms h2 { font: 600 10.5pt Inter; color: #111827; margin: 0 0 3pt; }
+  .terms p { margin: 0 0 12pt; }
+  .foot { top: 10.3in; width: 7in; font: 400 7.5pt Inter; color: #6b7280; }
+</style>
+</head>
+<body>
+  <div class="abs label" style="top:0.55in">Contractor</div>
+  <div class="abs blank" style="top:0.74in; width:4.5in; height:0.32in"></div>
+  <div class="abs" style="top:1.08in; width:5.5in; height:0.24in"></div>
+
+  <div class="abs rule" style="position:absolute; top:1.5in"></div>
+  <h1 class="abs" style="top:1.68in">Contents Pack-out Agreement</h1>
+
+  <div class="abs label" style="top:2.28in">Customer</div>
+  <div class="abs blank" style="top:2.47in; width:4.5in; height:0.3in"></div>
+  <div class="abs label" style="top:2.88in">Property address</div>
+  <div class="abs blank" style="top:3.07in; width:6.5in; height:0.26in"></div>
+
+  <div class="abs terms">
+    <h2>1. Scope of work</h2>
+    <p>Contractor will inventory, pack, remove and store the household contents at the property above, as itemized in Contractor's estimate.</p>
+    <h2>2. Price</h2>
+    <p>Customer agrees to the prices in the estimate. Any change to the scope is priced in writing before that work begins.</p>
+    <h2>3. Storage</h2>
+    <p>Contents are kept in a secured storage facility until pack-back and are billed monthly at the rates in the estimate.</p>
+    <h2>4. Authorization</h2>
+    <p>By signing, Customer authorizes Contractor to begin the pack-out.</p>
+  </div>
+
+  <div class="abs label" style="top:8.42in">Customer signature</div>
+  <div class="abs blank" style="top:8.62in; width:3.4in; height:0.62in"></div>
+
+  <div class="abs foot">Sample document for demonstration.</div>
+</body>
+</html>
