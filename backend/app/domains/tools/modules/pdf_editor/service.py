@@ -231,6 +231,16 @@ def _burn_one_annotation(c, ann: dict, ph: float) -> bool:
         if kind == "line" and w:
             c.line(x, ph - y_top, x + w, ph - y_top)
             return True
+        if kind == "check" and w and h:
+            # Same polyline as the editor's check path, in a w x h box
+            c.setLineCap(1)
+            c.setLineJoin(1)
+            p = c.beginPath()
+            p.moveTo(x, ph - y_top - 0.55 * h)
+            p.lineTo(x + 0.36 * w, ph - y_top - h)
+            p.lineTo(x + w, ph - y_top)
+            c.drawPath(p, stroke=1, fill=0)
+            return True
         return False
 
     return False  # unsupported type (drawing, sign_field, ...)

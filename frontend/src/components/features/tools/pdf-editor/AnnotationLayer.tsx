@@ -73,6 +73,7 @@ const DEFAULT_SHAPE_SIZE = 100;
 const DEFAULT_SHAPE_STROKE = '#111827';
 const DEFAULT_SHAPE_FILL = 'transparent';
 const DEFAULT_LINE_LENGTH = 150;
+export const DEFAULT_CHECK_SIZE = 24;
 const UPDATE_DEBOUNCE_MS = 120;
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -91,6 +92,8 @@ export interface AnnotationLayerProps {
   zoom: number;
   drawColor?: string;
   drawWidth?: number;
+  /** Side length used for newly placed check marks */
+  checkSize?: number;
   /** Called when user clicks canvas with sign tool – provides click position */
   onSignRequest?: (pos: { x: number; y: number }) => void;
 }
@@ -123,6 +126,14 @@ function setAnnotationId(obj: FabricObject, id: string): void {
  * (fabric's default `canvas.uniformScaling` applies proportional scale there).
  */
 function restrictTextScaling(obj: IText): void {
+  obj.setControlsVisibility({ mt: false, mb: false, ml: false, mr: false });
+}
+
+/**
+ * Same idea for a check mark: corner handles only, so it always resizes as a
+ * square and its single "size" stays meaningful.
+ */
+function restrictToUniformScaling(obj: FabricObject): void {
   obj.setControlsVisibility({ mt: false, mb: false, ml: false, mr: false });
 }
 
@@ -271,6 +282,32 @@ function buildShapeLineObject(ann: Annotation): Line {
   return obj;
 }
 
+/** Check mark path spanning the full size×size box (so path bounds == size). */
+function checkPathData(size: number): string {
+  return `M 0 ${size * 0.55} L ${size * 0.36} ${size} L ${size} 0`;
+}
+
+function buildShapeCheckObject(ann: Annotation): Path {
+  const size = ann.width || DEFAULT_CHECK_SIZE;
+  const obj = new Path(checkPathData(size), {
+    left: ann.x,
+    top: ann.y,
+    angle: ann.rotation,
+    fill: '',
+    stroke: ann.style?.color ?? DEFAULT_SHAPE_STROKE,
+    strokeWidth: ann.style?.borderWidth ?? DEFAULT_DRAW_WIDTH,
+    // Resizing scales the path, not the line weight
+    strokeUniform: true,
+    strokeLineCap: 'round',
+    strokeLineJoin: 'round',
+    selectable: true,
+    opacity: ann.style?.opacity ?? 1,
+  });
+  restrictToUniformScaling(obj);
+  setAnnotationId(obj, ann.id);
+  return obj;
+}
+
 /** Build a fabric object from a persisted Annotation. */
 async function annotationToFabricObject(ann: Annotation): Promise<FabricObject | null> {
   switch (ann.type) {
@@ -336,6 +373,7 @@ async function annotationToFabricObject(ann: Annotation): Promise<FabricObject |
         case 'rect':   return buildShapeRectObject(ann);
         case 'circle': return buildShapeCircleObject(ann);
         case 'line':   return buildShapeLineObject(ann);
+        case 'check':  return buildShapeCheckObject(ann);
         default:       return null;
       }
     }
@@ -464,6 +502,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   zoom,
   drawColor,
   drawWidth,
+  checkSize,
   onSignRequest,
 }) => {
   const canvasElRef = useRef<HTMLCanvasElement>(null);
@@ -522,6 +561,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
   const drawWidthRef = useRef(drawWidth ?? DEFAULT_DRAW_WIDTH);
   useEffect(() => { drawWidthRef.current = drawWidth ?? DEFAULT_DRAW_WIDTH; }, [drawWidth]);
+
+  const checkSizeRef = useRef(checkSize ?? DEFAULT_CHECK_SIZE);
+  useEffect(() => { checkSizeRef.current = checkSize ?? DEFAULT_CHECK_SIZE; }, [checkSize]);
 
   // ── Initialize fabric canvas on mount ────────────────────────────────────
   useLayoutEffect(() => {
@@ -949,6 +991,29 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           });
           break;
         }
+
+        case 'shape_check': {
+          const size = checkSizeRef.current;
+          const ann: Annotation = {
+            id: generateId(),
+            type: 'shape',
+            page: pageNumberRef.current,
+            x: cx,
+            y: cy,
+            width: size,
+            height: size,
+            rotation: 0,
+            content: 'check',
+            style: { color: drawColorRef.current, borderWidth: drawWidthRef.current },
+          };
+          const checkObj = buildShapeCheckObject(ann);
+          fc.add(checkObj);
+          fc.setActiveObject(checkObj);
+          fc.renderAll();
+
+          callbacksRef.current.onAnnotationAdd(ann);
+          break;
+        }
       }
     };
 
@@ -1159,9 +1224,15 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             stroke: s.color ?? DEFAULT_SHAPE_STROKE,
             strokeWidth: s.borderWidth ?? DEFAULT_DRAW_WIDTH,
           };
-          // Fill for rect/circle (not line)
-          if (ann.content !== 'line') {
+          // Fill for rect/circle (not line/check)
+          if (ann.content !== 'line' && ann.content !== 'check') {
             shapeProps.fill = s.backgroundColor ?? DEFAULT_SHAPE_FILL;
+          }
+          // Check size can change from the property panel, so drive the
+          // scale from the stored size rather than the fabric object
+          if (ann.content === 'check' && existingObj.width && existingObj.height) {
+            shapeProps.scaleX = (ann.width || DEFAULT_CHECK_SIZE) / existingObj.width;
+            shapeProps.scaleY = (ann.height || DEFAULT_CHECK_SIZE) / existingObj.height;
           }
           existingObj.set(shapeProps);
         }

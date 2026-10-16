@@ -59,6 +59,7 @@ import {
   DownOutlined,
   BorderOutlined,
   MinusSquareOutlined,
+  CheckOutlined,
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius, fontSizes, fontWeights } from '@/styles/theme';
 
@@ -88,6 +89,8 @@ interface ToolbarProps {
   drawWidth?: number;
   onDrawColorChange?: (color: string) => void;
   onDrawWidthChange?: (width: number) => void;
+  checkSize?: number;
+  onCheckSizeChange?: (size: number) => void;
 }
 
 const MOBILE_BREAKPOINT = 768;
@@ -161,6 +164,11 @@ const SHAPE_ITEMS: { key: string; label: string; icon: React.ReactNode }[] = [
     key: 'shape_line',
     label: 'Line',
     icon: <MinusSquareOutlined style={{ fontSize: 13 }} />,
+  },
+  {
+    key: 'shape_check',
+    label: 'Check',
+    icon: <CheckOutlined style={{ fontSize: 13 }} />,
   },
 ];
 
@@ -351,6 +359,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   drawWidth,
   onDrawColorChange,
   onDrawWidthChange,
+  checkSize,
+  onCheckSizeChange,
 }) => {
   const isMobile = useIsMobile();
   const [isEditingZoom, setIsEditingZoom] = useState(false);
@@ -607,6 +617,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   aria-label="Stroke width"
                 />
               </Tooltip>
+              {activeTool === 'shape_check' && (
+                <Tooltip title="Check size" mouseEnterDelay={0.5}>
+                  <InputNumber
+                    size="small"
+                    min={8}
+                    max={200}
+                    value={checkSize ?? 24}
+                    onChange={(v) => { if (v) onCheckSizeChange?.(v); }}
+                    suffix="px"
+                    style={{ width: 76, fontSize: fontSizes.xs, fontFamily: fonts.body }}
+                    aria-label="Check size"
+                  />
+                </Tooltip>
+              )}
             </Space>
           </>
         )}

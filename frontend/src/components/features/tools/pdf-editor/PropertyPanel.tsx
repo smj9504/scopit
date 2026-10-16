@@ -456,10 +456,28 @@ const DrawingStyleSection: React.FC<{
 const ShapeStyleSection: React.FC<{
   annotation: Annotation;
   style: AnnotationStyle;
+  onChange: (patch: Partial<Annotation>) => void;
   onStyleChange: (patch: Partial<AnnotationStyle>) => void;
-}> = ({ annotation, style, onStyleChange }) => (
+}> = ({ annotation, style, onChange, onStyleChange }) => (
   <div style={S.section}>
     <span style={S.sectionTitle}>Shape</span>
+
+    {/* Check marks resize as a square */}
+    {annotation.content === 'check' && (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: fontSizes.xs, color: colors.textSecondary, flex: 1 }}>
+          Size
+        </span>
+        <CompactNumber
+          value={Math.round(annotation.width)}
+          onChange={(v) => onChange({ width: v, height: v })}
+          min={8}
+          max={200}
+          style={{ maxWidth: 72, flex: 'none' }}
+          aria-label="Check size"
+        />
+      </div>
+    )}
 
     <ColorRow
       label="Stroke"
@@ -482,8 +500,8 @@ const ShapeStyleSection: React.FC<{
       />
     </div>
 
-    {/* Fill color only for rect and circle, not line */}
-    {annotation.content !== 'line' && (
+    {/* Fill color only for rect and circle, not line or check */}
+    {annotation.content !== 'line' && annotation.content !== 'check' && (
       <ColorRow
         label="Fill"
         value={style.backgroundColor ?? 'transparent'}
@@ -691,6 +709,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
               <ShapeStyleSection
                 annotation={selectedAnnotation}
                 style={selectedAnnotation.style}
+                onChange={handleChange}
                 onStyleChange={handleStyleChange}
               />
               <Divider style={{ margin: 0, borderColor: colors.border }} />

@@ -52,7 +52,7 @@ import type { ToolComponentProps } from '../registry';
 import { colors, fonts, borderRadius, shadows } from '@/styles/theme';
 import PdfCanvas from './PdfCanvas';
 import PageSidebar from './PageSidebar';
-import AnnotationLayer from './AnnotationLayer';
+import AnnotationLayer, { DEFAULT_CHECK_SIZE } from './AnnotationLayer';
 import Toolbar from './Toolbar';
 import PropertyPanel from './PropertyPanel';
 import MergeModal from './MergeModal';
@@ -875,6 +875,9 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   const [redoStack, setRedoStack] = useState<Annotation[][]>([]);
   const [drawColor, setDrawColor] = useState('#111827');
   const [drawWidth, setDrawWidth] = useState(2);
+  // Size for new check marks; follows the last check the user resized so it
+  // sticks for the rest of this editing session
+  const [checkSize, setCheckSize] = useState(DEFAULT_CHECK_SIZE);
 
   // ── Sidebar & mobile state ──────────────────────────────────────────────
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -939,7 +942,15 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
       return [...prev, ann];
     });
     setIsDirty(true);
+    // One placement per tool pick; freehand drawing stays on for more strokes
+    if (ann.type !== 'drawing') setActiveTool('select');
   }, [pushUndo]);
+
+  const rememberCheckSize = useCallback((ann: Annotation) => {
+    if (ann.type === 'shape' && ann.content === 'check' && ann.width > 0) {
+      setCheckSize(Math.round(ann.width));
+    }
+  }, []);
 
   const handleAnnotationUpdate = useCallback((updated: Annotation) => {
     setAnnotations((prev) => {
@@ -947,13 +958,15 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
       return prev.map((a) => (a.id === updated.id ? updated : a));
     });
     setIsDirty(true);
-  }, [pushUndo]);
+    rememberCheckSize(updated);
+  }, [pushUndo, rememberCheckSize]);
 
   // Lightweight update from PropertyPanel — no undo push, instant feedback
   const handleAnnotationQuickUpdate = useCallback((updated: Annotation) => {
     setAnnotations((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
     setIsDirty(true);
-  }, []);
+    rememberCheckSize(updated);
+  }, [rememberCheckSize]);
 
   const handleAnnotationDelete = useCallback((id: string) => {
     setAnnotations((prev) => {
@@ -1182,6 +1195,8 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
         drawWidth={drawWidth}
         onDrawColorChange={setDrawColor}
         onDrawWidthChange={setDrawWidth}
+        checkSize={checkSize}
+        onCheckSizeChange={setCheckSize}
       />
 
       {/* Action bar */}
@@ -1336,6 +1351,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
                   zoom={zoom}
                   drawColor={drawColor}
                   drawWidth={drawWidth}
+                  checkSize={checkSize}
                   onSignRequest={handleSignRequest}
                 />
               </div>
