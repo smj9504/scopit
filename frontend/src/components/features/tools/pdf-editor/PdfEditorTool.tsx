@@ -26,6 +26,7 @@ import {
   App,
   Input,
   Modal,
+  Drawer,
 } from 'antd';
 import type { UploadProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -44,6 +45,7 @@ import {
   EyeOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  SlidersOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { pdfEditorApi } from './pdfEditorApi';
@@ -56,7 +58,7 @@ import AnnotationLayer, { DEFAULT_CHECK_SIZE } from './AnnotationLayer';
 import Toolbar from './Toolbar';
 import PropertyPanel from './PropertyPanel';
 import MergeModal from './MergeModal';
-import ImportModal from './ImportModal';
+import ImportModal, { type ImportTabKey } from './ImportModal';
 import SendForSignModal from './SendForSignModal';
 import FieldMappingModal from './FieldMappingModal';
 import SignRequestDetail from './SignRequestDetail';
@@ -176,7 +178,7 @@ const DocThumbnail: React.FC<{ doc: PdfDocument }> = ({ doc }) => {
 interface EditorTabProps {
   onOpenEditor: (id: string) => void;
   onOpenMerge: () => void;
-  onOpenImport: () => void;
+  onOpenImport: (tab: ImportTabKey) => void;
 }
 
 const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpenImport }) => {
@@ -247,7 +249,8 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
 
   const handleDownload = useCallback(async (doc: PdfDocument) => {
     try {
-      const blob = await pdfEditorApi.downloadDocument(doc.id);
+      // With the user's edits burned in, same as the editor's Download PDF
+      const blob = await pdfEditorApi.downloadDocument(doc.id, true);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -292,7 +295,11 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
     multiple: true,
     accept: '.pdf,.jpg,.jpeg,.png,.webp,.heic,.tiff,.docx,application/pdf,image/*,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     showUploadList: false,
-    beforeUpload: (_file, fileList) => {
+    beforeUpload: (file, fileList) => {
+      // antd calls this once per file, each time with the whole batch;
+      // handle the batch once (on its first file) or it's uploaded N times
+      if (file.uid !== fileList[0]?.uid) return false;
+
       const imageFiles = fileList.filter(f => isImageFile(f as unknown as File));
       const nonImageFiles = fileList.filter(f => !isImageFile(f as unknown as File));
 
@@ -444,19 +451,19 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
                     key: 'estimate',
                     label: 'From Estimate',
                     icon: <ImportOutlined />,
-                    onClick: () => onOpenImport(),
+                    onClick: () => onOpenImport('estimates'),
                   },
                   {
                     key: 'invoice',
                     label: 'From Invoice',
                     icon: <ImportOutlined />,
-                    onClick: () => onOpenImport(),
+                    onClick: () => onOpenImport('invoices'),
                   },
                   {
                     key: 'company-doc',
                     label: 'From Company Document',
                     icon: <ImportOutlined />,
-                    onClick: () => onOpenImport(),
+                    onClick: () => onOpenImport('company'),
                   },
                 ],
               }}
@@ -604,6 +611,7 @@ interface SignRequestsTabProps {
 
 const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
   const { message } = App.useApp();
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
@@ -617,8 +625,20 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => pdfEditorApi.cancelSignRequest(id),
-    onSuccess: () => message.success('Sign request voided'),
+    onSuccess: () => {
+      message.success('Sign request voided');
+      queryClient.invalidateQueries({ queryKey: ['pdf-editor-sign-requests'] });
+    },
     onError: () => message.error('Failed to void request'),
+  });
+
+  const deleteDraftMutation = useMutation({
+    mutationFn: (id: string) => pdfEditorApi.deleteDraftSignRequest(id),
+    onSuccess: () => {
+      message.success('Draft deleted');
+      queryClient.invalidateQueries({ queryKey: ['pdf-editor-sign-requests'] });
+    },
+    onError: () => message.error('Failed to delete draft'),
   });
 
   const handleDownloadSigned = useCallback(async (req: SignRequest) => {
@@ -737,7 +757,28 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
               />
             </Tooltip>
           )}
-          {(req.status === 'draft' || req.status === 'sent' || req.status === 'viewed' || req.status === 'partially_signed') && (
+          {req.status === 'draft' && (
+            <Tooltip title="Delete draft">
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                loading={deleteDraftMutation.isPending}
+                onClick={() =>
+                  Modal.confirm({
+                    title: 'Delete this draft?',
+                    content: 'The draft was never sent. It will be removed permanently.',
+                    okText: 'Delete',
+                    okButtonProps: { danger: true },
+                    onOk: () => deleteDraftMutation.mutate(req.id),
+                  })
+                }
+                style={{ color: colors.textMuted }}
+              />
+            </Tooltip>
+          )}
+          {(req.status === 'sent' || req.status === 'viewed' || req.status === 'partially_signed') && (
             <Tooltip title="Void">
               <Button
                 type="text"
@@ -882,6 +923,11 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   // ── Sidebar & mobile state ──────────────────────────────────────────────
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  // Mobile has no side panel; properties open in a bottom drawer instead
+  const [mobilePropsOpen, setMobilePropsOpen] = useState(false);
+  // A page operation rewrites the saved annotations on the server; nothing
+  // may autosave the editor's old copy over them while it runs
+  const pageOpRef = React.useRef(false);
 
   useEffect(() => {
     const mql = window.matchMedia('(max-width: 768px)');
@@ -908,43 +954,48 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   }, [doc?.id]); // only re-run if the document itself changes, not on every refetch
 
   // ── Undo / Redo ───────────────────────────────────────────────────────────
-  const pushUndo = useCallback((current: Annotation[]) => {
-    setUndoStack((prev) => [...prev.slice(-19), current]);
-    setRedoStack([]);
+  // Every change goes through commitAnnotations, which reads the latest list
+  // from the ref (so back-to-back changes in one tick don't lose each other)
+  // and keeps side effects out of state updaters, which React may run twice.
+  const commitAnnotations = useCallback((next: Annotation[], recordUndo = true) => {
+    const previous = annotationsRef.current;
+    if (recordUndo) {
+      setUndoStack((stack) => [...stack.slice(-19), previous]);
+      setRedoStack([]);
+    }
+    annotationsRef.current = next;
+    setAnnotations(next);
+    setIsDirty(true);
   }, []);
 
   const handleUndo = useCallback(() => {
-    setUndoStack((stack) => {
-      if (stack.length === 0) return stack;
-      const prev = stack[stack.length - 1];
-      setRedoStack((r) => [...r, annotations]);
-      setAnnotations(prev);
-      setIsDirty(true);
-      return stack.slice(0, -1);
-    });
-  }, [annotations]);
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    const current = annotationsRef.current;
+    setUndoStack(undoStack.slice(0, -1));
+    setRedoStack((stack) => [...stack, current]);
+    annotationsRef.current = previous;
+    setAnnotations(previous);
+    setIsDirty(true);
+  }, [undoStack]);
 
   const handleRedo = useCallback(() => {
-    setRedoStack((stack) => {
-      if (stack.length === 0) return stack;
-      const next = stack[stack.length - 1];
-      setUndoStack((u) => [...u, annotations]);
-      setAnnotations(next);
-      setIsDirty(true);
-      return stack.slice(0, -1);
-    });
-  }, [annotations]);
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    const current = annotationsRef.current;
+    setRedoStack(redoStack.slice(0, -1));
+    setUndoStack((stack) => [...stack, current]);
+    annotationsRef.current = next;
+    setAnnotations(next);
+    setIsDirty(true);
+  }, [redoStack]);
 
   // ── Annotation handlers ───────────────────────────────────────────────────
   const handleAnnotationAdd = useCallback((ann: Annotation) => {
-    setAnnotations((prev) => {
-      pushUndo(prev);
-      return [...prev, ann];
-    });
-    setIsDirty(true);
+    commitAnnotations([...annotationsRef.current, ann]);
     // One placement per tool pick; freehand drawing stays on for more strokes
     if (ann.type !== 'drawing') setActiveTool('select');
-  }, [pushUndo]);
+  }, [commitAnnotations]);
 
   const rememberCheckSize = useCallback((ann: Annotation) => {
     if (ann.type === 'shape' && ann.content === 'check' && ann.width > 0) {
@@ -952,30 +1003,47 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
     }
   }, []);
 
-  const handleAnnotationUpdate = useCallback((updated: Annotation) => {
-    setAnnotations((prev) => {
-      pushUndo(prev);
-      return prev.map((a) => (a.id === updated.id ? updated : a));
-    });
-    setIsDirty(true);
-    rememberCheckSize(updated);
-  }, [pushUndo, rememberCheckSize]);
+  // Canvas edits (move/resize/rotate/typing), possibly several objects at once
+  const handleAnnotationUpdate = useCallback((updates: Annotation[]) => {
+    const byId = new Map(updates.map((u) => [u.id, u]));
+    commitAnnotations(annotationsRef.current.map((a) => byId.get(a.id) ?? a));
+    updates.forEach(rememberCheckSize);
+  }, [commitAnnotations, rememberCheckSize]);
 
-  // Lightweight update from PropertyPanel — no undo push, instant feedback
+  // PropertyPanel edits fire continuously (sliders, color drags), so one undo
+  // step covers a burst of edits to the same element
+  const lastQuickEditRef = React.useRef<{ id: string; at: number } | null>(null);
   const handleAnnotationQuickUpdate = useCallback((updated: Annotation) => {
-    setAnnotations((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-    setIsDirty(true);
+    const now = Date.now();
+    const last = lastQuickEditRef.current;
+    const recordUndo = !last || last.id !== updated.id || now - last.at > 1000;
+    lastQuickEditRef.current = { id: updated.id, at: now };
+    commitAnnotations(
+      annotationsRef.current.map((a) => (a.id === updated.id ? updated : a)),
+      recordUndo,
+    );
     rememberCheckSize(updated);
-  }, [rememberCheckSize]);
+  }, [commitAnnotations, rememberCheckSize]);
 
   const handleAnnotationDelete = useCallback((id: string) => {
-    setAnnotations((prev) => {
-      pushUndo(prev);
-      return prev.filter((a) => a.id !== id);
-    });
+    commitAnnotations(annotationsRef.current.filter((a) => a.id !== id));
     setSelectedAnnotationId(null);
-    setIsDirty(true);
-  }, [pushUndo]);
+  }, [commitAnnotations]);
+
+  // Layer order = position in the list (export draws in list order)
+  const handleBringToFront = useCallback((id: string) => {
+    const list = annotationsRef.current;
+    const target = list.find((a) => a.id === id);
+    if (!target || list[list.length - 1]?.id === id) return;
+    commitAnnotations([...list.filter((a) => a.id !== id), target]);
+  }, [commitAnnotations]);
+
+  const handleSendToBack = useCallback((id: string) => {
+    const list = annotationsRef.current;
+    const target = list.find((a) => a.id === id);
+    if (!target || list[0]?.id === id) return;
+    commitAnnotations([target, ...list.filter((a) => a.id !== id)]);
+  }, [commitAnnotations]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const saveLatestAnnotations = React.useMemo(() => createAnnotationSaver(
@@ -988,15 +1056,23 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
 
   // Share uploads and include edits made during saving. A failure must stop
   // export/navigation so the editor retains the user's unsaved changes.
-  const handleSave = useCallback(async () => {
+  // `silent` = autosave: no toast on success, and a failure is reported once
+  // per failure streak rather than every retry.
+  const autosaveFailedRef = React.useRef(false);
+  const handleSave = useCallback(async (silent = false) => {
+    if (pageOpRef.current) return false;
     try {
       setIsSaving(true);
       await saveLatestAnnotations();
       setIsDirty(false);
-      message.success('Saved');
+      autosaveFailedRef.current = false;
+      if (!silent) message.success('Saved');
       return true;
     } catch {
-      message.error('Save failed. Your changes are still in the editor. Please try again.');
+      if (!silent || !autosaveFailedRef.current) {
+        message.error('Save failed. Your changes are still in the editor. Please try again.');
+      }
+      if (silent) autosaveFailedRef.current = true;
       return false;
     } finally {
       setIsSaving(false);
@@ -1004,7 +1080,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   }, [saveLatestAnnotations, message]);
 
   const handleBack = useCallback(async () => {
-    if ((isDirty || isSaving) && !(await handleSave())) return;
+    if ((isDirty || isSaving) && !(await handleSave(true))) return;
     onBack();
   }, [isDirty, isSaving, handleSave, onBack]);
 
@@ -1012,7 +1088,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   useEffect(() => {
     if (!isDirty || isSaving) return;
     const timer = setTimeout(() => {
-      handleSave();
+      handleSave(true);
     }, 5000);
     return () => clearTimeout(timer);
   }, [isDirty, isSaving, annotations, handleSave]);
@@ -1021,18 +1097,25 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const isMeta = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      // While typing (a text annotation, a panel input, ...) undo/redo belong
+      // to that field, not to the annotation history
+      const focused = document.activeElement as HTMLElement | null;
+      const focusTag = (focused?.tagName ?? '').toLowerCase();
+      const isTyping = focusTag === 'input' || focusTag === 'textarea'
+        || focusTag === 'select' || !!focused?.isContentEditable;
       // Ctrl+Z = Undo
-      if (isMeta && e.key === 'z' && !e.shiftKey) {
+      if (isMeta && key === 'z' && !e.shiftKey && !isTyping) {
         e.preventDefault();
         handleUndo();
       }
       // Ctrl+Shift+Z or Ctrl+Y = Redo
-      if (isMeta && (e.key === 'Z' || e.key === 'y') && (e.shiftKey || e.key === 'y')) {
+      if (isMeta && ((key === 'z' && e.shiftKey) || key === 'y') && !isTyping) {
         e.preventDefault();
         handleRedo();
       }
       // Ctrl+S = Save
-      if (isMeta && e.key === 's') {
+      if (isMeta && key === 's') {
         e.preventDefault();
         handleSave();
       }
@@ -1099,60 +1182,92 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   }, [currentPage, handleAnnotationAdd]);
 
   // ── Export ────────────────────────────────────────────────────────────────
+  const downloadBlob = useCallback((blob: Blob, suffix = '') => {
+    const base = (doc?.name ?? 'document').replace(/\.pdf$/i, '');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${base}${suffix}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [doc]);
+
   const handleExport = useCallback(async () => {
-    if (!(await handleSave())) return;
+    if ((isDirty || isSaving) && !(await handleSave(true))) return;
     try {
-      const blob = await pdfEditorApi.downloadDocument(documentId, true);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = doc?.name
-        ? doc.name.endsWith('.pdf') ? doc.name : `${doc.name}.pdf`
-        : 'document.pdf';
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(await pdfEditorApi.downloadDocument(documentId, true));
     } catch {
       message.error('Export failed');
     }
-  }, [documentId, doc, message, handleSave]);
+  }, [documentId, isDirty, isSaving, message, handleSave, downloadBlob]);
+
+  const handleExportOriginal = useCallback(async () => {
+    try {
+      downloadBlob(await pdfEditorApi.downloadDocument(documentId, false), ' (original)');
+    } catch {
+      message.error('Download failed');
+    }
+  }, [documentId, message, downloadBlob]);
 
   // ── Page operations ───────────────────────────────────────────────────────
   const [pdfRefreshKey, setPdfRefreshKey] = useState(0);
 
-  const handlePagesReorder = useCallback(async (newOrder: number[]) => {
+  // The server moves/rotates/drops annotations together with their pages, so
+  // unsaved edits are saved first and the editor then takes the server's
+  // copy (undo history no longer matches the pages, so it's cleared).
+  const runPageOperation = useCallback(async (
+    label: string,
+    operation: () => Promise<PdfDocument>,
+    pageAfter?: (updated: PdfDocument) => number,
+  ) => {
+    if ((isDirty || isSaving) && !(await handleSave(true))) return;
+    pageOpRef.current = true;
     try {
-      await pdfEditorApi.reorderPages(documentId, newOrder);
-      queryClient.invalidateQueries({ queryKey: ['pdf-document', documentId] });
+      const updated = await operation();
+      queryClient.setQueryData(['pdf-document', documentId], updated);
+      const fresh = updated.annotations ?? [];
+      annotationsRef.current = fresh;
+      setAnnotations(fresh);
+      setUndoStack([]);
+      setRedoStack([]);
+      setSelectedAnnotationId(null);
+      setIsDirty(false);
+      if (pageAfter) setCurrentPage(Math.max(1, Math.min(pageAfter(updated), updated.pageCount)));
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      message.error(typeof detail === 'string' ? `${label} failed: ${detail}` : `${label} failed`);
+    } finally {
+      pageOpRef.current = false;
       setPdfRefreshKey((k) => k + 1);
-    } catch {
-      message.error('Reorder failed');
     }
-  }, [documentId, queryClient, message]);
+  }, [isDirty, isSaving, handleSave, documentId, queryClient, message]);
 
-  const handlePagesDelete = useCallback(async (pages: number[]) => {
-    try {
-      await pdfEditorApi.deletePages(documentId, pages);
-      queryClient.invalidateQueries({ queryKey: ['pdf-document', documentId] });
-      if (pages.includes(currentPage)) setCurrentPage(1);
-      setPdfRefreshKey((k) => k + 1);
-    } catch {
-      message.error('Delete failed');
-    }
-  }, [documentId, queryClient, currentPage, message]);
+  // newOrder: current 1-based page numbers in their new order
+  const handlePagesReorder = useCallback((newOrder: number[]) => runPageOperation(
+    'Reorder',
+    () => pdfEditorApi.reorderPages(documentId, newOrder),
+    () => newOrder.indexOf(currentPage) + 1,  // stay on the page you were viewing
+  ), [runPageOperation, documentId, currentPage]);
 
-  const handlePagesRotate = useCallback(async (rotations: Record<string, number>) => {
-    try {
-      await pdfEditorApi.rotatePages(documentId, rotations);
-      queryClient.invalidateQueries({ queryKey: ['pdf-document', documentId] });
-      setPdfRefreshKey((k) => k + 1);
-    } catch {
-      message.error('Rotate failed');
-    }
-  }, [documentId, queryClient, message]);
+  const handlePagesDelete = useCallback((pages: number[]) => runPageOperation(
+    'Delete',
+    () => pdfEditorApi.deletePages(documentId, pages),
+    () => currentPage - pages.filter((p) => p < currentPage).length,
+  ), [runPageOperation, documentId, currentPage]);
+
+  const handlePagesRotate = useCallback((rotations: Record<string, number>) => runPageOperation(
+    'Rotate',
+    () => pdfEditorApi.rotatePages(documentId, rotations),
+  ), [runPageOperation, documentId]);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const pageCount = doc?.pageCount ?? 1;
   const docName = doc?.name ?? 'Loading...';
+
+  // Never point at a page the document no longer has
+  useEffect(() => {
+    if (currentPage > pageCount) setCurrentPage(pageCount);
+  }, [currentPage, pageCount]);
 
   // Annotations visible on the current page (for AnnotationLayer)
   const pageAnnotations = annotations.filter((a) => a.page === currentPage);
@@ -1185,8 +1300,9 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        onSave={handleSave}
+        onSave={() => handleSave()}
         onExport={handleExport}
+        onExportOriginal={handleExportOriginal}
         isSaving={isSaving}
         isDirty={isDirty}
         documentName={docName}
@@ -1220,6 +1336,17 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
           {!isMobile && 'Pages'}
         </Button>
         <Space size={8}>
+          {isMobile && selectedAnnotation && (
+            <Button
+              icon={<SlidersOutlined />}
+              onClick={() => setMobilePropsOpen(true)}
+              size="small"
+              style={{ fontFamily: fonts.body }}
+              aria-label="Edit selected element"
+            >
+              Edit
+            </Button>
+          )}
           <Button
             onClick={() => setFieldMappingOpen(true)}
             size={isMobile ? 'small' : 'middle'}
@@ -1374,10 +1501,36 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
               selectedAnnotation={selectedAnnotation}
               onAnnotationUpdate={handleAnnotationQuickUpdate}
               onAnnotationDelete={handleAnnotationDelete}
+              onBringToFront={handleBringToFront}
+              onSendToBack={handleSendToBack}
             />
           </div>
         )}
       </div>
+
+      {/* Property panel – bottom drawer on mobile */}
+      {isMobile && (
+        <Drawer
+          placement="bottom"
+          open={mobilePropsOpen && !!selectedAnnotation}
+          onClose={() => setMobilePropsOpen(false)}
+          height="60vh"
+          title={null}
+          closable={false}
+          styles={{ body: { padding: 0 } }}
+        >
+          <PropertyPanel
+            selectedAnnotation={selectedAnnotation}
+            onAnnotationUpdate={handleAnnotationQuickUpdate}
+            onAnnotationDelete={(id) => {
+              handleAnnotationDelete(id);
+              setMobilePropsOpen(false);
+            }}
+            onBringToFront={handleBringToFront}
+            onSendToBack={handleSendToBack}
+          />
+        </Drawer>
+      )}
 
       {/* Define Fields (template editor) Modal */}
       <FieldMappingModal
@@ -1419,6 +1572,7 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importTab, setImportTab] = useState<ImportTabKey>('estimates');
   const [signRequestDetailId, setSignRequestDetailId] = useState<string | null>(null);
 
   const mergeMutation = useMutation({
@@ -1484,7 +1638,10 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
           <EditorTab
             onOpenEditor={(id) => setEditingDocumentId(id)}
             onOpenMerge={() => setMergeModalOpen(true)}
-            onOpenImport={() => setImportModalOpen(true)}
+            onOpenImport={(tab) => {
+              setImportTab(tab);
+              setImportModalOpen(true);
+            }}
           />
         </div>
       ),
@@ -1568,6 +1725,7 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
         onClose={() => setImportModalOpen(false)}
         onImport={handleImportComplete}
         importing={false}
+        initialTab={importTab}
       />
     </div>
   );

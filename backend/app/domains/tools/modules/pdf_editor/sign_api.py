@@ -13,7 +13,7 @@ import tempfile
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,6 @@ from app.domains.tools.modules.pdf_editor.schemas import (
     SignRequestCreate,
     SignSubmitRequest,
 )
-from app.domains.tools.modules.pdf_editor.service import flatten_annotations_bytes
 from app.domains.tools.modules.pdf_editor.sign_service import (
     BLOCKED_STATUSES,
     SignService,
@@ -89,6 +88,18 @@ def _to_recipient_dict(r: SignRecipient) -> dict:
     }
 
 
+def _to_failures(failures: list) -> list:
+    return [
+        {
+            "recipientId": f["recipient_id"],
+            "name": f["name"],
+            "email": f["email"],
+            "error": f["error"],
+        }
+        for f in failures or []
+    ]
+
+
 def _to_sign_response(req: SignRequest) -> dict:
     resp = {
         "id": str(req.id),
@@ -120,13 +131,18 @@ def _to_sign_response(req: SignRequest) -> dict:
         "createdAt": req.created_at,
         "updatedAt": req.updated_at,
     }
-    # Always included: the sender is already authorized to view/manage this
-    # request, so seeing each recipient's link is equivalent information to
-    # what's already been (or would be) emailed to them.
-    resp["signUrls"] = {
-        str(r.id): f"{settings.FRONTEND_URL}/sign/{r.access_token}"
-        for r in req.recipients
-    }
+    # The sender is already authorized to view/manage this request, so
+    # seeing each recipient's link is equivalent information to what's
+    # already been (or would be) emailed to them. Drafts get none: their
+    # links don't work until the request is actually sent.
+    resp["signUrls"] = (
+        {}
+        if req.status == "draft"
+        else {
+            str(r.id): f"{settings.FRONTEND_URL}/sign/{r.access_token}"
+            for r in req.recipients
+        }
+    )
     return resp
 
 
@@ -250,13 +266,17 @@ async def send_sign_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_gate),
 ):
-    """Send the signing invitation (email, or make direct links available)."""
+    """Send the signing invitation (email, or make direct links available).
+    deliveryFailures lists recipients whose invitation email failed (they
+    stay 'pending'); if every invitation failed the request stays a draft."""
     service = SignService(db)
-    sign_req = service.send_sign_request(
+    sign_req, failures = service.send_sign_request(
         company_id=current_user.company_id,
         request_id=request_id,
     )
-    return _to_sign_response(sign_req)
+    resp = _to_sign_response(sign_req)
+    resp["deliveryFailures"] = _to_failures(failures)
+    return resp
 
 
 @router.post("/requests/{request_id}/reminder")
@@ -269,12 +289,14 @@ async def send_reminder(
     """Send a reminder email. Omit recipient_id to remind everyone
     outstanding, or pass it to remind a single recipient."""
     service = SignService(db)
-    sign_req = service.send_reminder(
+    sign_req, failures = service.send_reminder(
         company_id=current_user.company_id,
         request_id=request_id,
         recipient_id=recipient_id,
     )
-    return _to_sign_response(sign_req)
+    resp = _to_sign_response(sign_req)
+    resp["deliveryFailures"] = _to_failures(failures)
+    return resp
 
 
 @router.post("/requests/{request_id}/resend-signed-copy")
@@ -307,6 +329,21 @@ async def cancel_sign_request(
         request_id=request_id,
     )
     return _to_sign_response(sign_req)
+
+
+@router.delete("/requests/{request_id}", status_code=204)
+async def delete_draft_sign_request(
+    request_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Delete an unsent draft. Sent requests must be voided instead."""
+    service = SignService(db)
+    service.delete_draft(
+        company_id=current_user.company_id,
+        request_id=request_id,
+    )
+    return Response(status_code=204)
 
 
 @router.get("/requests/{request_id}/audit")
@@ -357,15 +394,10 @@ async def download_signed_document(
             detail="Document has not been fully signed yet",
         )
 
-    storage = get_storage()
-    signed_key = sign_req.signed_file_path
-    if not signed_key or not storage.exists(signed_key):
-        raise HTTPException(
-            status_code=404,
-            detail="Signed document file not found",
-        )
-
-    content = storage.read(signed_key)
+    # Re-burns (and persists) the signed PDF if completion-time burning
+    # failed or the file has gone missing.
+    signed_key = service.ensure_signed_file(sign_req)
+    content = get_storage().read(signed_key)
     doc_name = (
         sign_req.document.name if sign_req.document else "signed"
     )
@@ -430,7 +462,7 @@ async def view_document(
         "recipientStatus": recipient.status,
         "companyName": company.name if company else None,
         "companyLogoUrl": None,
-        "pageCount": doc.page_count if doc else 0,
+        "pageCount": service.get_page_count(sign_req),
         "signFields": visible_fields,
         "status": sign_req.status,
         "expiresAt": sign_req.expires_at,
@@ -459,32 +491,30 @@ async def get_page_image(
         )
 
     doc = sign_req.document
-    storage = get_storage()
-
-    if not doc or not doc.file_path or not storage.exists(
-        doc.file_path
-    ):
+    if not doc:
         raise HTTPException(
             status_code=404, detail="Document file not found"
         )
 
-    if page_num < 1 or page_num > doc.page_count:
+    page_count = service.get_page_count(sign_req)
+    if page_num < 1 or page_num > page_count:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"page_num must be between 1 and {doc.page_count}"
+                f"page_num must be between 1 and {page_count}"
             ),
         )
 
     mime = (doc.mime_type or "").lower()
-    # Match _burn_document: annotation edits (PDF editor, inline or
-    # standalone) must render here as what the signer sees, since that's
-    # also what ends up burned into the final signed document.
-    pdf_data = (
-        flatten_annotations_bytes(doc, storage)
-        if not mime.startswith("image/") and doc.annotations
-        else storage.read(doc.file_path)
-    )
+    # Same bytes _burn_document uses: the send-time snapshot (or, for
+    # requests sent before snapshots existed, the live flattened document),
+    # so what the signer sees is exactly what gets signed.
+    try:
+        pdf_data = service.get_source_bytes(sign_req)
+    except ValueError:
+        raise HTTPException(
+            status_code=404, detail="Document file not found"
+        )
 
     # Image files: serve directly
     if mime.startswith("image/"):
@@ -564,6 +594,7 @@ async def submit_signature(
         consent_agreed=data.consent_agreed,
         ip=ip,
         user_agent=user_agent,
+        initials_data=data.initials_data or None,
     )
     return {
         "status": recipient.status,

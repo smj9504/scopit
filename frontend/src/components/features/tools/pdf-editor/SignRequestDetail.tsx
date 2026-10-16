@@ -37,10 +37,12 @@ import {
   EditOutlined,
   UserOutlined,
   MailOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { pdfEditorApi } from './pdfEditorApi';
 import type { SignRequest, SignAuditEvent } from './types';
+import { getErrorMessage } from '@/services/api';
 import { colors, fonts, fontSizes, fontWeights, borderRadius, spacing } from '@/styles/theme';
 
 const { Text, Title } = Typography;
@@ -138,6 +140,26 @@ function getAuditEventConfig(eventType: string): AuditEventConfig {
       icon: <CloseCircleOutlined style={iconStyle} />,
       dotColor: colors.error,
     },
+    reminder_failed: {
+      label: 'Reminder Failed',
+      icon: <CloseCircleOutlined style={iconStyle} />,
+      dotColor: colors.error,
+    },
+    cc_notice_failed: {
+      label: 'Cc/Bcc Email Failed',
+      icon: <CloseCircleOutlined style={iconStyle} />,
+      dotColor: colors.error,
+    },
+    burn_failed: {
+      label: 'Signed PDF Generation Failed',
+      icon: <CloseCircleOutlined style={iconStyle} />,
+      dotColor: colors.error,
+    },
+    signed_file_generated: {
+      label: 'Signed PDF Generated',
+      icon: <FileTextOutlined style={iconStyle} />,
+      dotColor: colors.success,
+    },
   };
 
   return (
@@ -214,7 +236,20 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
       queryClient.invalidateQueries({ queryKey: ['sign-audit', requestId] });
       queryClient.invalidateQueries({ queryKey: ['sign-requests'] });
     },
-    onError: () => message.error('Failed to void sign request'),
+    onError: (err) => message.error(getErrorMessage(err) || 'Failed to void sign request'),
+  });
+
+  // Delete an unsent draft (drafts only)
+  const deleteDraftMutation = useMutation({
+    mutationFn: () => pdfEditorApi.deleteDraftSignRequest(requestId),
+    onSuccess: () => {
+      message.success('Draft deleted');
+      queryClient.invalidateQueries({ queryKey: ['sign-requests'] });
+      queryClient.removeQueries({ queryKey: ['sign-request', requestId] });
+      queryClient.removeQueries({ queryKey: ['sign-audit', requestId] });
+      onBack();
+    },
+    onError: (err) => message.error(getErrorMessage(err) || 'Failed to delete the draft'),
   });
 
   // Download signed document
@@ -231,8 +266,19 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
       a.download = `${baseName}_signed.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      message.error('Failed to download signed document');
+    } catch (err) {
+      // The request was made with responseType 'blob', so a JSON error
+      // detail arrives as a Blob -- read it out for a useful message.
+      let detail: string | undefined;
+      const data = (err as { response?: { data?: unknown } })?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          detail = JSON.parse(await data.text())?.detail;
+        } catch {
+          detail = undefined;
+        }
+      }
+      message.error(detail || 'Failed to download signed document');
     }
   }, [req, requestId, message]);
 
@@ -250,11 +296,23 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
   // Send reminder (all outstanding recipients, or a single one)
   const reminderMutation = useMutation({
     mutationFn: (recipientId?: string) => pdfEditorApi.sendReminder(requestId, recipientId),
-    onSuccess: (_data, recipientId) => {
-      message.success(recipientId ? 'Reminder sent' : 'Reminder sent to all outstanding recipients');
+    onSuccess: (data, recipientId) => {
+      const failures = data.deliveryFailures ?? [];
+      if (failures.length > 0) {
+        message.warning(
+          `Couldn't email ${failures.map((f) => `${f.name} (${f.email})`).join(', ')}. Check the address and try again.`,
+          6,
+        );
+      } else {
+        message.success(recipientId ? 'Reminder sent' : 'Reminder sent to all outstanding recipients');
+      }
+      queryClient.invalidateQueries({ queryKey: ['sign-request', requestId] });
       queryClient.invalidateQueries({ queryKey: ['sign-audit', requestId] });
     },
-    onError: () => message.error('Failed to send reminder'),
+    onError: (err) => {
+      message.error(getErrorMessage(err) || 'Failed to send reminder');
+      queryClient.invalidateQueries({ queryKey: ['sign-request', requestId] });
+    },
   });
 
   // Re-send the signed PDF by email to the sender and every recipient
@@ -264,7 +322,7 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
       message.success('Signed copy emailed to the sender and all recipients');
       queryClient.invalidateQueries({ queryKey: ['sign-audit', requestId] });
     },
-    onError: () => message.error('Failed to email the signed copy'),
+    onError: (err) => message.error(getErrorMessage(err) || 'Failed to email the signed copy'),
   });
 
   // ── Loading / error states ────────────────────────────────────────────────
@@ -301,10 +359,13 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
 
   const statusCfg = STATUS_CONFIG[req.status] ?? { label: req.status, color: colors.textMuted };
   const activeStatuses = ['sent', 'viewed', 'partially_signed'];
-  const canCancel = activeStatuses.includes(req.status);
+  const isActive = activeStatuses.includes(req.status);
+  const isDraft = req.status === 'draft';
+  const canCancel = isActive;
   const canDownload = req.status === 'signed';
-  const canReminder = activeStatuses.includes(req.status)
-    && req.recipients.some((r) => r.status === 'sent' || r.status === 'viewed');
+  // 'pending' = their invitation email failed; a reminder doubles as a retry.
+  const remindableStatuses = ['pending', 'sent', 'viewed'];
+  const canReminder = isActive && req.recipients.some((r) => remindableStatuses.includes(r.status));
 
   const recipientById = new Map(req.recipients.map((r) => [r.id, r]));
 
@@ -407,6 +468,19 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
               <span style={{ textTransform: 'capitalize' }}>
                 {String(meta.signature_type)}
               </span>
+            </Text>
+          )}
+
+          {meta.error && (
+            <Text
+              style={{
+                display: 'block',
+                fontSize: fontSizes.xs,
+                color: colors.error,
+                fontFamily: fonts.body,
+              }}
+            >
+              Error: {String(meta.error)}
             </Text>
           )}
 
@@ -594,12 +668,18 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
           }}
         >
           {req.recipients.map((recipient, index) => {
-            const rCfg = RECIPIENT_STATUS_CONFIG[recipient.status] ?? {
-              label: recipient.status,
-              color: colors.textMuted,
-            };
-            const canRemindThis = recipient.status === 'sent' || recipient.status === 'viewed';
-            const signUrl = req.signUrls?.[recipient.id];
+            // A recipient still 'pending' on a sent request means their
+            // invitation email couldn't be delivered.
+            const rCfg = isActive && recipient.status === 'pending'
+              ? { label: 'Email Failed', color: '#ef4444' }
+              : RECIPIENT_STATUS_CONFIG[recipient.status] ?? {
+                label: recipient.status,
+                color: colors.textMuted,
+              };
+            const canRemindThis = isActive && remindableStatuses.includes(recipient.status);
+            // Links only work while the request is out for signature -- never
+            // for a draft that hasn't been sent.
+            const signUrl = isActive && recipient.status !== 'signed' ? req.signUrls?.[recipient.id] : undefined;
 
             return (
               <div
@@ -746,7 +826,7 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
         </Card>
 
         {/* Actions */}
-        {(canDownload || canCancel || canReminder || true) && (
+        {(canDownload || canCancel || canReminder || isDraft) && (
           <Card
             size="small"
             title={
@@ -842,6 +922,30 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
                     }}
                   >
                     Void Request
+                  </Button>
+                </Popconfirm>
+              )}
+
+              {isDraft && (
+                <Popconfirm
+                  title="Delete this draft?"
+                  description="It was never sent, so no recipient has a link to it."
+                  okText="Delete Draft"
+                  cancelText="Keep"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => deleteDraftMutation.mutate()}
+                >
+                  <Button
+                    icon={<DeleteOutlined />}
+                    danger
+                    loading={deleteDraftMutation.isPending}
+                    style={{
+                      fontFamily: fonts.body,
+                      fontWeight: fontWeights.medium,
+                      fontSize: fontSizes.sm,
+                    }}
+                  >
+                    Delete Draft
                   </Button>
                 </Popconfirm>
               )}

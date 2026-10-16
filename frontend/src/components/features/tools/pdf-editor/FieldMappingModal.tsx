@@ -28,7 +28,7 @@
  *     onSaved={(doc) => ...}
  *   />
  */
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Modal, Button, Input, Select, AutoComplete, Checkbox, Typography, App, Empty } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, DeleteOutlined, ReloadOutlined, WarningOutlined, MinusOutlined, PlusOutlined } from '@ant-design/icons';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -38,6 +38,7 @@ import FieldPlacementCanvas from './FieldPlacementCanvas';
 import { pdfEditorApi } from './pdfEditorApi';
 import type { FieldDefinition, FieldType, DataBindingMode, AvailableField } from './types';
 import { useAuthStore } from '@/stores/authStore';
+import { getErrorMessage } from '@/services/api';
 import { colors, fonts, fontSizes, borderRadius } from '@/styles/theme';
 
 const { Text, Title } = Typography;
@@ -93,9 +94,26 @@ const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.25;
 
-let keyCounter = 1;
-function nextKey(type: string) {
-  return `${type}_${keyCounter++}`;
+/** A `${type}_${n}` key unique within this template: one past the highest
+ * existing suffix for that type, so it can never collide with a field that
+ * was saved earlier (a module-level counter restarts at 1 on every page
+ * load and would reissue keys that already exist). */
+function nextKey(type: string, existing: FieldDefinition[]): string {
+  const used = new Set(existing.map((f) => f.key));
+  const prefix = `${type}_`;
+  let max = 0;
+  for (const f of existing) {
+    if (!f.key.startsWith(prefix)) continue;
+    const n = Number(f.key.slice(prefix.length));
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+  let n = max + 1;
+  while (used.has(`${prefix}${n}`)) n += 1;
+  return `${prefix}${n}`;
+}
+
+function isSignatureLikeType(type: FieldType | null | undefined): boolean {
+  return type === 'signature' || type === 'initials';
 }
 
 // ── Shared field-editing state/logic ─────────────────────────────────────────
@@ -131,31 +149,46 @@ export function useAvailableFields(active: boolean): AvailableField[] {
  * while `active` is true. */
 export function useFieldEditorState(initialFields: FieldDefinition[], active: boolean, resetToken: string) {
   const [fields, setFields] = useState<FieldDefinition[]>([]);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedKey, setSelectedKeyState] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<FieldType | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Role of the most recently placed/selected/edited signature-like field --
+  // the default for the next one, since a signer's signature and initials
+  // usually come in runs (sign here, initial here, ...).
+  const lastSignerRoleRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!active) return;
     setFields(initialFields.map((f) => ({ ...f })));
-    setSelectedKey(null);
+    setSelectedKeyState(null);
     setActiveType(null);
     setDirty(false);
+    lastSignerRoleRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, resetToken]);
+
+  const setSelectedKey = useCallback((key: string | null) => {
+    setSelectedKeyState(key);
+    const field = key ? fields.find((f) => f.key === key) : undefined;
+    if (field && isSignatureLikeType(field.type) && field.signerRole) {
+      lastSignerRoleRef.current = field.signerRole;
+    }
+  }, [fields]);
 
   const handlePlaceField = useCallback((page: number, x: number, y: number) => {
     if (!activeType) return;
     const size = TYPE_DEFAULT_SIZE[activeType] ?? TYPE_DEFAULT_SIZE.text;
-    const isSignatureLike = activeType === 'signature' || activeType === 'initials';
-    const key = nextKey(activeType);
-    // Every signature/initials field needs a role -- default to the next
-    // open slot so placing one is usually zero-click instead of a forced
-    // Select visit; the user can still change it in the properties panel.
-    const usedRoles = new Set(fields.map((f) => f.signerRole).filter(Boolean));
+    const isSignatureLike = isSignatureLikeType(activeType);
+    const key = nextKey(activeType, fields);
+    // Every signature/initials field needs a role. Default to the role of
+    // the most recently placed/selected signature-like field (else the last
+    // one in the template, else the first role) rather than a brand-new
+    // signer -- the user can still change it in the properties panel.
+    const lastInTemplate = [...fields].reverse().find((f) => isSignatureLikeType(f.type) && f.signerRole);
     const suggestedRole = isSignatureLike
-      ? SIGNER_ROLES.find((r) => !usedRoles.has(r.value))?.value ?? null
+      ? lastSignerRoleRef.current ?? lastInTemplate?.signerRole ?? SIGNER_ROLES[0].value
       : null;
+    if (isSignatureLike && suggestedRole) lastSignerRoleRef.current = suggestedRole;
     const newField: FieldDefinition = {
       key,
       label: FIELD_TYPES.find((t) => t.value === activeType)?.label ?? activeType,
@@ -172,7 +205,7 @@ export function useFieldEditorState(initialFields: FieldDefinition[], active: bo
       required: isSignatureLike,
     };
     setFields((prev) => [...prev, newField]);
-    setSelectedKey(key);
+    setSelectedKeyState(key);
     setDirty(true);
     // Exit placement mode after creating one field, so a stray click
     // doesn't immediately place another on top of it.
@@ -181,8 +214,12 @@ export function useFieldEditorState(initialFields: FieldDefinition[], active: bo
 
   const updateSelected = useCallback((patch: Partial<FieldDefinition>) => {
     setFields((prev) => prev.map((f) => (f.key === selectedKey ? { ...f, ...patch } : f)));
+    if (patch.signerRole) {
+      const field = fields.find((f) => f.key === selectedKey);
+      if (isSignatureLikeType(patch.type ?? field?.type)) lastSignerRoleRef.current = patch.signerRole;
+    }
     setDirty(true);
-  }, [selectedKey]);
+  }, [selectedKey, fields]);
 
   const handleMoveField = useCallback((key: string, x: number, y: number) => {
     setFields((prev) => prev.map((f) => (f.key === key ? { ...f, x, y } : f)));
@@ -196,7 +233,7 @@ export function useFieldEditorState(initialFields: FieldDefinition[], active: bo
 
   const handleRemoveField = useCallback((key: string) => {
     setFields((prev) => prev.filter((f) => f.key !== key));
-    setSelectedKey((prev) => (prev === key ? null : prev));
+    setSelectedKeyState((prev) => (prev === key ? null : prev));
     setDirty(true);
   }, []);
 
@@ -468,7 +505,10 @@ export default function FieldMappingModal({
       try {
         const token = useAuthStore.getState().accessToken;
         const apiBase = import.meta.env.VITE_API_URL || '/api';
-        const url = `${apiBase}/tools/pdf-editor/documents/${documentId}/download`;
+        // Flattened, like the Send for Signature wizard's preview: fields are
+        // placed against the document as the user edited it, which is also
+        // what gets snapshotted and signed.
+        const url = `${apiBase}/tools/pdf-editor/documents/${documentId}/download?flatten=true`;
         const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         if (!response.ok) {
           if (cancelled) return;
@@ -509,8 +549,8 @@ export default function FieldMappingModal({
       setDirty(false);
       onSaved?.(doc.fieldDefinitions);
       onClose();
-    } catch {
-      message.error('Failed to save field mapping. Please try again.');
+    } catch (err) {
+      message.error(getErrorMessage(err) || 'Failed to save field mapping. Please try again.');
     } finally {
       setSaving(false);
     }

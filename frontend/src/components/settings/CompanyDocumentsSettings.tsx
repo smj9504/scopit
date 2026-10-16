@@ -558,11 +558,11 @@ const CompanyDocumentsSettings: React.FC = () => {
 
   const handleDownload = useCallback(async (doc: CompanyDocument) => {
     try {
-      const blob = await pdfEditorApi.downloadDocument(doc.id);
+      const blob = await pdfEditorApi.downloadCompanyDoc(doc.id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = doc.name;
+      a.download = doc.name.toLowerCase().endsWith('.pdf') ? doc.name : `${doc.name}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {

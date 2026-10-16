@@ -27,9 +27,9 @@
  *     fieldDefinitions={doc.fieldDefinitions}
  *   />
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Modal, Button, Input, Radio, Select, Space, Tooltip, Typography, App, Divider, Empty } from 'antd';
+import { Modal, Button, Input, Radio, Select, Space, Tooltip, Typography, App, Divider, Empty, Alert } from 'antd';
 import {
   SendOutlined,
   ArrowLeftOutlined,
@@ -230,6 +230,36 @@ export default function SendForSignModal({
   const [sending, setSending] = useState(false);
   const [sentResult, setSentResult] = useState<SignRequest | null>(null);
 
+  // The still-unsent draft created for step 3, mirrored in a ref so it can be
+  // discarded from close/unmount paths without stale closures. Cleared once
+  // the request is actually sent.
+  const draftRef = useRef<SignRequest | null>(null);
+  useEffect(() => {
+    draftRef.current = draft && draft.status === 'draft' ? draft : null;
+  }, [draft]);
+
+  const discardDraft = useCallback(() => {
+    const pending = draftRef.current;
+    draftRef.current = null;
+    if (pending) {
+      // Best effort: an orphaned draft is harmless, so don't bother the user.
+      pdfEditorApi.deleteDraftSignRequest(pending.id).catch(() => {});
+    }
+  }, []);
+
+  const handleClose = useCallback(() => {
+    discardDraft();
+    setDraft(null);
+    onClose();
+  }, [discardDraft, onClose]);
+
+  // Closing from the parent (open -> false) or unmounting must not leave an
+  // abandoned draft behind either.
+  useEffect(() => {
+    if (!open) discardDraft();
+  }, [open, discardDraft]);
+  useEffect(() => () => discardDraft(), [discardDraft]);
+
   const signerRoles = useMemo(
     () => Array.from(new Set(fields.map((f) => f.signerRole).filter((r): r is string => !!r))),
     [fields],
@@ -393,8 +423,14 @@ export default function SendForSignModal({
   const updateRecipient = (id: string, patch: Partial<RecipientRow>) =>
     setRecipients((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
+  // Row 0 shows the picked customer's name (read-only) once one is chosen,
+  // so that's also what gets submitted -- never a stale typed name.
+  const displayedName = (r: RecipientRow, index: number) =>
+    (index === 0 && customer ? customer.name : r.name).trim();
+
   const recipientsValid =
-    recipients.length > 0 && recipients.every((r) => r.name.trim() && r.email.trim());
+    recipients.length > 0
+    && recipients.every((r, index) => displayedName(r, index) && EMAIL_RE.test(r.email.trim()));
 
   const creatorFields = useMemo(
     () => fields.filter((f) => f.dataBinding.mode === 'creator_input'),
@@ -407,16 +443,30 @@ export default function SendForSignModal({
 
   const handleProceedToReview = async () => {
     if (!recipientsValid) {
-      message.error('Enter a name and email for every recipient');
+      const badEmail = recipients.find((r) => r.email.trim() && !EMAIL_RE.test(r.email.trim()));
+      message.error(
+        badEmail
+          ? `"${badEmail.email.trim()}" isn't a valid email address`
+          : 'Enter a name and email for every recipient',
+      );
       return;
     }
     setCreatingDraft(true);
     try {
+      // Going Back from step 3 and reviewing again must not leave the first
+      // draft behind -- recipients/settings may have changed, so replace it.
+      const previousDraft = draftRef.current;
+      if (previousDraft) {
+        draftRef.current = null;
+        setDraft(null);
+        await pdfEditorApi.deleteDraftSignRequest(previousDraft.id).catch(() => {});
+      }
+      const isEmail = deliveryMethod === 'email_request';
       const created = await pdfEditorApi.createSignRequest({
         documentId,
-        recipients: recipients.map((r) => ({
+        recipients: recipients.map((r, index) => ({
           role: r.role.trim(),
-          name: r.name.trim(),
+          name: displayedName(r, index),
           email: r.email.trim(),
           ...(r.phone.trim() ? { phone: r.phone.trim() } : {}),
         })),
@@ -426,12 +476,19 @@ export default function SendForSignModal({
         senderName: user?.fullName || user?.email,
         emailSubject: emailSubject || undefined,
         emailMessage: emailMessage || undefined,
-        ccEmails,
-        bccEmails,
+        // Cc/Bcc are only offered for email delivery.
+        ccEmails: isEmail ? ccEmails : [],
+        bccEmails: isEmail ? bccEmails : [],
         expiresInDays,
       });
       setDraft(created);
-      setCreatorValues(created.prefillData ?? {});
+      // Keep anything already typed into "fill in before sending" fields.
+      setCreatorValues((prev) => {
+        const kept = Object.fromEntries(
+          creatorFields.filter((f) => prev[f.key]).map((f) => [f.key, prev[f.key]]),
+        );
+        return { ...(created.prefillData ?? {}), ...kept };
+      });
       setStep(3);
     } catch (err) {
       message.error(getErrorMessage(err) || 'Failed to create the sign request');
@@ -456,9 +513,21 @@ export default function SendForSignModal({
         await pdfEditorApi.setCreatorFieldValues(draft.id, values);
       }
       const result = await pdfEditorApi.sendSignRequest(draft.id);
+      const failures = result.deliveryFailures ?? [];
+      if (result.status === 'draft') {
+        // No invitation could be delivered -- still a draft, so Send can
+        // simply be retried from here.
+        setDraft(result);
+        message.error(
+          `Couldn't email ${failures.map((f) => f.email).join(', ') || 'the recipients'}. Nothing was sent; check the address and try again.`,
+        );
+        return;
+      }
+      draftRef.current = null;
+      setDraft(result);
       setSentResult(result);
       onSent?.(result);
-      if (deliveryMethod === 'email_request') {
+      if (deliveryMethod === 'email_request' && failures.length === 0) {
         message.success('Signature request sent');
       }
     } catch (err) {
@@ -491,8 +560,8 @@ export default function SendForSignModal({
       message.success('Field mapping saved');
       setFieldsDirty(false);
       setEditMode('none');
-    } catch {
-      message.error('Failed to save field mapping. Please try again.');
+    } catch (err) {
+      message.error(getErrorMessage(err) || 'Failed to save field mapping. Please try again.');
     } finally {
       setSavingFields(false);
     }
@@ -599,7 +668,7 @@ export default function SendForSignModal({
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '12px 0 0' }}>
         <Space>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={handleClose}>Cancel</Button>
           <Button
             type="primary"
             icon={<ArrowRightOutlined />}
@@ -948,12 +1017,13 @@ export default function SendForSignModal({
   );
 
   const fullScreen = editMode !== 'none';
+  const sentDeliveryFailures = sentResult?.deliveryFailures ?? [];
 
   return (
     <>
       <Modal
         open={open && !sentResult}
-        onCancel={editMode === 'fields' ? handleCancelFieldsEdit : editMode === 'pdf' ? handleBackFromPdfEdit : onClose}
+        onCancel={editMode === 'fields' ? handleCancelFieldsEdit : editMode === 'pdf' ? handleBackFromPdfEdit : handleClose}
         title={fullScreen ? null : modalTitle}
         footer={null}
         closable={fullScreen ? false : (!sending && !creatingDraft)}
@@ -1002,7 +1072,7 @@ export default function SendForSignModal({
       {/* Success screen */}
       <Modal
         open={!!sentResult}
-        onCancel={() => { setSentResult(null); onClose(); }}
+        onCancel={() => { setSentResult(null); handleClose(); }}
         footer={null}
         closable={false}
         width={480}
@@ -1019,10 +1089,31 @@ export default function SendForSignModal({
             Signature request sent
           </Title>
           <Text style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textSecondary, fontFamily: fonts.body, marginBottom: 16 }}>
-            {deliveryMethod === 'direct_link'
+            {sentResult?.deliveryMethod === 'direct_link'
               ? 'Copy each link below and share it with the recipient.'
-              : 'Each recipient has been emailed their own signing link.'}
+              : sentDeliveryFailures.length > 0
+                ? 'The other recipients have been emailed their own signing link.'
+                : 'Each recipient has been emailed their own signing link.'}
           </Text>
+
+          {sentDeliveryFailures.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ textAlign: 'left', marginBottom: 16, fontFamily: fonts.body }}
+              message={`Couldn't email ${sentDeliveryFailures.length === 1 ? '1 recipient' : `${sentDeliveryFailures.length} recipients`}`}
+              description={
+                <>
+                  <ul style={{ margin: '4px 0 6px', paddingLeft: 18 }}>
+                    {sentDeliveryFailures.map((f) => (
+                      <li key={f.recipientId}>{f.name} ({f.email})</li>
+                    ))}
+                  </ul>
+                  Copy their link below to share it yourself, or use Remind on the request to try emailing again.
+                </>
+              }
+            />
+          )}
 
           {sentResult?.signUrls && (
             <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 20 }}>
@@ -1055,7 +1146,7 @@ export default function SendForSignModal({
 
           <Button
             type="primary"
-            onClick={() => { setSentResult(null); onClose(); }}
+            onClick={() => { setSentResult(null); handleClose(); }}
             style={{ borderRadius: borderRadius.base, background: colors.primary, borderColor: colors.primary, fontFamily: fonts.body, fontWeight: 600, fontSize: fontSizes.sm }}
           >
             Done

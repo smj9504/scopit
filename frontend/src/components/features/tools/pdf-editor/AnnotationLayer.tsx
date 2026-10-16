@@ -40,6 +40,7 @@ import {
   PencilBrush,
   FabricObject,
   ActiveSelection,
+  util,
 } from 'fabric';
 import type { Annotation, AnnotationStyle } from './types';
 
@@ -86,7 +87,8 @@ export interface AnnotationLayerProps {
   activeTool: string;
   selectedAnnotationId: string | null;
   onAnnotationSelect: (id: string | null) => void;
-  onAnnotationUpdate: (annotation: Annotation) => void;
+  /** One or more annotations changed on the canvas (move/resize/rotate/edit) */
+  onAnnotationUpdate: (annotations: Annotation[]) => void;
   onAnnotationAdd: (annotation: Annotation) => void;
   onAnnotationDelete: (id: string) => void;
   zoom: number;
@@ -137,10 +139,17 @@ function restrictToUniformScaling(obj: FabricObject): void {
   obj.setControlsVisibility({ mt: false, mb: false, ml: false, mr: false });
 }
 
-/** Extract position / size / rotation from a fabric object into an Annotation. */
+/**
+ * Extract position / size / rotation from a fabric object into an Annotation.
+ *
+ * x/y are the object's CENTER on the page and rotation is clockwise around
+ * it -- the backend burns annotations into the PDF with exactly that
+ * convention. Read from the absolute transform so it's also right for
+ * objects that are part of a multi-selection (whose left/top are relative
+ * to the selection).
+ */
 function fabricToAnnotation(obj: FabricObject, existing: Annotation): Annotation {
-  const scaleX = (obj.scaleX ?? 1);
-  const scaleY = (obj.scaleY ?? 1);
+  const t = util.qrDecompose(obj.calcTransformMatrix());
   const rawWidth = obj.width ?? existing.width;
   const rawHeight = obj.height ?? existing.height;
 
@@ -151,13 +160,37 @@ function fabricToAnnotation(obj: FabricObject, existing: Annotation): Annotation
 
   return {
     ...existing,
-    x: obj.left ?? existing.x,
-    y: obj.top ?? existing.y,
-    width: rawWidth * scaleX,
-    height: rawHeight * scaleY,
-    rotation: obj.angle ?? existing.rotation,
+    x: t.translateX,
+    y: t.translateY,
+    width: rawWidth * Math.abs(t.scaleX),
+    height: rawHeight * Math.abs(t.scaleY),
+    rotation: ((t.angle % 360) + 360) % 360,
     content,
   };
+}
+
+/**
+ * Corner-scaling text stretches the glyphs via scaleX/Y, which neither the
+ * saved annotation nor the PDF export know about. Fold the scale into the
+ * font size so the size sticks after a reload and in the exported file.
+ * Returns the new font size, or null if the object wasn't scaled.
+ */
+function foldTextScale(obj: IText): number | null {
+  const scale = obj.scaleX ?? 1;
+  if (Math.abs(scale - 1) < 0.001 && Math.abs((obj.scaleY ?? 1) - 1) < 0.001) return null;
+  const fontSize = Math.max(1, Math.round((obj.fontSize ?? DEFAULT_FONT_SIZE) * scale * 10) / 10);
+  obj.set({ fontSize, scaleX: 1, scaleY: 1 });
+  obj.initDimensions(); // fabric re-measures text lazily; we need the new size now
+  obj.setCoords();
+  return fontSize;
+}
+
+/** Image border, drawn by fabric as a stroke around the image. */
+function imageBorderProps(style: AnnotationStyle | undefined) {
+  const width = style?.borderWidth ?? 0;
+  return width > 0
+    ? { stroke: style?.borderColor ?? '#6b7280', strokeWidth: width, strokeUniform: true }
+    : { stroke: null, strokeWidth: 0 };
 }
 
 // ─── Annotation → Fabric object ──────────────────────────────────────────────
@@ -172,6 +205,7 @@ function buildTextObject(ann: Annotation): IText {
     fontFamily: style.fontFamily ?? DEFAULT_FONT_FAMILY,
     fontWeight: style.fontWeight ?? 'normal',
     fontStyle: (style.fontStyle as 'normal' | 'italic' | 'oblique') ?? 'normal',
+    underline: style.textDecoration === 'underline',
     fill: style.color ?? DEFAULT_TEXT_COLOR,
     backgroundColor: style.backgroundColor ?? '',
     opacity: style.opacity ?? 1,
@@ -211,7 +245,7 @@ function buildStampObject(ann: Annotation, color: string): IText {
     left: ann.x,
     top: ann.y,
     angle: ann.rotation,
-    fontSize: STAMP_FONT_SIZE,
+    fontSize: ann.style?.fontSize ?? STAMP_FONT_SIZE,
     fontFamily: "'Inter', sans-serif",
     fontWeight: 'bold',
     fill: color,
@@ -241,6 +275,7 @@ function buildShapeRectObject(ann: Annotation): Rect {
     fill: ann.style?.backgroundColor ?? DEFAULT_SHAPE_FILL,
     stroke: ann.style?.color ?? DEFAULT_SHAPE_STROKE,
     strokeWidth: ann.style?.borderWidth ?? DEFAULT_DRAW_WIDTH,
+    strokeUniform: true,
     selectable: true,
     opacity: ann.style?.opacity ?? 1,
   });
@@ -260,6 +295,7 @@ function buildShapeCircleObject(ann: Annotation): Ellipse {
     fill: ann.style?.backgroundColor ?? DEFAULT_SHAPE_FILL,
     stroke: ann.style?.color ?? DEFAULT_SHAPE_STROKE,
     strokeWidth: ann.style?.borderWidth ?? DEFAULT_DRAW_WIDTH,
+    strokeUniform: true,
     selectable: true,
     opacity: ann.style?.opacity ?? 1,
   });
@@ -275,6 +311,7 @@ function buildShapeLineObject(ann: Annotation): Line {
     angle: ann.rotation,
     stroke: ann.style?.color ?? DEFAULT_SHAPE_STROKE,
     strokeWidth: ann.style?.borderWidth ?? DEFAULT_DRAW_WIDTH,
+    strokeUniform: true,
     selectable: true,
     opacity: ann.style?.opacity ?? 1,
   });
@@ -326,6 +363,7 @@ async function annotationToFabricObject(ann: Annotation): Promise<FabricObject |
           angle: ann.rotation,
           opacity: ann.style?.opacity ?? 1,
           selectable: true,
+          ...imageBorderProps(ann.style),
         });
         // Scale to stored dimensions
         if (ann.width && ann.height && img.width && img.height) {
@@ -349,9 +387,17 @@ async function annotationToFabricObject(ann: Annotation): Promise<FabricObject |
           fill: '',
           stroke: ann.style?.color ?? DEFAULT_DRAW_COLOR,
           strokeWidth: ann.style?.borderWidth ?? DEFAULT_DRAW_WIDTH,
+          strokeUniform: true,
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
           selectable: true,
           opacity: ann.style?.opacity ?? 1,
         });
+        // A resized drawing is saved as its scaled size; restore that scale
+        if (ann.width && ann.height && pathObj.width && pathObj.height) {
+          pathObj.scaleX = ann.width / pathObj.width;
+          pathObj.scaleY = ann.height / pathObj.height;
+        }
         setAnnotationId(pathObj, ann.id);
         return pathObj;
       } catch {
@@ -509,8 +555,13 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const fabricRef = useRef<Canvas | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Debounce timer for object:modified updates
+  // Debounce timer + pending batch for object:modified / text:changed updates
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingUpdatesRef = useRef<Map<string, Annotation>>(new Map());
+
+  // Ids whose fabric object is still being built (images load async), so a
+  // second annotations change can't add the same object twice
+  const pendingAddsRef = useRef<Set<string>>(new Set());
 
   // Pending click position for image/stamp placement
   const pendingClickRef = useRef<{ x: number; y: number } | null>(null);
@@ -595,27 +646,61 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       transparentCorners: false,
       borderScaleFactor: 1.5,
     };
-    Object.assign(FabricObject.ownDefaults, darkHandles);
+    Object.assign(FabricObject.ownDefaults, darkHandles, {
+      // Annotation x/y are object centers; the PDF export depends on this.
+      // fabric 7 already defaults to center -- pinned so an upgrade can't
+      // silently shift every exported annotation.
+      originX: 'center' as const,
+      originY: 'center' as const,
+    });
 
     fabricRef.current = fc;
 
-    // ── object:modified ──────────────────────────────────────────────────
-    fc.on('object:modified', (e) => {
-      const obj = e.target;
-      if (!obj) return;
-      const id = getAnnotationId(obj);
-      if (!id) return;
-
-      const existing = annotationsRef.current.find((a) => a.id === id);
-      if (!existing) return;
-
-      const updated = fabricToAnnotation(obj, existing);
-
-      // Debounce rapid resize/move events
+    // Debounce rapid resize/move/typing events; batch per annotation id so a
+    // multi-object move isn't reduced to its last object
+    const queueUpdates = (updates: Annotation[]) => {
+      if (updates.length === 0) return;
+      for (const u of updates) pendingUpdatesRef.current.set(u.id, u);
       if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
       updateTimerRef.current = setTimeout(() => {
-        callbacksRef.current.onAnnotationUpdate(updated);
+        const batch = Array.from(pendingUpdatesRef.current.values());
+        pendingUpdatesRef.current.clear();
+        if (batch.length) callbacksRef.current.onAnnotationUpdate(batch);
       }, UPDATE_DEBOUNCE_MS);
+    };
+
+    // ── object:modified ──────────────────────────────────────────────────
+    fc.on('object:modified', (e) => {
+      const target = e.target;
+      if (!target) return;
+
+      // A moved/scaled multi-selection reports only the selection itself.
+      // Dissolve it so its children get their absolute geometry back, save
+      // each one, then restore the same selection.
+      const isGroup = target instanceof ActiveSelection;
+      const objects = isGroup ? target.getObjects() : [target];
+      if (isGroup) fc.discardActiveObject();
+
+      const updates: Annotation[] = [];
+      for (const obj of objects) {
+        const id = getAnnotationId(obj);
+        if (!id) continue;
+        const existing = annotationsRef.current.find((a) => a.id === id);
+        if (!existing) continue;
+
+        let style = existing.style;
+        if (obj instanceof IText) {
+          const fontSize = foldTextScale(obj);
+          if (fontSize !== null) style = { ...style, fontSize };
+        }
+        updates.push({ ...fabricToAnnotation(obj, existing), style });
+      }
+
+      if (isGroup && objects.length > 1) {
+        fc.setActiveObject(new ActiveSelection(objects, { canvas: fc }));
+      }
+      fc.requestRenderAll();
+      queueUpdates(updates);
     });
 
     // ── text:changed (IText live editing) ────────────────────────────────
@@ -626,11 +711,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       if (!id) return;
       const existing = annotationsRef.current.find((a) => a.id === id);
       if (!existing) return;
-      const updated: Annotation = { ...existing, content: obj.text ?? '' };
-      if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
-      updateTimerRef.current = setTimeout(() => {
-        callbacksRef.current.onAnnotationUpdate(updated);
-      }, UPDATE_DEBOUNCE_MS);
+      queueUpdates([fabricToAnnotation(obj, existing)]);
     });
 
     // ── selection events ─────────────────────────────────────────────────
@@ -775,6 +856,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         },
       };
 
+      pathObj.set({ strokeUniform: true, strokeLineCap: 'round', strokeLineJoin: 'round' });
       pathObj.selectable = activeTool === 'select';
       pathObj.evented = true;
       fc.renderAll();
@@ -905,6 +987,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             fill: DEFAULT_SHAPE_FILL,
             stroke: clr,
             strokeWidth: sw,
+            strokeUniform: true,
             selectable: true,
           });
           setAnnotationId(rectObj, id);
@@ -939,6 +1022,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             fill: DEFAULT_SHAPE_FILL,
             stroke: clr,
             strokeWidth: sw,
+            strokeUniform: true,
             selectable: true,
           });
           setAnnotationId(ellipseObj, id);
@@ -970,6 +1054,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             top: cy,
             stroke: clr,
             strokeWidth: sw,
+            strokeUniform: true,
             selectable: true,
           });
           setAnnotationId(lineObj, id);
@@ -1063,7 +1148,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         height: stampText.height ?? 30,
         rotation: 0,
         content: stamp.label,
-        style: { color: stamp.color },
+        style: { color: stamp.color, fontSize: STAMP_FONT_SIZE },
       };
       callbacksRef.current.onAnnotationAdd(newAnn);
     },
@@ -1164,6 +1249,13 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       if (id) fabricMap.set(id, obj);
     });
 
+    // Children of a multi-selection have selection-relative left/top; never
+    // overwrite their geometry with page coordinates while selected
+    const activeObj = fc.getActiveObject();
+    const inSelection = new Set<FabricObject>(
+      activeObj instanceof ActiveSelection ? activeObj.getObjects() : [],
+    );
+
     // Add new annotations OR update existing ones
     let needsRender = toRemove.length > 0;
     const addPromises: Promise<void>[] = [];
@@ -1172,10 +1264,16 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       const existingObj = fabricMap.get(ann.id);
 
       if (!existingObj) {
+        if (pendingAddsRef.current.has(ann.id)) continue;
+        pendingAddsRef.current.add(ann.id);
         // New annotation — create fabric object
         const p = annotationToFabricObject(ann).then((obj) => {
+          pendingAddsRef.current.delete(ann.id);
           if (!obj) return;
-          obj.selectable = activeTool === 'select';
+          // The page may have changed (or the annotation been deleted)
+          // while an image was loading
+          if (!annotationsRef.current.some((a) => a.id === ann.id)) return;
+          obj.selectable = activeToolRef.current === 'select';
           obj.evented = true;
           fc.add(obj);
         });
@@ -1186,11 +1284,24 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         if (existingObj instanceof IText && existingObj.isEditing) continue;
 
         // Update position/size
-        existingObj.set({
-          left: ann.x,
-          top: ann.y,
-          angle: ann.rotation || 0,
-        });
+        if (!inSelection.has(existingObj)) {
+          existingObj.set({
+            left: ann.x,
+            top: ann.y,
+            angle: ann.rotation || 0,
+          });
+
+          // Size comes from the annotation (property panel W/H, undo, ...).
+          // Text/stamps are sized by their font instead.
+          if (!(existingObj instanceof IText)) {
+            if (existingObj.width && ann.width) {
+              existingObj.set({ scaleX: ann.width / existingObj.width });
+            }
+            if (existingObj.height && ann.height) {
+              existingObj.set({ scaleY: ann.height / existingObj.height });
+            }
+          }
+        }
 
         // Update text content
         if (existingObj instanceof IText && existingObj.text !== ann.content) {
@@ -1207,7 +1318,12 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             fontStyle: (s.fontStyle as string) ?? existingObj.fontStyle,
             underline: s.textDecoration === 'underline',
             fill: s.color ?? existingObj.fill,
+            backgroundColor: s.backgroundColor ?? '',
           });
+        }
+
+        if (ann.type === 'image') {
+          existingObj.set(imageBorderProps(s));
         }
 
         // Update drawing stroke color/width
@@ -1228,12 +1344,6 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           if (ann.content !== 'line' && ann.content !== 'check') {
             shapeProps.fill = s.backgroundColor ?? DEFAULT_SHAPE_FILL;
           }
-          // Check size can change from the property panel, so drive the
-          // scale from the stored size rather than the fabric object
-          if (ann.content === 'check' && existingObj.width && existingObj.height) {
-            shapeProps.scaleX = (ann.width || DEFAULT_CHECK_SIZE) / existingObj.width;
-            shapeProps.scaleY = (ann.height || DEFAULT_CHECK_SIZE) / existingObj.height;
-          }
           existingObj.set(shapeProps);
         }
 
@@ -1247,10 +1357,28 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       }
     }
 
+    // Stack objects in annotation order -- the order the PDF export draws
+    // them in, and what "Bring to front" / "Send to back" change
+    const applyZOrder = () => {
+      const byId = new Map<string, FabricObject>();
+      fc.forEachObject((obj) => {
+        const id = getAnnotationId(obj);
+        if (id) byId.set(id, obj);
+      });
+      annotationsRef.current.forEach((ann, index) => {
+        const obj = byId.get(ann.id);
+        if (obj && fc.getObjects().indexOf(obj) !== index) fc.moveObjectTo(obj, index);
+      });
+    };
+
     if (addPromises.length > 0) {
-      Promise.all(addPromises).then(() => fc.renderAll());
-    } else if (needsRender) {
-      fc.renderAll();
+      Promise.all(addPromises).then(() => {
+        applyZOrder();
+        fc.renderAll();
+      });
+    } else {
+      applyZOrder();
+      if (needsRender) fc.renderAll();
     }
     // `activeTool` intentionally omitted – tool mode is handled separately
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1264,6 +1392,18 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     if (selectedAnnotationId === null) {
       fc.discardActiveObject();
       fc.renderAll();
+      return;
+    }
+
+    // Already selected (alone or as part of a multi-selection): leave it,
+    // or a Ctrl+click multi-select would collapse to its first object
+    const active = fc.getActiveObject();
+    if (
+      active &&
+      (getAnnotationId(active) === selectedAnnotationId ||
+        (active instanceof ActiveSelection &&
+          active.getObjects().some((o) => getAnnotationId(o) === selectedAnnotationId)))
+    ) {
       return;
     }
 
@@ -1371,8 +1511,9 @@ const SignFieldLabel: React.FC<{ annotation: Annotation; zoom: number }> = ({
 }) => {
   const w = (a.width || SIGN_FIELD_DEFAULT_W) * zoom;
   const h = (a.height || SIGN_FIELD_DEFAULT_H) * zoom;
-  const x = a.x * zoom;
-  const y = a.y * zoom;
+  // a.x/a.y are the field's center (fabric center origin)
+  const x = a.x * zoom - w / 2;
+  const y = a.y * zoom - h / 2;
 
   return (
     <div
@@ -1388,7 +1529,7 @@ const SignFieldLabel: React.FC<{ annotation: Annotation; zoom: number }> = ({
         justifyContent: 'center',
         pointerEvents: 'none',
         transform: a.rotation ? `rotate(${a.rotation}deg)` : undefined,
-        transformOrigin: '0 0',
+        transformOrigin: 'center',
       }}
     >
       <span
@@ -1402,54 +1543,6 @@ const SignFieldLabel: React.FC<{ annotation: Annotation; zoom: number }> = ({
         }}
       >
         {a.content || 'Signature'}
-      </span>
-    </div>
-  );
-};
-
-// ─── Stamp Label Overlay ──────────────────────────────────────────────────────
-
-const StampLabel: React.FC<{ annotation: Annotation; zoom: number }> = ({
-  annotation: a,
-  zoom,
-}) => {
-  const stampDef = STAMPS.find((s) => s.label === a.content);
-  const color = stampDef?.color ?? a.style?.color ?? '#6b7280';
-
-  const w = a.width * zoom;
-  const h = a.height * zoom;
-  const x = a.x * zoom;
-  const y = a.y * zoom;
-  const fontSize = Math.max(9, STAMP_FONT_SIZE * zoom);
-
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: 'absolute',
-        left: x,
-        top: y,
-        width: w,
-        height: h,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        pointerEvents: 'none',
-        transform: a.rotation ? `rotate(${a.rotation}deg)` : undefined,
-        transformOrigin: '0 0',
-      }}
-    >
-      <span
-        style={{
-          fontFamily: "'Inter', sans-serif",
-          fontSize,
-          color,
-          fontWeight: 700,
-          letterSpacing: '0.1em',
-          userSelect: 'none',
-        }}
-      >
-        {a.content}
       </span>
     </div>
   );

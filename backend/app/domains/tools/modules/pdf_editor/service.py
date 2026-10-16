@@ -29,6 +29,12 @@ from app.domains.tools.modules.pdf_editor.models import (
     CompanyDocument,
     PdfDocument,
 )
+from app.domains.tools.modules.pdf_editor.pdf_geometry import (
+    enter_screen_space,
+    local_frame,
+    page_view,
+    page_view_size,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -48,6 +54,33 @@ ALLOWED_CONVERT_TYPES = {
 }
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+
+
+_heif_registered = False
+
+
+def _open_image(source):
+    """PIL Image.open that also understands HEIC/HEIF (iPhone photos) when
+    pillow-heif is installed, and turns unreadable files into a 400 instead
+    of a 500."""
+    global _heif_registered
+    from PIL import Image, UnidentifiedImageError
+
+    if not _heif_registered:
+        try:
+            import pillow_heif
+
+            pillow_heif.register_heif_opener()
+        except ImportError:
+            pass
+        _heif_registered = True
+    try:
+        return Image.open(source)
+    except UnidentifiedImageError:
+        raise HTTPException(
+            status_code=400,
+            detail="This image format couldn't be read. Try a JPG or PNG.",
+        )
 
 
 def _hex_to_rgb(hex_color: Optional[str], default=(0.0, 0.0, 0.0)):
@@ -77,20 +110,16 @@ def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> byte
     Returns the flattened PDF as bytes, or the original bytes unchanged if
     there are no annotations.
 
-    Supports: text, image, stamp, shape (rect/circle/line). Each annotation
-    burns independently (one malformed annotation -- e.g. a corrupt image
-    data URL -- is skipped, not fatal to the rest of the page).
+    Annotation geometry comes straight from the editor's fabric.js canvas:
+    x/y are the object's CENTER (fabric 7 defaults originX/originY to
+    "center"), width/height its scaled size, rotation its clockwise angle
+    around that center, all in the pdf.js viewport at scale 1 -- which
+    already includes the page's /Rotate and crop box. pdf_geometry maps that
+    space back to PDF user space, so rotated and cropped pages line up.
 
-    NOT supported: freehand "drawing" annotations (pencil tool) and
-    "sign_field" placeholders. Fabric.js's exported path data doesn't
-    unambiguously say where the path's on-page origin is relative to its own
-    point coordinates without either reading fabric's exact version-specific
-    internals or live-testing against it -- guessing would risk silently
-    misplaced or distorted ink on a document someone is about to sign, which
-    is worse than the current "not burned, still visible in the editor"
-    behavior. Both types stay visible in the app's own editor/canvas views
-    but are silently absent from flattened output, including documents sent
-    for e-signature.
+    Each annotation burns independently: one malformed annotation (e.g. a
+    corrupt image data URL) is skipped, not fatal to the rest of the page.
+    "sign_field" placeholders are never burned.
     """
     from pypdf import PdfReader, PdfWriter
     from reportlab.pdfgen import canvas as rl_canvas
@@ -118,19 +147,25 @@ def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> byte
             page_anns = by_page.get(page_number, [])
             if page_anns:
                 media_box = page.mediabox
-                pw = float(media_box.width)
-                ph = float(media_box.height)
+                view = page_view(page)
 
                 packet = BytesIO()
-                c = rl_canvas.Canvas(packet, pagesize=(pw, ph))
+                c = rl_canvas.Canvas(
+                    packet,
+                    pagesize=(float(media_box.width), float(media_box.height)),
+                )
+                enter_screen_space(c, view)
 
                 drawn = 0
                 for ann in page_anns:
+                    c.saveState()
                     try:
-                        if _burn_one_annotation(c, ann, ph):
+                        if _burn_one_annotation(c, ann):
                             drawn += 1
                     except Exception:
-                        continue  # skip this annotation, keep the rest of the page
+                        pass  # skip this annotation, keep the rest of the page
+                    finally:
+                        c.restoreState()
 
                 # A Canvas with zero draw calls serializes to a zero-page PDF
                 # (reportlab only finalizes a page once something is drawn on
@@ -153,36 +188,245 @@ def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> byte
             return fh.read()
 
 
-def _burn_one_annotation(c, ann: dict, ph: float) -> bool:
-    """Draw a single annotation onto the in-progress reportlab canvas `c`.
+# fabric.js text layout constants (fabric/src/shapes/Text/constants), so a
+# burned text block has the same line spacing and box as the editor's IText.
+_FABRIC_FONT_SIZE_MULT = 1.13
+_FABRIC_LINE_HEIGHT = 1.16
+_FABRIC_FONT_SIZE_FRACTION = 0.222
+_FABRIC_UNDERLINE_OFFSET = 0.1
+
+_STAMP_FONT_SIZE = 22
+
+# The editor's font list mapped onto the PDF base-14 families
+# (regular, bold, italic, bold italic).
+_PDF_FONTS = {
+    "helvetica": ("Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique"),
+    "times": ("Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic"),
+    "courier": ("Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique"),
+}
+
+
+def _pdf_font_name(family: Optional[str], bold: bool, italic: bool) -> str:
+    f = (family or "").lower()
+    if "times" in f or "georgia" in f or f == "serif":
+        key = "times"
+    elif "courier" in f or "mono" in f:
+        key = "courier"
+    else:
+        key = "helvetica"
+    return _PDF_FONTS[key][(1 if bold else 0) + (2 if italic else 0)]
+
+
+def _is_bold(weight) -> bool:
+    if weight is None:
+        return False
+    w = str(weight).lower()
+    return w == "bold" or (w.isdigit() and int(w) >= 600)
+
+
+def _draw_text_block(
+    c,
+    text: str,
+    font_size: float,
+    font_name: str,
+    color,
+    background=None,
+    underline: bool = False,
+) -> None:
+    """Draw fabric-style IText centered on the current origin (y-up frame)."""
+    lines = text.split("\n")
+    line_impl = font_size * _FABRIC_FONT_SIZE_MULT
+    line_step = line_impl * _FABRIC_LINE_HEIGHT
+    box_h = line_impl * (_FABRIC_LINE_HEIGHT * (len(lines) - 1) + 1)
+    widths = [c.stringWidth(line, font_name, font_size) for line in lines]
+    box_w = max(widths) if widths else 0
+    left = -box_w / 2
+    top = box_h / 2
+
+    if background:
+        c.setFillColorRGB(*background)
+        c.rect(left, -box_h / 2, box_w, box_h, fill=1, stroke=0)
+
+    c.setFillColorRGB(*color)
+    c.setStrokeColorRGB(*color)
+    c.setFont(font_name, font_size)
+    for i, line in enumerate(lines):
+        baseline = top - (i * line_step + line_impl * (1 - _FABRIC_FONT_SIZE_FRACTION))
+        c.drawString(left, baseline, line)
+        if underline and widths[i]:
+            uy = baseline - font_size * _FABRIC_UNDERLINE_OFFSET
+            c.setLineWidth(font_size / 15)
+            c.line(left, uy, left + widths[i], uy)
+
+
+def _parse_drawing_path(content: str) -> list:
+    """Freehand path data as saved by the editor: a JSON array of fabric
+    path commands ([["M", x, y], ["Q", x1, y1, x, y], ...]) or, for older
+    data, an SVG path string."""
+    import json
+    import re
+
+    try:
+        data = json.loads(content)
+        if isinstance(data, list):
+            return [list(cmd) for cmd in data if isinstance(cmd, (list, tuple)) and cmd]
+    except (ValueError, TypeError):
+        pass
+
+    commands = []
+    for letter, args in re.findall(r"([MmLlQqCcZz])([^MmLlQqCcZz]*)", content):
+        nums = [float(n) for n in re.findall(r"-?\d*\.?\d+(?:e-?\d+)?", args)]
+        commands.append([letter.upper(), *nums])
+    return commands
+
+
+def _quad_extrema(p0: float, p1: float, p2: float) -> list[float]:
+    denom = p0 - 2 * p1 + p2
+    if denom == 0:
+        return []
+    t = (p0 - p1) / denom
+    if 0 < t < 1:
+        return [(1 - t) ** 2 * p0 + 2 * (1 - t) * t * p1 + t * t * p2]
+    return []
+
+
+def _cubic_extrema(p0: float, p1: float, p2: float, p3: float) -> list[float]:
+    import math
+
+    a = -p0 + 3 * p1 - 3 * p2 + p3
+    b = 2 * (p0 - 2 * p1 + p2)
+    cc = p1 - p0
+    ts = []
+    if abs(a) < 1e-12:
+        if abs(b) > 1e-12:
+            ts.append(-cc / b)
+    else:
+        disc = b * b - 4 * a * cc
+        if disc >= 0:
+            r = math.sqrt(disc)
+            ts += [(-b + r) / (2 * a), (-b - r) / (2 * a)]
+    out = []
+    for t in ts:
+        if 0 < t < 1:
+            mt = 1 - t
+            out.append(mt ** 3 * p0 + 3 * mt * mt * t * p1 + 3 * mt * t * t * p2 + t ** 3 * p3)
+    return out
+
+
+def _path_segments(commands: list) -> list:
+    """Normalize to absolute ("M"|"L"|"C", points...) segments, converting
+    quadratics to cubics, like fabric's makePathSimpler."""
+    segs = []
+    cur = (0.0, 0.0)
+    start = (0.0, 0.0)
+    for cmd in commands:
+        op, nums = str(cmd[0]).upper(), [float(n) for n in cmd[1:]]
+        if op == "M" and len(nums) >= 2:
+            cur = start = (nums[0], nums[1])
+            segs.append(("M", cur))
+        elif op == "L" and len(nums) >= 2:
+            cur = (nums[0], nums[1])
+            segs.append(("L", cur))
+        elif op == "Q" and len(nums) >= 4:
+            q = (nums[0], nums[1])
+            end = (nums[2], nums[3])
+            c1 = (cur[0] + 2 / 3 * (q[0] - cur[0]), cur[1] + 2 / 3 * (q[1] - cur[1]))
+            c2 = (end[0] + 2 / 3 * (q[0] - end[0]), end[1] + 2 / 3 * (q[1] - end[1]))
+            segs.append(("C", c1, c2, end))
+            cur = end
+        elif op == "C" and len(nums) >= 6:
+            end = (nums[4], nums[5])
+            segs.append(("C", (nums[0], nums[1]), (nums[2], nums[3]), end))
+            cur = end
+        elif op == "Z":
+            cur = start
+            segs.append(("L", start))
+    return segs
+
+
+def _segments_bbox(segs: list) -> Optional[tuple[float, float, float, float]]:
+    xs: list[float] = []
+    ys: list[float] = []
+    cur = None
+    for seg in segs:
+        if seg[0] in ("M", "L"):
+            cur = seg[1]
+            xs.append(cur[0])
+            ys.append(cur[1])
+        else:
+            _, c1, c2, end = seg
+            p0 = cur or c1
+            xs += [end[0], *_cubic_extrema(p0[0], c1[0], c2[0], end[0])]
+            ys += [end[1], *_cubic_extrema(p0[1], c1[1], c2[1], end[1])]
+            cur = end
+    if not xs:
+        return None
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _burn_one_annotation(c, ann: dict) -> bool:
+    """Draw a single annotation onto the in-progress reportlab canvas `c`,
+    which is already in top-down viewport space (see enter_screen_space).
     Returns whether it actually drew anything -- a Canvas that never draws
     serializes to a zero-page PDF (see the zero-page guard around this
     function's caller), so "didn't raise" alone isn't a safe proxy: several
     branches below intentionally no-op on unusable data (empty image src,
     missing dimensions, unsupported annotation type) without raising.
-
-    `ph` is the page height in points -- every coordinate conversion below
-    mirrors it because annotation x/y are stored top-down (matching the
-    browser canvas/fabric.js convention) while reportlab draws bottom-up.
-
-    Rotation is intentionally not applied (matches the pre-existing "text"
-    burn this was extracted from): fabric.js rotates around an object's
-    center by default, and getting the pivot math wrong would visibly
-    mis-place the annotation, which is worse than drawing it unrotated.
     """
     ann_type = ann.get("type")
     style = ann.get("style") or {}
-    x = ann.get("x", 0)
-    y_top = ann.get("y", 0)
-    w = ann.get("width") or 0
-    h = ann.get("height") or 0
+    w = float(ann.get("width") or 0)
+    h = float(ann.get("height") or 0)
+
+    if ann_type not in ("text", "stamp", "image", "shape", "drawing"):
+        return False  # sign_field placeholders, unknown types
+
+    opacity = style.get("opacity")
+    if opacity is not None and opacity < 1:
+        c.setFillAlpha(max(0.0, opacity))
+        c.setStrokeAlpha(max(0.0, opacity))
+
+    # y-up frame centered on the object, rotated like the editor shows it
+    local_frame(
+        c,
+        float(ann.get("x") or 0),
+        float(ann.get("y") or 0),
+        float(ann.get("rotation") or 0),
+    )
 
     if ann_type == "text":
-        font_size = style.get("font_size") or 12
-        r, g, b = _hex_to_rgb(style.get("color"), default=(0.0, 0.0, 0.0))
-        c.setFillColorRGB(r, g, b)
-        c.setFont("Helvetica", font_size)
-        c.drawString(x, ph - y_top - font_size, ann.get("content") or "")
+        content = ann.get("content") or ""
+        if not content:
+            return False
+        bg_hex = style.get("background_color")
+        _draw_text_block(
+            c,
+            content,
+            float(style.get("font_size") or 16),
+            _pdf_font_name(
+                style.get("font_family"),
+                _is_bold(style.get("font_weight")),
+                (style.get("font_style") or "") in ("italic", "oblique"),
+            ),
+            _hex_to_rgb(style.get("color"), default=(0.07, 0.09, 0.15)),
+            background=(
+                _hex_to_rgb(bg_hex) if bg_hex and bg_hex != "transparent" else None
+            ),
+            underline=style.get("text_decoration") == "underline",
+        )
+        return True
+
+    if ann_type == "stamp":
+        content = ann.get("content") or ""
+        if not content:
+            return False
+        _draw_text_block(
+            c,
+            content,
+            float(style.get("font_size") or _STAMP_FONT_SIZE),
+            "Helvetica-Bold",
+            _hex_to_rgb(style.get("color"), default=(0.42, 0.45, 0.50)),
+        )
         return True
 
     if ann_type == "image":
@@ -193,57 +437,117 @@ def _burn_one_annotation(c, ann: dict, ph: float) -> bool:
             return False
         _, b64data = content.split(",", 1)
         img_reader = ImageReader(BytesIO(base64.b64decode(b64data)))
-        opacity = style.get("opacity")
-        if opacity is not None and opacity < 1:
-            c.saveState()
-            c.setFillAlpha(opacity)
-            c.setStrokeAlpha(opacity)
-        c.drawImage(img_reader, x, ph - y_top - h, w, h, mask="auto")
-        if opacity is not None and opacity < 1:
-            c.restoreState()
+        c.drawImage(img_reader, -w / 2, -h / 2, w, h, mask="auto")
+        border = style.get("border_width") or 0
+        if border > 0:
+            c.setStrokeColorRGB(*_hex_to_rgb(style.get("border_color"), default=(0.42, 0.45, 0.50)))
+            c.setLineWidth(border)
+            c.rect(-w / 2, -h / 2, w, h, fill=0, stroke=1)
         return True
 
-    if ann_type == "stamp":
-        r, g, b = _hex_to_rgb(style.get("color"), default=(0.42, 0.45, 0.50))
-        c.setFillColorRGB(r, g, b)
-        c.setFont("Helvetica-Bold", 22)
-        c.drawString(x, ph - y_top - 22, ann.get("content") or "")
+    stroke_width = style.get("border_width") or 2
+    c.setStrokeColorRGB(*_hex_to_rgb(style.get("color"), default=(0.07, 0.09, 0.16)))
+    c.setLineWidth(stroke_width)
+
+    if ann_type == "drawing":
+        segs = _path_segments(_parse_drawing_path(ann.get("content") or ""))
+        bbox = _segments_bbox(segs)
+        if not bbox:
+            return False
+        bx0, by0, bx1, by1 = bbox
+        raw_w, raw_h = bx1 - bx0, by1 - by0
+        sx = w / raw_w if raw_w > 0 and w > 0 else 1.0
+        sy = h / raw_h if raw_h > 0 and h > 0 else 1.0
+        ox, oy = (bx0 + bx1) / 2, (by0 + by1) / 2
+
+        def pt(p):  # path space -> local y-up frame around the center
+            return (p[0] - ox) * sx, -(p[1] - oy) * sy
+
+        c.setLineCap(1)
+        c.setLineJoin(1)
+        path = c.beginPath()
+        for seg in segs:
+            if seg[0] == "M":
+                path.moveTo(*pt(seg[1]))
+            elif seg[0] == "L":
+                path.lineTo(*pt(seg[1]))
+            else:
+                path.curveTo(*pt(seg[1]), *pt(seg[2]), *pt(seg[3]))
+        c.drawPath(path, stroke=1, fill=0)
         return True
 
-    if ann_type == "shape":
-        stroke_width = style.get("border_width") or 2
-        sr, sg, sb = _hex_to_rgb(style.get("color"), default=(0.07, 0.09, 0.16))
-        c.setStrokeColorRGB(sr, sg, sb)
-        c.setLineWidth(stroke_width)
-        fill_hex = style.get("background_color")
-        has_fill = bool(fill_hex) and fill_hex != "transparent"
-        if has_fill:
-            fr, fg, fb = _hex_to_rgb(fill_hex)
-            c.setFillColorRGB(fr, fg, fb)
+    # ann_type == "shape"
+    fill_hex = style.get("background_color")
+    has_fill = bool(fill_hex) and fill_hex != "transparent"
+    if has_fill:
+        c.setFillColorRGB(*_hex_to_rgb(fill_hex))
 
-        kind = ann.get("content")
-        if kind == "rect" and w and h:
-            c.rect(x, ph - y_top - h, w, h, fill=1 if has_fill else 0, stroke=1)
-            return True
-        if kind == "circle" and w and h:
-            c.ellipse(x, ph - y_top - h, x + w, ph - y_top, fill=1 if has_fill else 0, stroke=1)
-            return True
-        if kind == "line" and w:
-            c.line(x, ph - y_top, x + w, ph - y_top)
-            return True
-        if kind == "check" and w and h:
-            # Same polyline as the editor's check path, in a w x h box
-            c.setLineCap(1)
-            c.setLineJoin(1)
-            p = c.beginPath()
-            p.moveTo(x, ph - y_top - 0.55 * h)
-            p.lineTo(x + 0.36 * w, ph - y_top - h)
-            p.lineTo(x + w, ph - y_top)
-            c.drawPath(p, stroke=1, fill=0)
-            return True
-        return False
+    kind = ann.get("content")
+    if kind == "rect" and w and h:
+        c.rect(-w / 2, -h / 2, w, h, fill=1 if has_fill else 0, stroke=1)
+        return True
+    if kind == "circle" and w and h:
+        c.ellipse(-w / 2, -h / 2, w / 2, h / 2, fill=1 if has_fill else 0, stroke=1)
+        return True
+    if kind == "line" and w:
+        c.line(-w / 2, 0, w / 2, 0)
+        return True
+    if kind == "check" and w and h:
+        # Same polyline as the editor's check path, in a w x h box
+        c.setLineCap(1)
+        c.setLineJoin(1)
+        p = c.beginPath()
+        p.moveTo(-w / 2, h / 2 - 0.55 * h)
+        p.lineTo(-w / 2 + 0.36 * w, -h / 2)
+        p.lineTo(w / 2, h / 2)
+        c.drawPath(p, stroke=1, fill=0)
+        return True
+    return False
 
-    return False  # unsupported type (drawing, sign_field, ...)
+
+def _remap_page_items(items: Optional[list], new_page_for) -> list:
+    """Move annotations / field definitions to their new page numbers after a
+    page operation. `new_page_for(old_page)` returns the new one-based page,
+    or None when that page was removed (its items are dropped)."""
+    out = []
+    for item in items or []:
+        new_page = new_page_for(item.get("page"))
+        if new_page is None:
+            continue
+        out.append({**item, "page": new_page})
+    return out
+
+
+def _rotate_annotation(ann: dict, degrees: int, view_w: float, view_h: float) -> dict:
+    """Keep an annotation glued to the page content when the page turns by
+    `degrees` clockwise. x/y are the object's center in viewport space of
+    size view_w x view_h (before the turn)."""
+    cx = float(ann.get("x") or 0)
+    cy = float(ann.get("y") or 0)
+    if degrees == 90:
+        nx, ny = view_h - cy, cx
+    elif degrees == 180:
+        nx, ny = view_w - cx, view_h - cy
+    else:  # 270
+        nx, ny = cy, view_w - cx
+    angle = (float(ann.get("rotation") or 0) + degrees) % 360
+    return {**ann, "x": nx, "y": ny, "rotation": angle}
+
+
+def _rotate_field(field: dict, degrees: int) -> dict:
+    """Same for a field definition, whose box is stored as top-left x/y plus
+    width/height in 0-1 fractions of the page."""
+    x = float(field.get("x") or 0)
+    y = float(field.get("y") or 0)
+    w = float(field.get("width") or 0)
+    h = float(field.get("height") or 0)
+    if degrees == 90:
+        nx, ny, nw, nh = 1 - y - h, x, h, w
+    elif degrees == 180:
+        nx, ny, nw, nh = 1 - x - w, 1 - y - h, w, h
+    else:  # 270
+        nx, ny, nw, nh = y, 1 - x - w, h, w
+    return {**field, "x": nx, "y": ny, "width": nw, "height": nh}
 
 
 # ===========================================================================
@@ -306,15 +610,15 @@ class PdfEditorService:
     def _image_to_pdf(
         self, image_path: str, output_path: str, rotation: int = 0
     ) -> None:
-        from PIL import Image, ImageOps
+        from PIL import ImageOps
         from reportlab.lib.pagesizes import letter
         from reportlab.pdfgen import canvas as rl_canvas
 
-        img = Image.open(image_path)
+        img = _open_image(image_path)
         img = ImageOps.exif_transpose(img)
         if rotation:
             img = img.rotate(-rotation, expand=True)
-        if img.mode in ("RGBA", "P"):
+        if img.mode != "RGB":
             img = img.convert("RGB")
 
         temp_jpg = image_path + ".tmp.jpg"
@@ -590,6 +894,7 @@ class PdfEditorService:
             annotations=(
                 list(original.annotations) if original.annotations else []
             ),
+            field_definitions=list(original.field_definitions or []),
             thumbnail_path=new_thumb_key,
         )
         self.db.add(doc)
@@ -621,6 +926,10 @@ class PdfEditorService:
         with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             writer = PdfWriter()
             doc_names: list[str] = []
+            merged_annotations: list = []
+            merged_fields: list = []
+            used_keys: set[str] = set()
+            page_offset = 0
 
             for i, did in enumerate(document_ids):
                 doc = self.get_document(company_id, UUID(did))
@@ -637,6 +946,26 @@ class PdfEditorService:
                 for page in reader.pages:
                     writer.add_page(page)
                 doc_names.append(doc.name)
+
+                # Carry over unflattened edits and field mappings, shifted to
+                # where this document's pages land in the merged file
+                offset = page_offset
+                merged_annotations += [
+                    {**a, "id": str(uuid.uuid4())}  # same doc may be merged twice
+                    for a in _remap_page_items(
+                        doc.annotations, lambda p: p + offset if p else None
+                    )
+                ]
+                for field in _remap_page_items(
+                    doc.field_definitions, lambda p: p + offset if p else None
+                ):
+                    key = field.get("key") or "field"
+                    unique, n = key, 2
+                    while unique in used_keys:
+                        unique, n = f"{key}_{n}", n + 1
+                    used_keys.add(unique)
+                    merged_fields.append({**field, "key": unique})
+                page_offset += len(reader.pages)
 
             merged_path = os.path.join(tmpdir, "document.pdf")
             with open(merged_path, "wb") as fh:
@@ -659,7 +988,8 @@ class PdfEditorService:
             page_count=page_count,
             mime_type="application/pdf",
             source_type="merge",
-            annotations=[],
+            annotations=merged_annotations,
+            field_definitions=merged_fields,
             thumbnail_path=thumb_key,
         )
         self.db.add(doc)
@@ -690,6 +1020,15 @@ class PdfEditorService:
             writer = PdfWriter()
             for idx in page_order:
                 writer.add_page(reader.pages[idx])
+
+            # Annotations and fields follow their page to its new position
+            old_to_new = {old + 1: new + 1 for new, old in enumerate(page_order)}
+            doc.annotations = _remap_page_items(doc.annotations, old_to_new.get)
+            doc.field_definitions = _remap_page_items(
+                doc.field_definitions, old_to_new.get
+            )
+            flag_modified(doc, "annotations")
+            flag_modified(doc, "field_definitions")
 
             with open(local_path, "wb") as fh:
                 writer.write(fh)
@@ -730,6 +1069,12 @@ class PdfEditorService:
 
             reader = PdfReader(local_path)
             total = len(reader.pages)
+            invalid = [p for p in page_numbers if not 1 <= p <= total]
+            if invalid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Page(s) out of range: {invalid}",
+                )
             to_delete = {p - 1 for p in page_numbers}
             remaining = [i for i in range(total) if i not in to_delete]
 
@@ -762,6 +1107,15 @@ class PdfEditorService:
             doc.page_count = len(remaining)
             doc.file_size = os.path.getsize(local_path)
 
+            # Drop what sat on removed pages; shift the rest up
+            old_to_new = {old + 1: new + 1 for new, old in enumerate(remaining)}
+            doc.annotations = _remap_page_items(doc.annotations, old_to_new.get)
+            doc.field_definitions = _remap_page_items(
+                doc.field_definitions, old_to_new.get
+            )
+            flag_modified(doc, "annotations")
+            flag_modified(doc, "field_definitions")
+
         doc.updated_at = datetime.utcnow()
         self.db.commit()
         self.db.refresh(doc)
@@ -781,6 +1135,8 @@ class PdfEditorService:
 
             reader = PdfReader(local_path)
             writer = PdfWriter()
+            annotations = list(doc.annotations or [])
+            fields = list(doc.field_definitions or [])
 
             for i, page in enumerate(reader.pages):
                 key = str(i + 1)
@@ -792,8 +1148,27 @@ class PdfEditorService:
                             detail=f"Invalid rotation {degrees} for "
                             f"page {key}. Use 90, 180, or 270.",
                         )
+                    # Keep annotations/fields on the same spot of the
+                    # content: measured in the viewport before the turn
+                    view_w, view_h = page_view_size(page)
+                    page_no = i + 1
+                    annotations = [
+                        _rotate_annotation(a, degrees, view_w, view_h)
+                        if a.get("page") == page_no else a
+                        for a in annotations
+                    ]
+                    fields = [
+                        _rotate_field(f, degrees)
+                        if f.get("page") == page_no else f
+                        for f in fields
+                    ]
                     page.rotate(degrees)
                 writer.add_page(page)
+
+            doc.annotations = annotations
+            doc.field_definitions = fields
+            flag_modified(doc, "annotations")
+            flag_modified(doc, "field_definitions")
 
             with open(local_path, "wb") as fh:
                 writer.write(fh)
@@ -892,7 +1267,7 @@ class PdfEditorService:
         files: list[UploadFile],
         name: Optional[str] = None,
     ) -> PdfDocument:
-        from PIL import Image, ImageOps
+        from PIL import ImageOps
         from reportlab.lib.pagesizes import letter
         from reportlab.pdfgen import canvas as rl_canvas
 
@@ -909,9 +1284,9 @@ class PdfEditorService:
                 if not content:
                     continue
 
-                img = Image.open(BytesIO(content))
+                img = _open_image(BytesIO(content))
                 img = ImageOps.exif_transpose(img)
-                if img.mode in ("RGBA", "P"):
+                if img.mode != "RGB":
                     img = img.convert("RGB")
 
                 temp_img = os.path.join(tmpdir, f"_tmp_{page_count}.jpg")
@@ -1123,7 +1498,17 @@ class PdfEditorService:
         reuses the same linked copy on every call -- which is what makes
         field mapping done once from the company document library stay
         reusable rather than being redone on every visit."""
-        existing = (
+        existing = self._find_linked_document(company_id, company_document_id)
+        if existing:
+            return existing
+        return self.import_company_document(
+            company_id, user_id, company_document_id, linked=True
+        )
+
+    def _find_linked_document(
+        self, company_id: UUID, company_document_id: str
+    ) -> Optional[PdfDocument]:
+        candidates = (
             self.db.query(PdfDocument)
             .filter(
                 PdfDocument.company_id == company_id,
@@ -1131,13 +1516,15 @@ class PdfEditorService:
                 PdfDocument.source_id == UUID(company_document_id),
                 PdfDocument.is_active == True,
             )
-            .order_by(PdfDocument.created_at.desc())
-            .first()
+            .order_by(PdfDocument.created_at.asc())
+            .all()
         )
-        if existing:
-            return existing
-        return self.import_company_document(
-            company_id, user_id, company_document_id
+        if not candidates:
+            return None
+        # Editor imports used to share this source_type, so several copies
+        # can exist; the one that holds a field mapping is the real template.
+        return next(
+            (d for d in candidates if d.field_definitions), candidates[0]
         )
 
     def import_company_document(
@@ -1145,7 +1532,14 @@ class PdfEditorService:
         company_id: UUID,
         user_id: UUID,
         company_document_id: str,
+        linked: bool = False,
     ) -> PdfDocument:
+        """Copy a company-library document into a new PdfDocument.
+
+        linked=True creates the one persistent template copy (see
+        get_or_create_linked_document). Otherwise it's a one-off editor
+        import: a separate source_type so it can never shadow the template,
+        starting from the template's field mapping when one exists."""
         company_doc = (
             self.db.query(CompanyDocument)
             .filter(
@@ -1159,6 +1553,12 @@ class PdfEditorService:
             raise HTTPException(
                 status_code=404, detail="Company document not found"
             )
+
+        template_fields: list = []
+        if not linked:
+            template = self._find_linked_document(company_id, company_document_id)
+            if template and template.field_definitions:
+                template_fields = list(template.field_definitions)
 
         new_id = uuid.uuid4()
 
@@ -1185,9 +1585,10 @@ class PdfEditorService:
             file_size=company_doc.file_size,
             page_count=company_doc.page_count,
             mime_type=company_doc.mime_type,
-            source_type="company_doc",
+            source_type="company_doc" if linked else "company_doc_import",
             source_id=UUID(company_document_id),
             annotations=[],
+            field_definitions=template_fields,
             thumbnail_path=new_thumb_key,
         )
         self.db.add(doc)

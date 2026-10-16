@@ -6,10 +6,11 @@
  *   - Draw: Freehand drawing on a canvas
  *   - Image: Upload a signature image
  *
- * Saved signatures persist in localStorage.
+ * Saved signatures persist in localStorage, scoped to the signed-in user so
+ * a shared browser never offers one person's signature to another.
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Modal, Button, Input, Checkbox, Tabs, Typography, Tooltip } from 'antd';
+import { Modal, Button, Input, Checkbox, Tabs, Typography, Tooltip, App } from 'antd';
 import {
   FontSizeOutlined,
   EditOutlined,
@@ -19,6 +20,7 @@ import {
   CloseOutlined,
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius } from '@/styles/theme';
+import { useAuthStore } from '@/stores/authStore';
 
 const { Text } = Typography;
 
@@ -39,7 +41,12 @@ interface SignatureModalProps {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'scopit-signatures';
+const STORAGE_KEY_PREFIX = 'scopit-signatures';
+
+/** Per-user key; anonymous sessions get their own bucket. */
+function storageKeyFor(userId: string | null | undefined): string {
+  return `${STORAGE_KEY_PREFIX}:${userId || 'anonymous'}`;
+}
 const CANVAS_W = 500;
 const CANVAS_H = 160;
 
@@ -52,21 +59,43 @@ const FONT_STYLES = [
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function loadSignatures(): SavedSignature[] {
+function loadSignatures(storageKey: string): SavedSignature[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-function saveSignatures(sigs: SavedSignature[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sigs));
+/** Returns false if the browser refused the write (quota, private mode, ...). */
+function saveSignatures(storageKey: string, sigs: SavedSignature[]): boolean {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(sigs));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function generateId(): string {
   return `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Wait (briefly) for a typed-signature web font so canvas rendering doesn't
+ * silently fall back to a default font. `fontFamily` is a CSS font-family
+ * list like "'Dancing Script', cursive". */
+async function ensureFontLoaded(fontFamily: string): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts?.load) return;
+  try {
+    await Promise.race([
+      document.fonts.load(`48px ${fontFamily}`),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
+  } catch {
+    // Render with whatever is available rather than blocking.
+  }
 }
 
 /** Render typed text to a transparent-background PNG dataUrl. */
@@ -225,19 +254,23 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const [fontStyle, setFontStyle] = useState(FONT_STYLES[0].key);
   const [saveChecked, setSaveChecked] = useState(true);
   const [uploadDataUrl, setUploadDataUrl] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draw = useDrawCanvas();
+  const { message } = App.useApp();
+  const userId = useAuthStore((s) => s.user?.id);
+  const storageKey = storageKeyFor(userId);
 
   // Load saved signatures
   useEffect(() => {
     if (open) {
-      setSignatures(loadSignatures());
+      setSignatures(loadSignatures(storageKey));
       setMode('list');
       setTypedName('');
       setUploadDataUrl(null);
       setActiveTab('type');
     }
-  }, [open]);
+  }, [open, storageKey]);
 
   // Load Google Fonts for type tab
   useEffect(() => {
@@ -251,13 +284,19 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     }
   }, []);
 
-  const handleApply = () => {
+  const handleApply = async () => {
     let dataUrl: string | null = null;
     let label = '';
 
     if (activeTab === 'type') {
       if (!typedName.trim()) return;
       const font = FONT_STYLES.find((f) => f.key === fontStyle) ?? FONT_STYLES[0];
+      setApplying(true);
+      try {
+        await ensureFontLoaded(font.family);
+      } finally {
+        setApplying(false);
+      }
       dataUrl = renderTextToDataUrl(typedName.trim(), font.family);
       label = typedName.trim();
     } else if (activeTab === 'draw') {
@@ -281,7 +320,10 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
       };
       const updated = [...signatures, sig];
       setSignatures(updated);
-      saveSignatures(updated);
+      if (!saveSignatures(storageKey, updated)) {
+        // Still insert it -- only remembering it for next time failed.
+        message.warning("Signature inserted, but it couldn't be saved for next time (browser storage is full or blocked).");
+      }
     }
 
     onInsert(dataUrl);
@@ -291,7 +333,9 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const handleDelete = (id: string) => {
     const updated = signatures.filter((s) => s.id !== id);
     setSignatures(updated);
-    saveSignatures(updated);
+    if (!saveSignatures(storageKey, updated)) {
+      message.warning("Couldn't update saved signatures in browser storage.");
+    }
   };
 
   const handleInsertSaved = (sig: SavedSignature) => {
@@ -671,6 +715,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
           <Button
             type="primary"
             onClick={handleApply}
+            loading={applying}
             style={{
               minWidth: 100,
               borderRadius: borderRadius.base,

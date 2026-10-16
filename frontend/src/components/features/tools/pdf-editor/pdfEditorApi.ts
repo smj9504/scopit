@@ -182,12 +182,13 @@ export const pdfEditorApi = {
 
   /**
    * Reorder pages within a document.
-   * `pageOrder` is a 1-based array of the desired page positions.
+   * `pageOrder` lists the current 1-based page numbers in their new order;
+   * the API takes 0-based indices.
    */
   reorderPages: async (id: string, pageOrder: number[]): Promise<PdfDocument> => {
     const response = await api.post<PdfDocument>(
       `/tools/pdf-editor/documents/${id}/pages/reorder`,
-      { page_order: pageOrder },
+      { page_order: pageOrder.map((p) => p - 1) },
     );
     return response.data;
   },
@@ -434,6 +435,13 @@ export const pdfEditorApi = {
   },
 
   /**
+   * Permanently delete an unsent draft sign request (drafts only).
+   */
+  deleteDraftSignRequest: async (id: string): Promise<void> => {
+    await api.delete(`/tools/pdf-editor/sign/requests/${id}`);
+  },
+
+  /**
    * Re-send the fully-signed PDF (email, with attachment) to the sender
    * and every recipient. Only valid once the envelope is fully signed.
    */
@@ -500,16 +508,20 @@ export const pdfEditorApi = {
       signatureFont?: string;
       fieldValues?: Record<string, string>;
       consentAgreed: boolean;
+      /** Initials image (raw base64 or data URL), captured separately from the signature. */
+      initialsData?: string;
     },
   ): Promise<{ status: string; envelopeStatus: string; signedAt: string | null }> => {
     // Strip data URL prefix to get raw base64
     const base64 = data.signatureDataUrl.replace(/^data:image\/\w+;base64,/, '');
+    const initials = data.initialsData?.replace(/^data:image\/\w+;base64,/, '');
     const response = await axios.post(`${API_BASE}/sign/submit/${token}`, {
       signature_data: base64,
       signature_type: data.signatureType || 'draw',
       ...(data.signatureFont ? { signature_font: data.signatureFont } : {}),
       field_values: data.fieldValues || {},
       consent_agreed: data.consentAgreed,
+      ...(initials ? { initials_data: initials } : {}),
     });
     return response.data;
   },
@@ -586,6 +598,16 @@ export const pdfEditorApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return mapCompanyDocument(response.data);
+  },
+
+  /**
+   * Download a company document's original PDF.
+   */
+  downloadCompanyDoc: async (id: string): Promise<Blob> => {
+    const response = await api.get(`/company-documents/${id}/download`, {
+      responseType: 'blob',
+    });
+    return response.data;
   },
 
   /**

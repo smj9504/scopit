@@ -26,6 +26,7 @@ import {
   Typography,
   Alert,
   Tag,
+  App,
 } from 'antd';
 import {
   SearchOutlined,
@@ -64,11 +65,31 @@ interface InvoiceRow {
   status?: string;
 }
 
+export type ImportTabKey = 'estimates' | 'invoices' | 'company';
+
 export interface ImportModalProps {
   open: boolean;
   onClose: () => void;
   onImport: (doc: PdfDocument) => void;
   importing: boolean;
+  /** Tab to show when the modal opens */
+  initialTab?: ImportTabKey;
+}
+
+/** Search text, settled for 300ms, so typing doesn't fire a request per key */
+function useDebouncedValue<T>(value: T, delay = 300): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+/** Error detail from an API failure, for showing to the user */
+function apiErrorDetail(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  return typeof detail === 'string' && detail ? detail : fallback;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -469,14 +490,18 @@ interface EstimatesTabProps {
 const EstimatesTab: React.FC<EstimatesTabProps> = ({ template, onImport, importingId }) => {
   const [search, setSearch] = useState('');
 
+  // Search runs on the server so it isn't limited to the 50 most recent
+  const serverSearch = useDebouncedValue(search.trim());
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['import-estimates'],
+    queryKey: ['import-estimates', serverSearch],
     queryFn: async () => {
       const res = await api.get<{ items: EstimateRow[]; total: number }>('/estimates', {
-        params: { skip: 0, limit: 50 },
+        params: { skip: 0, limit: 50, ...(serverSearch ? { search: serverSearch } : {}) },
       });
       return res.data.items ?? (res.data as unknown as EstimateRow[]);
     },
+    placeholderData: (prev) => prev,
     staleTime: 60_000,
   });
 
@@ -537,14 +562,26 @@ interface InvoicesTabProps {
 const InvoicesTab: React.FC<InvoicesTabProps> = ({ template, onImport, importingId }) => {
   const [search, setSearch] = useState('');
 
+  const serverSearch = useDebouncedValue(search.trim());
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['import-invoices'],
+    queryKey: ['import-invoices', serverSearch],
     queryFn: async () => {
-      const res = await api.get<{ items: InvoiceRow[]; total: number }>('/invoices', {
-        params: { skip: 0, limit: 50 },
+      const res = await api.get<{ items: Record<string, unknown>[]; total: number }>('/invoices', {
+        params: { skip: 0, limit: 50, ...(serverSearch ? { search: serverSearch } : {}) },
       });
-      return res.data.items ?? (res.data as unknown as InvoiceRow[]);
+      const raw = res.data.items ?? (res.data as unknown as Record<string, unknown>[]);
+      // The invoices API is camelCase (invoiceNumber, customerName, ...)
+      return raw.map((r): InvoiceRow => ({
+        id: String(r.id),
+        invoice_number: String(r.invoiceNumber ?? r.invoice_number ?? ''),
+        customer_name: (r.customerName ?? r.customer_name) as string | undefined,
+        total: r.total != null ? Number(r.total) : undefined,
+        invoice_date: (r.invoiceDate ?? r.invoice_date) as string | undefined,
+        status: r.status as string | undefined,
+      }));
     },
+    placeholderData: (prev) => prev,
     staleTime: 60_000,
   });
 
@@ -661,21 +698,28 @@ const CompanyDocsTab: React.FC<CompanyDocsTabProps> = ({ onImport, importingId }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-type TabKey = 'estimates' | 'invoices' | 'company';
+type TabKey = ImportTabKey;
 
-const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, onImport, importing }) => {
-  const [activeTab, setActiveTab] = useState<TabKey>('estimates');
+const ImportModal: React.FC<ImportModalProps> = ({
+  open,
+  onClose,
+  onImport,
+  importing,
+  initialTab = 'estimates',
+}) => {
+  const { message } = App.useApp();
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [template, setTemplate] = useState<PdfTemplateId>('classic');
   const [importingId, setImportingId] = useState<string | null>(null);
 
   // Reset on open
   useEffect(() => {
     if (open) {
-      setActiveTab('estimates');
+      setActiveTab(initialTab);
       setTemplate('classic');
       setImportingId(null);
     }
-  }, [open]);
+  }, [open, initialTab]);
 
   // Reset importingId when outer `importing` state clears
   useEffect(() => {
@@ -689,6 +733,8 @@ const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, onImport, impo
     try {
       const doc = await pdfEditorApi.importEstimate(id, template);
       onImport(doc);
+    } catch (err) {
+      message.error(apiErrorDetail(err, 'Could not import this estimate. Please try again.'));
     } finally {
       setImportingId(null);
     }
@@ -699,6 +745,8 @@ const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, onImport, impo
     try {
       const doc = await pdfEditorApi.importInvoice(id, template);
       onImport(doc);
+    } catch (err) {
+      message.error(apiErrorDetail(err, 'Could not import this invoice. Please try again.'));
     } finally {
       setImportingId(null);
     }
@@ -709,6 +757,8 @@ const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, onImport, impo
     try {
       const doc = await pdfEditorApi.importCompanyDoc(id);
       onImport(doc);
+    } catch (err) {
+      message.error(apiErrorDetail(err, 'Could not import this document. Please try again.'));
     } finally {
       setImportingId(null);
     }

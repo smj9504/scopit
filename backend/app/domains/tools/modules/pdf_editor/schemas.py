@@ -5,10 +5,11 @@ Pydantic models for the PDF editor tool, covering document management,
 page operations, annotations, signing workflow, and company document library.
 """
 
+import re
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 # ============================================
@@ -86,14 +87,14 @@ class AnnotationStyle(BaseModel):
     model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 
     font_family: Optional[str] = None
-    font_size: Optional[int] = None
+    font_size: Optional[float] = None
     font_weight: Optional[str] = None       # normal, bold
     font_style: Optional[str] = None        # normal, italic
     text_decoration: Optional[str] = None  # none, underline
     color: Optional[str] = None
     background_color: Optional[str] = None
     border_color: Optional[str] = None
-    border_width: Optional[int] = None
+    border_width: Optional[float] = None
     opacity: Optional[float] = None
 
 
@@ -165,10 +166,33 @@ class FieldDefinitionsUpdateRequest(BaseModel):
 # SIGN REQUEST SCHEMAS
 # ============================================
 
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _validate_email_address(value: str) -> str:
+    """Syntax-check an email address (email-validator when installed, a
+    plain regex otherwise -- pydantic's EmailStr would make importing this
+    module fail outright in environments without it)."""
+    value = (value or "").strip()
+    try:
+        from email_validator import EmailNotValidError, validate_email
+    except ImportError:
+        if not _EMAIL_RE.match(value):
+            raise ValueError(f"'{value}' is not a valid email address")
+        return value
+    try:
+        return validate_email(value, check_deliverability=False).normalized
+    except EmailNotValidError as exc:
+        raise ValueError(f"'{value}' is not a valid email address: {exc}") from exc
+
+
+EmailAddress = Annotated[str, AfterValidator(_validate_email_address)]
+
+
 class SignRecipientCreate(BaseModel):
     role: str
     name: str
-    email: str
+    email: EmailAddress
     phone: Optional[str] = None
 
 
@@ -181,9 +205,9 @@ class SignRequestCreate(BaseModel):
     sender_name: Optional[str] = None
     email_subject: Optional[str] = None
     email_message: Optional[str] = None
-    cc_emails: list[str] = []
-    bcc_emails: list[str] = []
-    expires_in_days: int = 14
+    cc_emails: list[EmailAddress] = []
+    bcc_emails: list[EmailAddress] = []
+    expires_in_days: int = Field(default=14, ge=1, le=365)
 
 
 class CreatorFieldValuesRequest(BaseModel):
@@ -243,6 +267,7 @@ class SignSubmitRequest(BaseModel):
     signature_font: Optional[str] = None  # font name if type mode
     field_values: dict[str, str] = {}  # this recipient's own signer_input values, keyed by field key
     consent_agreed: bool = False
+    initials_data: Optional[str] = None  # base64 PNG, captured separately for initials fields
 
 
 class SignDeclineRequest(BaseModel):

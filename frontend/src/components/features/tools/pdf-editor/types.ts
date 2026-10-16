@@ -129,8 +129,17 @@ export interface SignRequest {
   declinedAt: string | null;
   createdAt: string;
   updatedAt: string | null;
-  /** recipientId -> signing URL, for the sender to view/copy/share. */
+  /** recipientId -> signing URL, for the sender to view/copy/share. Empty for drafts. */
   signUrls?: Record<string, string>;
+  /** Only on send/reminder responses: recipients whose email couldn't be delivered. */
+  deliveryFailures?: SignDeliveryFailure[];
+}
+
+export interface SignDeliveryFailure {
+  recipientId: string;
+  name: string;
+  email: string;
+  error: string;
 }
 
 export interface SignRequestListResponse {

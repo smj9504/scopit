@@ -59,6 +59,7 @@ rapidfuzz>=3.0.0
 
 # Image Processing (Packing Tool - Photo Analysis)
 Pillow>=10.0.0
+pillow-heif>=0.16.0  # HEIC/HEIF (iPhone photo) uploads in the PDF editor
 
 # PDF Editor Tool
 pypdf>=4.0.0

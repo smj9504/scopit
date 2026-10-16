@@ -19,6 +19,7 @@
  *     onRedo={redo}
  *     onSave={save}
  *     onExport={export}
+ *     onExportOriginal={exportOriginal}
  *     isSaving={false}
  *     isDirty={true}
  *     documentName="Estimate_2024.pdf"
@@ -80,7 +81,10 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onSave: () => void;
+  /** Download with all edits burned in */
   onExport: () => void;
+  /** Download the PDF as uploaded, without edits */
+  onExportOriginal: () => void;
   isSaving: boolean;
   isDirty: boolean;
   documentName: string;
@@ -351,6 +355,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onRedo,
   onSave,
   onExport,
+  onExportOriginal,
   isSaving,
   isDirty,
   documentName,
@@ -426,10 +431,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       onClick: onExport,
     },
     {
-      key: 'flatten',
+      key: 'original',
       icon: <DownloadOutlined />,
-      label: 'Flatten & Download',
-      onClick: onExport,
+      label: 'Download original (no edits)',
+      onClick: onExportOriginal,
     },
   ];
 

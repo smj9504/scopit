@@ -44,6 +44,8 @@ interface PropertyPanelProps {
   selectedAnnotation: Annotation | null;
   onAnnotationUpdate: (annotation: Annotation) => void;
   onAnnotationDelete: (id: string) => void;
+  onBringToFront: (id: string) => void;
+  onSendToBack: (id: string) => void;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -582,7 +584,10 @@ const TransformSection: React.FC<{
 
 // ── Section: Layer Order ──────────────────────────────────────────────────────
 
-const LayerSection: React.FC = () => (
+const LayerSection: React.FC<{
+  onBringToFront: () => void;
+  onSendToBack: () => void;
+}> = ({ onBringToFront, onSendToBack }) => (
   <div style={S.section}>
     <span style={S.sectionTitle}>Layer</span>
     <div style={S.orderBtnGroup}>
@@ -590,6 +595,7 @@ const LayerSection: React.FC = () => (
         <Button
           size="small"
           icon={<VerticalAlignTopOutlined />}
+          onClick={onBringToFront}
           style={{
             flex: 1,
             height: 28,
@@ -606,6 +612,7 @@ const LayerSection: React.FC = () => (
         <Button
           size="small"
           icon={<VerticalAlignBottomOutlined />}
+          onClick={onSendToBack}
           style={{
             flex: 1,
             height: 28,
@@ -628,6 +635,8 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
   selectedAnnotation,
   onAnnotationUpdate,
   onAnnotationDelete,
+  onBringToFront,
+  onSendToBack,
 }) => {
   // Produce a merged annotation update
   const handleChange = useCallback(
@@ -726,7 +735,10 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           <Divider style={{ margin: 0, borderColor: colors.border }} />
 
           {/* Layer order */}
-          <LayerSection />
+          <LayerSection
+            onBringToFront={() => onBringToFront(selectedAnnotation.id)}
+            onSendToBack={() => onSendToBack(selectedAnnotation.id)}
+          />
 
           <Divider style={{ margin: 0, borderColor: colors.border }} />
 

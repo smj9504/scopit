@@ -103,6 +103,31 @@ function typeLabel(type: string): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
+/** Wait (briefly) for a web font to be usable on canvas -- drawing before
+ * the Google font has loaded silently falls back to a default font. */
+async function ensureFontLoaded(fontFamily: string): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts?.load) return;
+  try {
+    await Promise.race([
+      document.fonts.load(`60px "${fontFamily}"`),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
+  } catch {
+    // Render with whatever is available rather than blocking the signer.
+  }
+}
+
+/** Pull the API's error detail out of an axios error, if there is one. */
+function apiErrorDetail(err: unknown): string | undefined {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((d) => (d && typeof d === 'object' && 'msg' in d ? String(d.msg) : '')).filter(Boolean);
+    return msgs.length ? msgs.join(', ') : undefined;
+  }
+  return undefined;
+}
+
 function renderTextToCanvas(text: string, fontFamily: string): string {
   const canvas = document.createElement('canvas');
   canvas.width = 500;
@@ -399,7 +424,9 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ open, onClose, onApply,
 
   const handleClear = () => padRef.current?.clear();
 
-  const handleApply = () => {
+  const [applying, setApplying] = useState(false);
+
+  const handleApply = async () => {
     if (mode === 'draw') {
       if (!padRef.current || padRef.current.isEmpty()) {
         message.warning(fieldType === 'initials' ? 'Please draw your initials.' : 'Please draw your signature.');
@@ -414,8 +441,14 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ open, onClose, onApply,
         message.warning(fieldType === 'initials' ? 'Please enter your initials.' : 'Please enter your name.');
         return;
       }
-      const base64 = renderTextToCanvas(name, selectedFont);
-      onApply(base64, 'type', selectedFont);
+      setApplying(true);
+      try {
+        await ensureFontLoaded(selectedFont);
+        const base64 = renderTextToCanvas(name, selectedFont);
+        onApply(base64, 'type', selectedFont);
+      } finally {
+        setApplying(false);
+      }
     }
   };
 
@@ -427,7 +460,7 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ open, onClose, onApply,
       width={520}
       footer={[
         <Button key="cancel" onClick={onClose}>Cancel</Button>,
-        <Button key="apply" type="primary" onClick={handleApply} style={{ background: '#111827', borderColor: '#111827' }}>
+        <Button key="apply" type="primary" onClick={handleApply} loading={applying} style={{ background: '#111827', borderColor: '#111827' }}>
           Apply {fieldType === 'initials' ? 'Initials' : 'Signature'}
         </Button>,
       ]}
@@ -773,7 +806,7 @@ const SignPage: React.FC = () => {
     }).catch((err) => {
       const httpStatus = err?.response?.status;
       if (httpStatus === 404) { setErrorMessage('This signing link was not found or has already been used.'); setStatus('expired'); }
-      else if (httpStatus === 410) { setErrorMessage('This signing link has expired.'); setStatus('expired'); }
+      else if (httpStatus === 410) { setErrorMessage(apiErrorDetail(err) || 'This signing link has expired.'); setStatus('expired'); }
       else { setErrorMessage('Unable to load the document. Please try again or contact the sender.'); setStatus('error'); }
     });
   }, [token]);
@@ -817,15 +850,23 @@ const SignPage: React.FC = () => {
     }
   }, []);
 
+  // One signature image and one initials image are burned per recipient, so
+  // adopting one fills every field of that type -- what's shown here is
+  // exactly what ends up on the document.
   const handleSignatureApply = useCallback((base64: string, mode: SignMode, font?: string) => {
     if (!activeFieldKey) return;
-    setFieldValues((prev) => ({
-      ...prev,
-      [activeFieldKey]: { data: base64, mode, font, imageBase64: base64 },
-    }));
+    const active = editableFields.find((f) => f.key === activeFieldKey);
+    const sameType = editableFields.filter((f) => f.type === (active?.type ?? signModalFieldType));
+    setFieldValues((prev) => {
+      const next = { ...prev };
+      for (const f of sameType.length ? sameType : [{ key: activeFieldKey }]) {
+        next[f.key] = { data: base64, mode, font, imageBase64: base64 };
+      }
+      return next;
+    });
     setSignModalOpen(false);
     setActiveFieldKey(null);
-  }, [activeFieldKey]);
+  }, [activeFieldKey, editableFields, signModalFieldType]);
 
   const handleTextEntryApply = useCallback((value: string) => {
     if (!activeFieldKey) return;
@@ -850,6 +891,17 @@ const SignPage: React.FC = () => {
       if (field.type !== 'initials') continue;
       const v = fieldValues[field.key];
       if (v?.imageBase64) return { base64: v.imageBase64, mode: v.mode, font: v.font };
+    }
+    return null;
+  }, [editableFields, fieldValues]);
+
+  // Initials are captured and submitted separately so initials fields are
+  // burned with the initials, not the full signature.
+  const getInitialsForSubmission = useCallback((): string | null => {
+    for (const field of editableFields) {
+      if (field.type !== 'initials') continue;
+      const v = fieldValues[field.key];
+      if (v?.imageBase64) return v.imageBase64;
     }
     return null;
   }, [editableFields, fieldValues]);
@@ -886,21 +938,30 @@ const SignPage: React.FC = () => {
         signatureFont: sig?.font,
         fieldValues: buildFieldValuesPayload(),
         consentAgreed: true,
+        initialsData: getInitialsForSubmission() ?? undefined,
       });
       setReviewOpen(false);
       setStatus('success');
     } catch (err: unknown) {
       const httpStatus = (err as { response?: { status?: number } })?.response?.status;
-      if (httpStatus === 409 || httpStatus === 400) {
+      const detail = apiErrorDetail(err);
+      if (httpStatus === 409 || (detail && /already signed/i.test(detail))) {
+        // Only lock the page when the server actually says it's signed.
         message.error('This document has already been signed.');
         setStatus('already_signed');
+      } else if (httpStatus === 410) {
+        setReviewOpen(false);
+        setErrorMessage(detail || 'This signing request is no longer available.');
+        setStatus('expired');
       } else {
-        message.error('Failed to submit signature. Please try again.');
+        // e.g. a missing required field -- keep everything so the signer
+        // can fix it and submit again.
+        message.error(detail || 'Failed to submit signature. Please try again.');
       }
     } finally {
       setSubmitLoading(false);
     }
-  }, [token, viewData, consentAgreed, getSignatureForSubmission, editableFields, buildFieldValuesPayload]);
+  }, [token, viewData, consentAgreed, getSignatureForSubmission, getInitialsForSubmission, editableFields, buildFieldValuesPayload]);
 
   const handleDeclineConfirm = useCallback(async (reason: string) => {
     if (!token) return;
@@ -909,8 +970,16 @@ const SignPage: React.FC = () => {
       await pdfEditorApi.declineSignature(token, reason || undefined);
       setDeclineModalOpen(false);
       setStatus('declined');
-    } catch {
-      message.error('Failed to decline. Please try again.');
+    } catch (err) {
+      const httpStatus = (err as { response?: { status?: number } })?.response?.status;
+      const detail = apiErrorDetail(err);
+      if (httpStatus === 410) {
+        setDeclineModalOpen(false);
+        setErrorMessage(detail || 'This signing request is no longer available.');
+        setStatus('expired');
+      } else {
+        message.error(detail || 'Failed to decline. Please try again.');
+      }
     } finally {
       setDeclineLoading(false);
     }

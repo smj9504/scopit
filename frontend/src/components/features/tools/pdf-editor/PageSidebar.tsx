@@ -27,7 +27,7 @@ import React, {
   useCallback,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { Button, Spin, Tooltip, Typography } from 'antd';
+import { App, Button, Spin, Tooltip, Typography } from 'antd';
 import {
   DeleteOutlined,
   RotateLeftOutlined,
@@ -387,12 +387,16 @@ const PageSidebar: React.FC<PageSidebarProps> = ({
 
   const { thumbs, loading: thumbsLoading } = usePdfThumbnails(documentId, pageCount, refreshKey);
 
-  // Re-initialise order when the document changes (e.g. after a delete/reorder
-  // that updates pageCount)
+  const { modal } = App.useApp();
+
+  // Re-initialise order whenever the PDF itself changed (delete/reorder/rotate
+  // bump refreshKey) -- after a reorder the server's page 1 is the new first
+  // page, so a stale local order would mislabel thumbnails and double-apply
+  // the next drag
   useEffect(() => {
     setPageOrder(Array.from({ length: pageCount }, (_, i) => i + 1));
     setSelectedPages(new Set());
-  }, [documentId, pageCount]);
+  }, [documentId, pageCount, refreshKey]);
 
   // ── DnD ────────────────────────────────────────────────────────────────────
 
@@ -408,15 +412,13 @@ const PageSidebar: React.FC<PageSidebarProps> = ({
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
-      setPageOrder((prev) => {
-        const oldIndex = prev.indexOf(active.id as number);
-        const newIndex = prev.indexOf(over.id as number);
-        const next = arrayMove(prev, oldIndex, newIndex);
-        onPagesReorder(next);
-        return next;
-      });
+      const oldIndex = pageOrder.indexOf(active.id as number);
+      const newIndex = pageOrder.indexOf(over.id as number);
+      const next = arrayMove(pageOrder, oldIndex, newIndex);
+      setPageOrder(next);
+      onPagesReorder(next);
     },
-    [onPagesReorder],
+    [pageOrder, onPagesReorder],
   );
 
   // ── Selection ──────────────────────────────────────────────────────────────
@@ -461,18 +463,42 @@ const PageSidebar: React.FC<PageSidebarProps> = ({
 
   // ── Delete ─────────────────────────────────────────────────────────────────
 
-  const handleDeleteSingle = useCallback(
-    (pageNum: number) => {
-      onPagesDelete([pageNum]);
+  const confirmDelete = useCallback(
+    (pages: number[], onConfirmed?: () => void) => {
+      if (pages.length >= pageCount) {
+        modal.info({
+          title: "Can't delete every page",
+          content: 'A document needs at least one page.',
+        });
+        return;
+      }
+      const sorted = [...pages].sort((a, b) => a - b);
+      modal.confirm({
+        title: sorted.length === 1 ? `Delete page ${sorted[0]}?` : `Delete ${sorted.length} pages?`,
+        content:
+          sorted.length === 1
+            ? 'The page and anything you added on it will be removed. This cannot be undone.'
+            : `Pages ${sorted.join(', ')} and anything you added on them will be removed. This cannot be undone.`,
+        okText: 'Delete',
+        okButtonProps: { danger: true },
+        onOk: () => {
+          onPagesDelete(sorted);
+          onConfirmed?.();
+        },
+      });
     },
-    [onPagesDelete],
+    [modal, pageCount, onPagesDelete],
+  );
+
+  const handleDeleteSingle = useCallback(
+    (pageNum: number) => confirmDelete([pageNum]),
+    [confirmDelete],
   );
 
   const handleDeleteSelected = useCallback(() => {
     if (selectedPages.size === 0) return;
-    onPagesDelete(Array.from(selectedPages));
-    setSelectedPages(new Set());
-  }, [selectedPages, onPagesDelete]);
+    confirmDelete(Array.from(selectedPages), () => setSelectedPages(new Set()));
+  }, [selectedPages, confirmDelete]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
