@@ -46,7 +46,11 @@ export interface PdfCanvasProps {
   refreshKey?: number;
   /** Called when page renders with the CSS display size of the canvas */
   onCanvasResize?: (width: number, height: number) => void;
-  /** Called when the page render completes (true) or starts (false) */
+  /**
+   * Called when the page render completes (true), or when a page or the
+   * file starts loading (false): until then what's on the canvas (nothing,
+   * or the page before) isn't what the annotations go with
+   */
   onPageReady?: (ready: boolean) => void;
   /** The page's existing text, for the Edit Text tool (null while rendering) */
   onTextLayer?: (layer: PdfTextLayer | null) => void;
@@ -109,6 +113,8 @@ const PdfCanvas: React.FC<PdfCanvasProps> = ({
   onTextLayerRef.current = onTextLayer;
   const onCoversErasedRef = useRef(onCoversErased);
   onCoversErasedRef.current = onCoversErased;
+  const onPageReadyRef = useRef(onPageReady);
+  onPageReadyRef.current = onPageReady;
   // Page + zoom on screen; re-rendering the same view isn't a page change
   const shownViewRef = useRef<string | null>(null);
 
@@ -141,6 +147,10 @@ const PdfCanvas: React.FC<PdfCanvasProps> = ({
     const loadPdf = async () => {
       setIsLoading(true);
       setError(null);
+      // A fresh canvas is blank, and a reload follows a page operation
+      // whose annotations already belong to the new file: either way the
+      // annotations wait for the new file's page
+      onPageReadyRef.current?.(false);
 
       // Keep the old doc alive so the canvas retains its last frame
       const prevDoc = pdfDocRef.current;
@@ -379,7 +389,7 @@ const PdfCanvas: React.FC<PdfCanvasProps> = ({
   const cursor = TOOL_CURSOR[activeTool] ?? 'default';
 
   // Canvas is always visible — keeps previous frame during reload so PDF
-  // content doesn't flash blank while the annotation layer stays visible.
+  // content doesn't flash blank (the annotation layer waits for the new page).
   return (
     <canvas
       ref={canvasRef}

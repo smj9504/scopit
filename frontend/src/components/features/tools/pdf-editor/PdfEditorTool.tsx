@@ -1971,6 +1971,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
               borderRadius: 4,
               background: '#fff',
               maxWidth: isMobile ? '100%' : undefined,
+              // A page loading into a fresh canvas (back from Organize
+              // pages) holds the last page's size instead of a blank canvas's
+              ...(!isPdfPageReady && canvasSize.width > 0
+                ? { minWidth: canvasSize.width, minHeight: canvasSize.height }
+                : {}),
             }}
           >
             <PdfCanvas
@@ -2032,6 +2037,21 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 rect={cropRect}
                 onChange={setCropRect}
               />
+            )}
+            {/* Shown only if the page takes a while: a page turn is quicker */}
+            {!isPdfPageReady && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  pointerEvents: 'none',
+                }}
+              >
+                <Spin delay={400} />
+              </div>
             )}
           </div>
         </div>
