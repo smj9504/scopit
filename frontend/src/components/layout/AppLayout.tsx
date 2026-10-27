@@ -2,7 +2,7 @@
  * Scopit - App Layout
  * Mobile-responsive layout with drawer navigation
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { Layout, Button, Dropdown, Avatar, Drawer, Tooltip } from 'antd';
 import {
@@ -18,6 +18,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { colors, fonts, shadows } from '@/styles/theme';
 import { HeaderNavProvider, useHeaderNav } from '@/hooks/useHeaderNav';
+import { FocusModeProvider } from '@/hooks/useFocusMode';
 import { useIsMobile, useIsNarrow } from '@/hooks/useIsMobile';
 import { StrokeIcon, GridIcon, ORDERED_TOOL_META } from '@/components/features/tools/toolMeta';
 
@@ -137,6 +138,17 @@ const AppLayout: React.FC = () => {
   const useDrawer = isMobile || isNarrow;
   // Icons-only rail: desktop sidebar collapsed. The drawer always shows labels.
   const isRail = collapsed && !useDrawer;
+
+  // Focus mode: a page (e.g. the PDF editor) has the whole window, with no
+  // sidebar, header or bottom nav. Going in and out of it is instant; only
+  // collapsing the sidebar slides the content.
+  const [focusMode, setFocusModeState] = useState(false);
+  const [animateMargin, setAnimateMargin] = useState(true);
+  const setFocusMode = useCallback((on: boolean) => {
+    setAnimateMargin(false);
+    setFocusModeState(on);
+  }, []);
+  const focusModeValue = useMemo(() => ({ focusMode, setFocusMode }), [focusMode, setFocusMode]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -375,7 +387,7 @@ const AppLayout: React.FC = () => {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       {/* Desktop Sidebar — only on screens >= 1024px */}
-      {!useDrawer && (
+      {!useDrawer && !focusMode && (
         <div style={{ position: 'relative' }}>
           <Sider
             trigger={null}
@@ -401,7 +413,10 @@ const AppLayout: React.FC = () => {
 
           {/* Edge toggle button — large enough touch target on all devices */}
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => {
+              setAnimateMargin(true);
+              setCollapsed(!collapsed);
+            }}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-expanded={!collapsed}
             style={{
@@ -478,8 +493,8 @@ const AppLayout: React.FC = () => {
       <HeaderNavProvider>
         <Layout
           style={{
-            marginLeft: useDrawer ? 0 : collapsed ? 80 : 240,
-            transition: 'margin-left 0.2s ease',
+            marginLeft: useDrawer || focusMode ? 0 : collapsed ? 80 : 240,
+            transition: animateMargin ? 'margin-left 0.2s ease' : 'none',
             // Prevent content from overflowing horizontally on mobile
             minWidth: 0,
             overflow: 'hidden',
@@ -495,7 +510,7 @@ const AppLayout: React.FC = () => {
               paddingRight: useDrawer ? 16 : 24,
               paddingTop: 0,
               paddingBottom: 0,
-              display: 'flex',
+              display: focusMode ? 'none' : 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               position: 'sticky',
@@ -580,28 +595,35 @@ const AppLayout: React.FC = () => {
 
           {/* Content */}
           <Content
-            style={{
-              padding: isMobile ? 16 : 24,
-              minHeight: 'calc(100vh - 56px)',
-              background: colors.bgLight,
-              overflowX: 'hidden',
-              paddingBottom: isMobile
-                ? `calc(${BOTTOM_NAV_HEIGHT}px + 16px + env(safe-area-inset-bottom))`
-                : useDrawer
-                ? 'calc(16px + env(safe-area-inset-bottom))'
-                : 24,
-              paddingRight: useDrawer
-                ? 'calc(16px + env(safe-area-inset-right))'
-                : 24,
-            }}
+            style={
+              focusMode
+                ? // The page has the whole window, edge to edge
+                  { padding: 0, background: colors.bgLight, overflowX: 'hidden' }
+                : {
+                    padding: isMobile ? 16 : 24,
+                    minHeight: 'calc(100vh - 56px)',
+                    background: colors.bgLight,
+                    overflowX: 'hidden',
+                    paddingBottom: isMobile
+                      ? `calc(${BOTTOM_NAV_HEIGHT}px + 16px + env(safe-area-inset-bottom))`
+                      : useDrawer
+                      ? 'calc(16px + env(safe-area-inset-bottom))'
+                      : 24,
+                    paddingRight: useDrawer
+                      ? 'calc(16px + env(safe-area-inset-right))'
+                      : 24,
+                  }
+            }
           >
-            <Outlet />
+            <FocusModeProvider value={focusModeValue}>
+              <Outlet />
+            </FocusModeProvider>
           </Content>
         </Layout>
       </HeaderNavProvider>
 
       {/* Mobile Bottom Navigation */}
-      {isMobile && (
+      {isMobile && !focusMode && (
         <nav
           aria-label="Bottom"
           style={{

@@ -23,8 +23,7 @@ import {
   ScissorOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
-import { RedactIcon } from './Toolbar';
-import { fonts } from '@/styles/theme';
+import { RedactIcon, headerButtonStyle } from './Toolbar';
 
 export type ToolsMenuAction =
   | 'edit'
@@ -77,9 +76,9 @@ const ToolsMenu: React.FC<ToolsMenuProps> = ({ onAction, compact = false }) => {
       placement="bottomLeft"
     >
       <Button
-        size={compact ? 'small' : 'middle'}
+        size="small"
         icon={<AppstoreOutlined />}
-        style={{ fontFamily: fonts.body }}
+        style={headerButtonStyle}
         aria-label="All tools"
       >
         {!compact && <>All tools <DownOutlined style={{ fontSize: 10 }} /></>}

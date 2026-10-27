@@ -1,8 +1,8 @@
 /**
  * Scopit - PDF Editor Toolbar
  *
- * Two-row toolbar: header row (nav + save/export) and tools row
- * (tool buttons, undo/redo, zoom, page navigation).
+ * Two-row toolbar: header row (nav, document actions, save/export) and
+ * tools row (pages toggle, tool buttons, undo/redo, zoom, page navigation).
  *
  * Usage:
  *   <Toolbar
@@ -94,6 +94,12 @@ interface ToolbarProps {
   isDirty: boolean;
   documentName: string;
   onBack: () => void;
+  /** Shown after the document name (the All tools menu) */
+  headerMenu?: React.ReactNode;
+  /** Shown before Save / Export (Define Fields, Send for Signature) */
+  headerActions?: React.ReactNode;
+  /** Shown at the start of the tools row (the pages panel toggle) */
+  toolsLeading?: React.ReactNode;
   drawColor?: string;
   drawWidth?: number;
   onDrawColorChange?: (color: string) => void;
@@ -202,6 +208,14 @@ const DRAW_WIDTH_OPTIONS = [
 ];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
+
+/** Header row buttons (Save, Export and whatever sits beside them) */
+export const headerButtonStyle: React.CSSProperties = {
+  height: 30,
+  fontSize: fontSizes.xs,
+  fontWeight: fontWeights.semibold,
+  fontFamily: fonts.body,
+};
 
 const S = {
   wrapper: {
@@ -377,6 +391,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isDirty,
   documentName,
   onBack,
+  headerMenu,
+  headerActions,
+  toolsLeading,
   drawColor,
   drawWidth,
   onDrawColorChange,
@@ -474,6 +491,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               size="small"
               icon={<ArrowLeftOutlined />}
               onClick={onBack}
+              aria-label="Back to documents"
               style={{
                 color: colors.textSecondary,
                 fontSize: fontSizes.xs,
@@ -503,19 +521,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <span style={S.dirtyDot} aria-label="Unsaved changes" />
             </Tooltip>
           )}
+
+          {headerMenu && (
+            <>
+              <Divider type="vertical" style={{ margin: '0 2px', height: 16, borderColor: colors.border }} />
+              {headerMenu}
+            </>
+          )}
         </div>
 
         <div style={S.headerRight}>
+          {headerActions}
+
           <Button
             size="small"
             icon={isSaving ? <LoadingOutlined spin /> : <SaveOutlined />}
             onClick={onSave}
             disabled={isSaving || !isDirty}
             style={{
-              height: 30,
-              fontSize: fontSizes.xs,
-              fontWeight: fontWeights.semibold,
-              fontFamily: fonts.body,
+              ...headerButtonStyle,
               color: isDirty && !isSaving ? colors.textPrimary : colors.textMuted,
               borderColor: colors.border,
             }}
@@ -531,10 +555,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <Button
               size="small"
               style={{
-                height: 30,
-                fontSize: fontSizes.xs,
-                fontWeight: fontWeights.semibold,
-                fontFamily: fonts.body,
+                ...headerButtonStyle,
                 borderColor: colors.border,
                 color: colors.textPrimary,
                 display: 'flex',
@@ -553,6 +574,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         ...S.toolsRow,
         ...(isMobile ? { padding: '4px 8px', gap: 2, WebkitOverflowScrolling: 'touch' } : {}),
       }}>
+        {toolsLeading && (
+          <>
+            {toolsLeading}
+            <Divider type="vertical" style={{ margin: '0 4px', height: 18, borderColor: colors.border }} />
+          </>
+        )}
+
         {/* Tool buttons */}
         <Space size={2} role="group" aria-label="Editing tools">
           {TOOL_DEFS.map((tool) => (

@@ -9,6 +9,7 @@ import { ToolAccessGate } from '@/components/features/tools/ToolAccessGate';
 import { getToolComponent } from '@/components/features/tools/registry';
 import { useTools } from '@/hooks/useTools';
 import { useBackNav } from '@/hooks/useHeaderNav';
+import { useIsFocusMode } from '@/hooks/useFocusMode';
 import { fonts } from '@/styles/theme';
 
 const ToolWrapper: React.FC = () => {
@@ -28,6 +29,9 @@ const ToolWrapper: React.FC = () => {
   const ToolComponent = toolId ? getToolComponent(toolId) : null;
 
   useBackNav('Tools', '/app/tools');
+  // A tool that has taken over the window (e.g. the PDF editor with a
+  // document open) brings its own header
+  const focusMode = useIsFocusMode();
 
   if (!toolId || !ToolComponent) {
     return (
@@ -41,11 +45,13 @@ const ToolWrapper: React.FC = () => {
   return (
     <ToolAccessGate toolId={toolId}>
       <div>
-        <div style={{ marginBottom: 24 }}>
-          <span style={{ fontWeight: 600, fontFamily: fonts.heading, fontSize: 18 }}>
-            {tool?.name ?? toolId}
-          </span>
-        </div>
+        {!focusMode && (
+          <div style={{ marginBottom: 24 }}>
+            <span style={{ fontWeight: 600, fontFamily: fonts.heading, fontSize: 18 }}>
+              {tool?.name ?? toolId}
+            </span>
+          </div>
+        )}
 
         <Suspense fallback={
           <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>

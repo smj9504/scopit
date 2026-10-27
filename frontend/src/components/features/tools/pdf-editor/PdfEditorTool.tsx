@@ -61,6 +61,7 @@ import type {
 import type { PdfTextLayer } from './pdfTextRuns';
 import type { ToolComponentProps } from '../registry';
 import { colors, fonts, borderRadius, shadows } from '@/styles/theme';
+import { useFocusMode } from '@/hooks/useFocusMode';
 import PdfCanvas from './PdfCanvas';
 import PageSidebar from './PageSidebar';
 import AnnotationLayer, {
@@ -69,7 +70,7 @@ import AnnotationLayer, {
   isImageCover,
   isTextCoverId,
 } from './AnnotationLayer';
-import Toolbar from './Toolbar';
+import Toolbar, { headerButtonStyle } from './Toolbar';
 import PropertyPanel from './PropertyPanel';
 import MergeModal from './MergeModal';
 import ToolsMenu, { type ToolsMenuAction } from './ToolsMenu';
@@ -923,14 +924,11 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
 
 // ── Editor View ───────────────────────────────────────────────────────────────
 
+/** Fills the whole window: the Tools page puts the app in focus mode while
+ * it's open, and SendForSignModal shows it in a full-screen Modal. */
 export interface EditorViewProps {
   documentId: string;
   onBack: () => void;
-  /** Pixels of fixed chrome above this view to subtract from 100vh.
-   * Defaults to the app's own top bar (56px) for the standalone Tools page;
-   * pass 0 when embedding full-screen inside something with no such bar
-   * (e.g. a full-screen Modal). */
-  heightOffset?: number;
   /** Open another document in the editor (a combined or extracted one) */
   onOpenDocument?: (id: string) => void;
 }
@@ -938,7 +936,6 @@ export interface EditorViewProps {
 export const EditorView: React.FC<EditorViewProps> = ({
   documentId,
   onBack,
-  heightOffset = 56,
   onOpenDocument,
 }) => {
   const { message, modal } = App.useApp();
@@ -1746,7 +1743,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: `calc(100vh - ${heightOffset}px)`,
+        height: '100vh',
         overflow: 'hidden',
         background: colors.bgLight,
       }}
@@ -1776,6 +1773,58 @@ export const EditorView: React.FC<EditorViewProps> = ({
         isDirty={isDirty}
         documentName={docName}
         onBack={handleBack}
+        headerMenu={<ToolsMenu onAction={handleToolsAction} compact={isMobile} />}
+        headerActions={
+          <>
+            {isMobile && selectedAnnotation && (
+              <Button
+                icon={<SlidersOutlined />}
+                onClick={() => setMobilePropsOpen(true)}
+                size="small"
+                style={headerButtonStyle}
+                aria-label="Edit selected element"
+              >
+                Edit
+              </Button>
+            )}
+            <Button
+              onClick={() => setFieldMappingOpen(true)}
+              size="small"
+              style={headerButtonStyle}
+            >
+              {isMobile ? 'Fields' : 'Define Fields'}
+            </Button>
+            {/* Icon-only on mobile, like Save / Export, so the row fits */}
+            <Button
+              icon={<SendOutlined />}
+              onClick={() => setSendForSignOpen(true)}
+              size="small"
+              style={headerButtonStyle}
+              aria-label="Send for Signature"
+            >
+              {!isMobile && 'Send for Signature'}
+            </Button>
+          </>
+        }
+        toolsLeading={
+          <Button
+            type="text"
+            icon={sidebarOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+            onClick={() => setSidebarOpen((v) => !v)}
+            style={{
+              height: isMobile ? 32 : 30,
+              padding: isMobile ? '0 6px' : '0 8px',
+              fontSize: 12,
+              fontFamily: fonts.body,
+              color: colors.textSecondary,
+              flexShrink: 0,
+            }}
+            aria-label={sidebarOpen ? 'Hide pages' : 'Show pages'}
+            disabled={organizeOpen}
+          >
+            {!isMobile && 'Pages'}
+          </Button>
+        }
         drawColor={drawColor}
         drawWidth={drawWidth}
         onDrawColorChange={setDrawColor}
@@ -1783,60 +1832,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
         checkSize={checkSize}
         onCheckSizeChange={setCheckSize}
       />
-
-      {/* Action bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '6px 12px',
-        borderBottom: `1px solid ${colors.border}`,
-        background: '#fff',
-        gap: 8,
-      }}>
-        <Space size={8}>
-          <Button
-            type="text"
-            size="small"
-            icon={sidebarOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
-            onClick={() => setSidebarOpen((v) => !v)}
-            style={{ color: colors.textSecondary, flexShrink: 0 }}
-            aria-label={sidebarOpen ? 'Hide pages' : 'Show pages'}
-            disabled={organizeOpen}
-          >
-            {!isMobile && 'Pages'}
-          </Button>
-          <ToolsMenu onAction={handleToolsAction} compact={isMobile} />
-        </Space>
-        <Space size={8}>
-          {isMobile && selectedAnnotation && (
-            <Button
-              icon={<SlidersOutlined />}
-              onClick={() => setMobilePropsOpen(true)}
-              size="small"
-              style={{ fontFamily: fonts.body }}
-              aria-label="Edit selected element"
-            >
-              Edit
-            </Button>
-          )}
-          <Button
-            onClick={() => setFieldMappingOpen(true)}
-            size={isMobile ? 'small' : 'middle'}
-            style={{ fontFamily: fonts.body }}
-          >
-            {isMobile ? 'Fields' : 'Define Fields'}
-          </Button>
-          <Button
-            icon={<SendOutlined />}
-            onClick={() => setSendForSignOpen(true)}
-            size={isMobile ? 'small' : 'middle'}
-            style={{ fontFamily: fonts.body }}
-          >
-            {isMobile ? 'Sign' : 'Send for Signature'}
-          </Button>
-        </Space>
-      </div>
 
       {/* Mode bars: edit / crop / redact */}
       {activeTool === 'edit_text' && !organizeOpen && (
@@ -2190,6 +2185,10 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importTab, setImportTab] = useState<ImportTabKey>('estimates');
   const [signRequestDetailId, setSignRequestDetailId] = useState<string | null>(null);
+
+  // An open document gets the whole window, as in Acrobat: no app sidebar
+  // or header around the editor
+  useFocusMode(!!editingDocumentId);
 
   const mergeMutation = useMutation({
     mutationFn: ({ ids, name }: { ids: string[]; name: string }) =>

@@ -1046,7 +1046,7 @@ export default function SendForSignModal({
         {editMode === 'fields' ? (
           fieldsEditorContent
         ) : editMode === 'pdf' ? (
-          <EditorView documentId={documentId} onBack={handleBackFromPdfEdit} heightOffset={0} />
+          <EditorView documentId={documentId} onBack={handleBackFromPdfEdit} />
         ) : (
           <>
             <div style={{ display: 'flex', gap: 0, marginBottom: 16 }}>
