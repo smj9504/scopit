@@ -21,10 +21,12 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.storage import StorageBackend, get_storage
+from app.domains.customer.models import Customer
 from app.domains.tools.modules.pdf_editor.models import (
     CompanyDocument,
     PdfDocument,
@@ -772,6 +774,16 @@ def _with_unique_keys(fields: Optional[list], used_keys: set[str]) -> list:
     return out
 
 
+def _customer_copy_name(name: str, customer_name: str) -> str:
+    """'Lease.pdf' for Jane Doe -> 'Lease - Jane Doe.pdf', within the
+    255-character name column (the document's own name gives way first)."""
+    base, ext = os.path.splitext(name)
+    if ext.lower() != ".pdf":
+        base, ext = name, ""
+    tail = f" - {customer_name}{ext}"
+    return (base[: max(0, 255 - len(tail))] + tail)[:255]
+
+
 def _page_ranges(pages: list[int]) -> str:
     """[1, 2, 3, 5] -> "1-3, 5" """
     parts, start = [], None
@@ -1157,6 +1169,9 @@ class PdfEditorService:
         skip: int = 0,
         limit: int = 20,
         search: Optional[str] = None,
+        customer_id: Optional[UUID] = None,
+        template_id: Optional[UUID] = None,
+        has_customer: Optional[bool] = None,
     ) -> tuple[list[PdfDocument], int]:
         query = self.db.query(PdfDocument).filter(
             PdfDocument.company_id == company_id,
@@ -1164,15 +1179,45 @@ class PdfEditorService:
         )
         if search:
             query = query.filter(PdfDocument.name.ilike(f"%{search}%"))
+        if has_customer is not None:
+            query = query.filter(
+                PdfDocument.customer_id.isnot(None)
+                if has_customer
+                else PdfDocument.customer_id.is_(None)
+            )
+        if customer_id:
+            query = query.filter(PdfDocument.customer_id == customer_id)
+        if template_id:
+            query = query.filter(PdfDocument.template_id == template_id)
 
         total = query.count()
         items = (
-            query.order_by(PdfDocument.created_at.desc())
+            query.options(joinedload(PdfDocument.customer))
+            .order_by(PdfDocument.created_at.desc())
             .offset(skip)
             .limit(limit)
             .all()
         )
         return items, total
+
+    def customer_copy_counts(
+        self, company_id: UUID, document_ids: list[UUID]
+    ) -> dict[UUID, int]:
+        """How many customer copies each of these documents has."""
+        if not document_ids:
+            return {}
+        rows = (
+            self.db.query(PdfDocument.template_id, func.count(PdfDocument.id))
+            .filter(
+                PdfDocument.company_id == company_id,
+                PdfDocument.is_active == True,
+                PdfDocument.customer_id.isnot(None),
+                PdfDocument.template_id.in_(document_ids),
+            )
+            .group_by(PdfDocument.template_id)
+            .all()
+        )
+        return {template_id: count for template_id, count in rows}
 
     def rename_document(
         self, company_id: UUID, document_id: UUID, new_name: str
@@ -1193,35 +1238,38 @@ class PdfEditorService:
         self.db.commit()
         return True
 
-    def duplicate_document(
+    def _document_files(self, doc: PdfDocument) -> tuple[bytes, Optional[bytes]]:
+        """The document's PDF and thumbnail (None if it has none)."""
+        thumb = None
+        if doc.thumbnail_path and self.storage.exists(doc.thumbnail_path):
+            thumb = self.storage.read(doc.thumbnail_path)
+        return self.storage.read(doc.file_path), thumb
+
+    def _copy_document(
         self,
-        company_id: UUID,
-        document_id: UUID,
+        original: PdfDocument,
+        files: tuple[bytes, Optional[bytes]],
         user_id: UUID,
-        new_name: Optional[str] = None,
+        name: str,
+        **fields,
     ) -> PdfDocument:
-        original = self.get_document_or_404(company_id, document_id)
+        """A new document with its own copy of the original's file (`files`,
+        from _document_files), edits and field mapping. Added, not committed."""
         new_id = uuid.uuid4()
+        pdf_data, thumb_data = files
 
-        # Copy PDF
-        new_pdf_key = self._key(company_id, new_id, "document.pdf")
-        pdf_data = self.storage.read(original.file_path)
+        new_pdf_key = self._key(original.company_id, new_id, "document.pdf")
         self.storage.write(new_pdf_key, pdf_data, "application/pdf")
-
-        # Copy thumbnail
         new_thumb_key: Optional[str] = None
-        if original.thumbnail_path and self.storage.exists(
-            original.thumbnail_path
-        ):
-            new_thumb_key = self._key(company_id, new_id, "thumbnail.png")
-            thumb_data = self.storage.read(original.thumbnail_path)
+        if thumb_data is not None:
+            new_thumb_key = self._key(original.company_id, new_id, "thumbnail.png")
             self.storage.write(new_thumb_key, thumb_data, "image/png")
 
         doc = PdfDocument(
             id=new_id,
-            company_id=company_id,
+            company_id=original.company_id,
             created_by=user_id,
-            name=new_name or f"{original.name} (Copy)",
+            name=name,
             file_path=new_pdf_key,
             file_size=original.file_size,
             page_count=original.page_count,
@@ -1232,11 +1280,68 @@ class PdfEditorService:
             ),
             field_definitions=list(original.field_definitions or []),
             thumbnail_path=new_thumb_key,
+            **fields,
         )
         self.db.add(doc)
+        return doc
+
+    def duplicate_document(
+        self,
+        company_id: UUID,
+        document_id: UUID,
+        user_id: UUID,
+        new_name: Optional[str] = None,
+    ) -> PdfDocument:
+        original = self.get_document_or_404(company_id, document_id)
+        # A copy of a customer's document is still that customer's
+        doc = self._copy_document(
+            original,
+            self._document_files(original),
+            user_id,
+            new_name or f"{original.name} (Copy)",
+            customer_id=original.customer_id,
+            template_id=original.template_id,
+        )
         self.db.commit()
         self.db.refresh(doc)
         return doc
+
+    def create_customer_copies(
+        self,
+        company_id: UUID,
+        document_id: UUID,
+        user_id: UUID,
+        customer_ids: list[UUID],
+    ) -> list[PdfDocument]:
+        """One copy of the document per customer, each filled in or signed
+        and kept on its own. The original stays as it is, to copy again."""
+        original = self.get_document_or_404(company_id, document_id)
+        wanted = list(dict.fromkeys(customer_ids))
+        customers = {
+            c.id: c
+            for c in self.db.query(Customer)
+            .filter(Customer.company_id == company_id, Customer.id.in_(wanted))
+            .all()
+        }
+        if len(customers) != len(wanted):
+            raise HTTPException(status_code=404, detail="Customer not found")
+
+        files = self._document_files(original)
+        copies = [
+            self._copy_document(
+                original,
+                files,
+                user_id,
+                _customer_copy_name(original.name, customers[cid].name),
+                customer_id=cid,
+                template_id=original.id,
+            )
+            for cid in wanted
+        ]
+        self.db.commit()
+        for doc in copies:
+            self.db.refresh(doc)
+        return copies
 
     # ------------------------------------------------------------------
     # Page operations

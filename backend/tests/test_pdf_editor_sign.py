@@ -112,6 +112,30 @@ def db_returning(obj):
     return db
 
 
+# ── Creating requests ────────────────────────────────────────────────────
+
+
+def test_request_for_a_customers_own_copy_belongs_to_that_customer(monkeypatch):
+    monkeypatch.setattr(sign_module, "SignRequest", lambda **kw: SimpleNamespace(id=uuid.uuid4(), **kw))
+    monkeypatch.setattr(sign_module, "SignRecipient", lambda **kw: SimpleNamespace(**kw))
+    customer_id = uuid.uuid4()
+    doc = SimpleNamespace(id=uuid.uuid4(), name="Lease - Jane Doe.pdf", field_definitions=[], customer_id=customer_id)
+    db = MagicMock()
+    # The document, then its customer, then the company
+    db.query.return_value.filter.return_value.first.side_effect = [
+        doc, SimpleNamespace(id=customer_id), SimpleNamespace(),
+    ]
+    service = make_service(db=db)
+
+    sign_req = service.create_sign_request(
+        company_id=uuid.uuid4(), user_id=uuid.uuid4(), document_id=doc.id,
+        recipients=[{"role": "signer", "name": "Jane Doe", "email": "jane@example.com"}],
+        sender_email="owner@company.com", sender_name="Owner",
+    )
+
+    assert sign_req.customer_id == customer_id
+
+
 # ── Burn geometry ────────────────────────────────────────────────────────
 
 

@@ -10,12 +10,25 @@ export interface PdfDocument {
   mimeType: string;
   sourceType: string;
   sourceId: string | null;
+  /** The customer this copy is filled in or signed for */
+  customerId: string | null;
+  customer: PdfDocumentCustomer | null;
+  /** The document this customer copy was made from */
+  templateId: string | null;
+  /** How many customer copies were made from this document (list responses only) */
+  customerCopyCount?: number;
   annotations: Annotation[];
   fieldDefinitions: FieldDefinition[];
   thumbnailUrl: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string | null;
+}
+
+export interface PdfDocumentCustomer {
+  id: string;
+  name: string;
+  email: string | null;
 }
 
 export interface PdfDocumentListResponse {

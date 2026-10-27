@@ -105,14 +105,24 @@ export const pdfEditorApi = {
 
   /**
    * List documents for the current company with optional pagination and search.
+   * `templateId`: only the customer copies made from that document;
+   * `hasCustomer: false`: only documents that aren't some customer's copy.
    */
   listDocuments: async (
     skip = 0,
     limit = 20,
     search?: string,
+    filters: { customerId?: string; templateId?: string; hasCustomer?: boolean } = {},
   ): Promise<PdfDocumentListResponse> => {
     const response = await api.get<PdfDocumentListResponse>('/tools/pdf-editor/documents', {
-      params: { skip, limit, ...(search ? { search } : {}) },
+      params: {
+        skip,
+        limit,
+        ...(search ? { search } : {}),
+        ...(filters.customerId ? { customer_id: filters.customerId } : {}),
+        ...(filters.templateId ? { template_id: filters.templateId } : {}),
+        ...(filters.hasCustomer !== undefined ? { has_customer: filters.hasCustomer } : {}),
+      },
     });
     return response.data;
   },
@@ -275,6 +285,18 @@ export const pdfEditorApi = {
       ...(name ? { name } : {}),
     });
     return response.data;
+  },
+
+  /**
+   * Copy a document once per customer, to fill in or sign for each. The
+   * original stays as it is, to copy again.
+   */
+  createCustomerCopies: async (id: string, customerIds: string[]): Promise<PdfDocument[]> => {
+    const response = await api.post<{ documents: PdfDocument[] }>(
+      `/tools/pdf-editor/documents/${id}/customer-copies`,
+      { customer_ids: customerIds },
+    );
+    return response.data.documents;
   },
 
   /**

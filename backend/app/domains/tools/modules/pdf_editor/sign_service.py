@@ -372,6 +372,8 @@ class SignService:
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
+        # A request for a customer's own copy belongs to that customer
+        customer_id = customer_id or doc.customer_id
         field_definitions = doc.field_definitions or []
 
         recipient_roles = {r["role"] for r in recipients}

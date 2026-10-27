@@ -7,14 +7,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.domains.customer.models import Customer
 from app.domains.estimate.models import Estimate
 from app.domains.invoice.models import Invoice
-from app.domains.tools.modules.pdf_editor.models import SignRequest
+from app.domains.tools.modules.pdf_editor.models import PdfDocument, SignRequest
 from app.domains.user.models import User
 
 router = APIRouter()
@@ -249,7 +249,7 @@ async def get_customer_documents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get all estimates, invoices, and sign requests for a customer"""
+    """Get all estimates, invoices, sign requests and PDF documents for a customer"""
     customer = db.query(Customer).filter(
         and_(
             Customer.id == customer_id,
@@ -299,6 +299,30 @@ async def get_customer_documents(
         .all()
     )
 
+    pdf_documents = (
+        db.query(PdfDocument)
+        .options(joinedload(PdfDocument.template))
+        .filter(
+            and_(
+                PdfDocument.customer_id == customer_id,
+                PdfDocument.company_id == current_user.company_id,
+                PdfDocument.is_active == True,
+            )
+        )
+        .order_by(PdfDocument.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    # Each document's most recent signature request, whoever it went to
+    latest_sign_status: dict = {}
+    if pdf_documents:
+        for document_id, sign_status in (
+            db.query(SignRequest.document_id, SignRequest.status)
+            .filter(SignRequest.document_id.in_([d.id for d in pdf_documents]))
+            .order_by(SignRequest.created_at.desc())
+        ):
+            latest_sign_status.setdefault(document_id, sign_status)
+
     return {
         "estimates": [
             {
@@ -343,5 +367,20 @@ async def get_customer_documents(
                 "signed_at": sr.signed_at,
             }
             for sr in sign_requests
+        ],
+        "pdf_documents": [
+            {
+                "id": str(d.id),
+                "name": d.name,
+                "page_count": d.page_count,
+                "template_id": str(d.template_id) if d.template_id else None,
+                "template_name": (
+                    d.template.name if d.template and d.template.is_active else None
+                ),
+                "sign_status": latest_sign_status.get(d.id),
+                "created_at": d.created_at,
+                "updated_at": d.updated_at,
+            }
+            for d in pdf_documents
         ],
     }

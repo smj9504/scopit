@@ -29,6 +29,12 @@ class PdfDocument(Base):
     source_type = Column(String(50), nullable=False, default="upload")
     source_id = Column(UUID(as_uuid=True))
 
+    # A customer's own copy of a document: one form filled in or signed per
+    # customer. template_id is the document the copy was made from, so one
+    # document can fan out into a copy for every customer.
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), index=True)
+    template_id = Column(UUID(as_uuid=True), ForeignKey("pdf_documents.id", ondelete="SET NULL"), index=True)
+
     annotations = Column(JSONB, default=[])
 
     # Reusable field-mapping template: list of field definitions (position, type,
@@ -44,6 +50,8 @@ class PdfDocument(Base):
 
     company = relationship("Company")
     creator = relationship("User", foreign_keys=[created_by])
+    customer = relationship("Customer")
+    template = relationship("PdfDocument", remote_side=[id])
     sign_requests = relationship("SignRequest", back_populates="document", cascade="all, delete-orphan")
 
 

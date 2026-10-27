@@ -2,7 +2,8 @@
  * Scopit - Customer Detail Page
  *
  * Shows customer info (editable inline) and all related documents
- * (estimates, invoices, sign requests) in a tabbed layout.
+ * (estimates, invoices, the customer's own PDF copies, sign requests) in a
+ * tabbed layout.
  */
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -32,12 +33,14 @@ import {
   DeleteOutlined,
   SendOutlined,
   LockOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import api from '@/services/api';
 import { colors, fonts, fontSizes, borderRadius, shadows } from '@/styles/theme';
 import { useTools } from '@/hooks/useTools';
 import RequestSignatureModal from '@/components/features/tools/pdf-editor/RequestSignatureModal';
+import AddCustomerDocumentModal from '@/components/features/tools/pdf-editor/AddCustomerDocumentModal';
 import SignRequestDetail from '@/components/features/tools/pdf-editor/SignRequestDetail';
 import type { CustomerData } from '@/components/features/CustomerSelector';
 
@@ -107,10 +110,24 @@ interface SignatureDoc {
   signed_at?: string;
 }
 
+/** This customer's own copy of a PDF, filled in or signed in the PDF editor */
+interface PdfDoc {
+  id: string;
+  name: string;
+  page_count: number;
+  template_id?: string | null;
+  template_name?: string | null;
+  /** Status of the document's latest signature request, if it was sent */
+  sign_status?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
 interface CustomerDocuments {
   estimates: EstimateDoc[];
   invoices: InvoiceDoc[];
   sign_requests: SignatureDoc[];
+  pdf_documents: PdfDoc[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -207,6 +224,7 @@ export default function CustomerDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [requestSignOpen, setRequestSignOpen] = useState(false);
+  const [addDocumentOpen, setAddDocumentOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('estimates');
   const [signDetailId, setSignDetailId] = useState<string | null>(null);
   const [form] = Form.useForm<CustomerFormValues>();
@@ -309,6 +327,11 @@ export default function CustomerDetailPage() {
   const closeSignDetail = () => {
     setSignDetailId(null);
     queryClient.invalidateQueries({ queryKey: ['customer-documents', id] });
+  };
+
+  // The PDF editor, with Back returning here
+  const openPdfDocument = (documentId: string) => {
+    navigate(`/app/tools/pdf_editor?doc=${documentId}`, { state: { returnTo: `/app/customers/${id}` } });
   };
 
   // ─── Table columns ──────────────────────────────────────────────────────────
@@ -501,11 +524,78 @@ export default function CustomerDetailPage() {
     },
   ];
 
+  const pdfDocumentColumns: ColumnsType<PdfDoc> = [
+    {
+      title: 'Document',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string, record: PdfDoc) => (
+        <div style={{ minWidth: 0 }}>
+          <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, fontWeight: 600, color: colors.textPrimary, display: 'block' }}>
+            {name}
+          </Text>
+          {record.template_name && (
+            <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}>
+              From {record.template_name}
+            </Text>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'Signature',
+      dataIndex: 'sign_status',
+      key: 'sign_status',
+      width: 130,
+      render: (status: string | null) => {
+        if (!status) {
+          return <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textMuted }}>—</Text>;
+        }
+        const { color, label } = getSignatureTagProps(status);
+        return (
+          <Tag color={color} style={{ fontFamily: fonts.body, fontSize: fontSizes.xs }}>
+            {label}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: 'Updated',
+      key: 'updated_at',
+      width: 110,
+      render: (_: unknown, record: PdfDoc) => (
+        <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.sm, color: colors.textSecondary }}>
+          {formatDate(record.updated_at || record.created_at)}
+        </Text>
+      ),
+    },
+    {
+      title: '',
+      key: 'edit',
+      width: 80,
+      align: 'right' as const,
+      render: (_: unknown, record: PdfDoc) => (
+        <Button
+          size="small"
+          icon={<EditOutlined />}
+          onClick={(e) => {
+            e.stopPropagation();
+            openPdfDocument(record.id);
+          }}
+          style={{ fontFamily: fonts.body }}
+        >
+          Edit
+        </Button>
+      ),
+    },
+  ];
+
   // ─── Counts for tab labels ──────────────────────────────────────────────────
 
   const estimateCount = documents?.estimates?.length ?? 0;
   const invoiceCount = documents?.invoices?.length ?? 0;
   const signatureCount = documents?.sign_requests?.length ?? 0;
+  const pdfDocumentCount = documents?.pdf_documents?.length ?? 0;
 
   const tabItems = [
     {
@@ -553,6 +643,32 @@ export default function CustomerDetailPage() {
             emptyText: (
               <div style={{ padding: '32px 0', color: colors.textMuted, fontFamily: fonts.body, fontSize: fontSizes.sm }}>
                 No invoices found
+              </div>
+            ),
+          }}
+          style={{ fontFamily: fonts.body }}
+        />
+      ),
+    },
+    {
+      key: 'pdf-documents',
+      label: `Documents${pdfDocumentCount > 0 ? ` (${pdfDocumentCount})` : ''}`,
+      children: (
+        <Table<PdfDoc>
+          columns={pdfDocumentColumns}
+          dataSource={documents?.pdf_documents || []}
+          rowKey="id"
+          size="middle"
+          loading={isLoadingDocs}
+          pagination={false}
+          onRow={(record) => ({
+            onClick: () => openPdfDocument(record.id),
+            style: { cursor: 'pointer' },
+          })}
+          locale={{
+            emptyText: (
+              <div style={{ padding: '32px 0', color: colors.textMuted, fontFamily: fonts.body, fontSize: fontSizes.sm }}>
+                No documents yet. Add a PDF to fill in or sign for this customer.
               </div>
             ),
           }}
@@ -981,7 +1097,19 @@ export default function CustomerDetailPage() {
                 fontSize: fontSizes.sm,
               }}
               tabBarExtraContent={
-                activeTab === 'signatures' ? (
+                activeTab === 'pdf-documents' ? (
+                  <Tooltip title={canESign ? undefined : `Requires the ${pdfEditorTool?.requiredPlan ?? 'pro'} plan`}>
+                    <Button
+                      type="primary"
+                      icon={canESign ? <PlusOutlined /> : <LockOutlined />}
+                      disabled={!canESign}
+                      onClick={() => setAddDocumentOpen(true)}
+                      style={{ background: colors.primary, borderColor: colors.primary, fontFamily: fonts.body, borderRadius: borderRadius.base }}
+                    >
+                      Add Document
+                    </Button>
+                  </Tooltip>
+                ) : activeTab === 'signatures' ? (
                   <Tooltip title={canESign ? undefined : `Requires the ${pdfEditorTool?.requiredPlan ?? 'pro'} plan`}>
                     <Button
                       type="primary"
@@ -1008,6 +1136,18 @@ export default function CustomerDetailPage() {
         customer={customerData}
         onSent={() => {
           queryClient.invalidateQueries({ queryKey: ['customer-documents', id] });
+        }}
+      />
+
+      {/* Add Document -- this customer's own copy of a library PDF, opened
+          in the editor to fill in or sign. */}
+      <AddCustomerDocumentModal
+        open={addDocumentOpen}
+        onClose={() => setAddDocumentOpen(false)}
+        customer={{ id: customer.id, name: customer.name }}
+        onCreated={(doc) => {
+          setAddDocumentOpen(false);
+          openPdfDocument(doc.id);
         }}
       />
 

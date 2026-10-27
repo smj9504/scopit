@@ -31,6 +31,7 @@ from app.domains.tools.modules.pdf_editor.field_registry import get_available_fi
 from app.domains.tools.modules.pdf_editor.schemas import (
     AnnotationSaveRequest,
     ApplyRedactionsRequest,
+    CustomerCopiesRequest,
     FieldDefinitionsUpdateRequest,
     ImportCompanyDocRequest,
     ImportEstimateRequest,
@@ -110,9 +111,11 @@ def _field_def_to_camel(field: dict) -> dict:
     }
 
 
-def _to_response(doc) -> dict:
-    """Convert a PdfDocument ORM instance to a response-compatible dict."""
-    return {
+def _to_response(doc, customer_copy_count: Optional[int] = None) -> dict:
+    """Convert a PdfDocument ORM instance to a response-compatible dict.
+    customer_copy_count is only known (and sent) on list responses."""
+    customer = doc.customer
+    response = {
         "id": str(doc.id),
         "name": doc.name,
         "fileSize": doc.file_size,
@@ -120,6 +123,13 @@ def _to_response(doc) -> dict:
         "mimeType": doc.mime_type,
         "sourceType": doc.source_type,
         "sourceId": str(doc.source_id) if doc.source_id else None,
+        "customerId": str(doc.customer_id) if doc.customer_id else None,
+        "customer": (
+            {"id": str(customer.id), "name": customer.name, "email": customer.email}
+            if customer
+            else None
+        ),
+        "templateId": str(doc.template_id) if doc.template_id else None,
         "annotations": [_annotation_to_camel(a) for a in (doc.annotations or [])],
         "fieldDefinitions": [_field_def_to_camel(f) for f in (doc.field_definitions or [])],
         "thumbnailUrl": (
@@ -131,6 +141,9 @@ def _to_response(doc) -> dict:
         "createdAt": doc.created_at,
         "updatedAt": doc.updated_at,
     }
+    if customer_copy_count is not None:
+        response["customerCopyCount"] = customer_copy_count
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -211,19 +224,30 @@ async def list_documents(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
+    customer_id: Optional[UUID] = Query(None),
+    template_id: Optional[UUID] = Query(None),
+    has_customer: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_gate),
 ):
-    """List PDF documents for the current company."""
+    """List PDF documents for the current company -- optionally only one
+    customer's, only the customer copies made from one document, or only
+    those that are (or aren't) some customer's copy."""
     service = PdfEditorService(db)
     items, total = service.list_documents(
         company_id=current_user.company_id,
         skip=skip,
         limit=limit,
         search=search,
+        customer_id=customer_id,
+        template_id=template_id,
+        has_customer=has_customer,
+    )
+    copy_counts = service.customer_copy_counts(
+        current_user.company_id, [doc.id for doc in items]
     )
     return {
-        "items": [_to_response(doc) for doc in items],
+        "items": [_to_response(doc, copy_counts.get(doc.id, 0)) for doc in items],
         "total": total,
         "skip": skip,
         "limit": limit,
@@ -298,6 +322,24 @@ async def duplicate_document(
         new_name=body.name,
     )
     return _to_response(doc)
+
+
+@router.post("/documents/{document_id}/customer-copies", status_code=201)
+async def create_customer_copies(
+    document_id: UUID,
+    body: CustomerCopiesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Copy a document once per customer, to fill in or sign for each."""
+    service = PdfEditorService(db)
+    docs = service.create_customer_copies(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        user_id=current_user.id,
+        customer_ids=body.customer_ids,
+    )
+    return {"documents": [_to_response(doc) for doc in docs]}
 
 
 # ---------------------------------------------------------------------------

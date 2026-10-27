@@ -9,6 +9,7 @@
  *   const PdfEditorTool = lazy(() => import('./pdf-editor/PdfEditorTool'));
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { createAnnotationSaver } from './annotationSaver';
 import {
   Button,
@@ -46,6 +47,8 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SlidersOutlined,
+  TeamOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { pdfEditorApi, type PreviewCover } from './pdfEditorApi';
@@ -89,6 +92,7 @@ import FieldMappingModal from './FieldMappingModal';
 import SignRequestDetail from './SignRequestDetail';
 import ImageUploadPreview from './ImageUploadPreview';
 import SignatureModal from './SignatureModal';
+import CustomerCopiesModal from './CustomerCopiesModal';
 
 const { Text, Title } = Typography;
 const { Dragger } = Upload;
@@ -225,6 +229,7 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
   const [renameName, setRenameName] = useState('');
   const [imagePreviewFile, setImagePreviewFile] = useState<File | null>(null);
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
+  const [copiesTarget, setCopiesTarget] = useState<PdfDocument | null>(null);
   const PAGE_SIZE = 10;
 
   const { data, isLoading, isFetching } = useQuery({
@@ -382,6 +387,12 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
         label: 'Duplicate',
         onClick: () => duplicateMutation.mutate(doc.id),
       },
+      // A customer's copy is already one customer's; copies come from the original
+      ...(doc.customerId ? [] : [{
+        key: 'customer-copies',
+        label: 'Copy for customers…',
+        onClick: () => setCopiesTarget(doc),
+      }]),
       { type: 'divider' as const },
       {
         key: 'delete',
@@ -406,11 +417,34 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
           >
             {name}
           </Text>
-          {doc.sourceType && doc.sourceType !== 'upload' && (
+          {doc.customer ? (
+            <div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <UserOutlined style={{ marginRight: 4 }} />
+                For {doc.customer.name}
+              </Text>
+            </div>
+          ) : doc.sourceType && doc.sourceType !== 'upload' && (
             <div>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {SOURCE_LABEL[doc.sourceType] ?? 'From template'}
               </Text>
+            </div>
+          )}
+          {!doc.customerId && !!doc.customerCopyCount && (
+            <div>
+              <Button
+                type="link"
+                size="small"
+                icon={<TeamOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCopiesTarget(doc);
+                }}
+                style={{ padding: 0, height: 'auto', fontSize: 12 }}
+              >
+                {doc.customerCopyCount} customer cop{doc.customerCopyCount === 1 ? 'y' : 'ies'}
+              </Button>
             </div>
           )}
         </div>
@@ -635,6 +669,16 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
         onCancel={() => {
           setImagePreviewOpen(false);
           setImagePreviewFile(null);
+        }}
+      />
+
+      <CustomerCopiesModal
+        open={!!copiesTarget}
+        onClose={() => setCopiesTarget(null)}
+        document={copiesTarget}
+        onOpenDocument={(id) => {
+          setCopiesTarget(null);
+          onOpenEditor(id);
         }}
       />
     </div>
@@ -1006,10 +1050,17 @@ export const EditorView: React.FC<EditorViewProps> = ({
   }, []);
 
   // ── Document data ─────────────────────────────────────────────────────────
-  const { data: doc } = useQuery({
+  const { data: doc, isError: docMissing } = useQuery({
     queryKey: ['pdf-document', documentId],
     queryFn: () => pdfEditorApi.getDocument(documentId),
   });
+
+  // A link (?doc=) to a document that has since been deleted
+  useEffect(() => {
+    if (!docMissing) return;
+    message.error('This document could not be opened');
+    onBack();
+  }, [docMissing, message, onBack]);
 
   // Load annotations from document on first fetch
   useEffect(() => {
@@ -1235,6 +1286,13 @@ export const EditorView: React.FC<EditorViewProps> = ({
     onBack();
   }, [isDirty, isSaving, handleSave, onBack]);
 
+  // A customer's copy links back to that customer's page
+  const navigate = useNavigate();
+  const handleOpenCustomer = useCallback(async (customerId: string) => {
+    if ((isDirty || isSaving) && !(await handleSave(true))) return;
+    navigate(`/app/customers/${customerId}`);
+  }, [isDirty, isSaving, handleSave, navigate]);
+
   // Auto-save every 5 seconds when dirty
   useEffect(() => {
     if (!isDirty || isSaving) return;
@@ -1296,6 +1354,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   // ── Send for Signature ──────────────────────────────────────────────────
   const [sendForSignOpen, setSendForSignOpen] = useState(false);
   const [fieldMappingOpen, setFieldMappingOpen] = useState(false);
+  const [customerCopiesOpen, setCustomerCopiesOpen] = useState(false);
 
   // ── Sign (insert own signature) ────────────────────────────────────────
   const [signModalOpen, setSignModalOpen] = useState(false);
@@ -1701,6 +1760,14 @@ export const EditorView: React.FC<EditorViewProps> = ({
   // ── Derived values ────────────────────────────────────────────────────────
   const pageCount = doc?.pageCount ?? 1;
   const docName = doc?.name ?? 'Loading...';
+  // A customer's copy is sent to that customer, their details filled in
+  const docCustomer = doc?.customer;
+  const signCustomer = useMemo(
+    () => (docCustomer
+      ? { customerId: docCustomer.id, name: docCustomer.name, email: docCustomer.email ?? undefined }
+      : undefined),
+    [docCustomer],
+  );
 
   // Never point at a page the document no longer has
   useEffect(() => {
@@ -1785,6 +1852,35 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 aria-label="Edit selected element"
               >
                 Edit
+              </Button>
+            )}
+            {/* Standalone editor only (it can open another document): the
+                customer this copy is for, or copies of it for customers.
+                Icon-only on mobile so the row fits. */}
+            {onOpenDocument && doc?.customer && (
+              <Tooltip title={`Open ${doc.customer.name}'s customer page`}>
+                <Button
+                  icon={<UserOutlined />}
+                  onClick={() => handleOpenCustomer(doc.customer!.id)}
+                  size="small"
+                  style={{ ...headerButtonStyle, maxWidth: 200 }}
+                  aria-label={`Customer: ${doc.customer.name}`}
+                >
+                  {!isMobile && (
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.customer.name}</span>
+                  )}
+                </Button>
+              </Tooltip>
+            )}
+            {onOpenDocument && doc && !doc.customerId && (
+              <Button
+                icon={<TeamOutlined />}
+                onClick={() => setCustomerCopiesOpen(true)}
+                size="small"
+                style={headerButtonStyle}
+                aria-label="Copy for customers"
+              >
+                {!isMobile && 'Copy for Customers'}
               </Button>
             )}
             <Button
@@ -2122,7 +2218,22 @@ export const EditorView: React.FC<EditorViewProps> = ({
         documentName={docName}
         pageCount={pageCount}
         fieldDefinitions={doc?.fieldDefinitions ?? []}
+        initialCustomer={signCustomer}
       />
+
+      {/* Copies of this document for customers */}
+      {onOpenDocument && (
+        <CustomerCopiesModal
+          open={customerCopiesOpen}
+          onClose={() => setCustomerCopiesOpen(false)}
+          document={doc ?? null}
+          onOpenDocument={async (id) => {
+            setCustomerCopiesOpen(false);
+            if ((isDirty || isSaving) && !(await handleSave(true))) return;
+            onOpenDocument(id);
+          }}
+        />
+      )}
 
       {/* Sign (insert own signature) Modal */}
       <SignatureModal
@@ -2180,7 +2291,26 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('editor');
-  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+  // The open document lives in the URL (?doc=), so other pages (a customer's
+  // documents) can link straight into the editor and a reload keeps it open.
+  // Opened from such a page, its `returnTo` state is where Back goes.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const editingDocumentId = searchParams.get('doc');
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo;
+  const setEditingDocumentId = useCallback((id: string | null) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (id) next.set('doc', id);
+      else next.delete('doc');
+      return next;
+    }, { state: location.state });
+  }, [setSearchParams, location.state]);
+  const closeEditor = useCallback(() => {
+    if (returnTo) navigate(returnTo);
+    else setEditingDocumentId(null);
+  }, [returnTo, navigate, setEditingDocumentId]);
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importTab, setImportTab] = useState<ImportTabKey>('estimates');
@@ -2216,7 +2346,7 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
       queryClient.invalidateQueries({ queryKey: ['pdf-editor-documents'] });
       setEditingDocumentId(doc.id);
     },
-    [queryClient],
+    [queryClient, setEditingDocumentId],
   );
 
   // ── Sign request detail mode ──────────────────────────────────────────────
@@ -2235,7 +2365,7 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
       <EditorView
         key={editingDocumentId}
         documentId={editingDocumentId}
-        onBack={() => setEditingDocumentId(null)}
+        onBack={closeEditor}
         onOpenDocument={setEditingDocumentId}
       />
     );

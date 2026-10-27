@@ -8,6 +8,7 @@ page operations, annotations, signing workflow, and company document library.
 import re
 from datetime import datetime
 from typing import Annotated, Literal, Optional
+from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -57,6 +58,10 @@ class PdfDocumentListResponse(BaseModel):
 class MergeDocumentsRequest(BaseModel):
     document_ids: list[str] = Field(..., min_length=2)
     name: Optional[str] = None
+
+
+class CustomerCopiesRequest(BaseModel):
+    customer_ids: list[UUID] = Field(..., min_length=1, max_length=100)
 
 
 class PageReorderRequest(BaseModel):
