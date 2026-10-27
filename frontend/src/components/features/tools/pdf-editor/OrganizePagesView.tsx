@@ -61,6 +61,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { usePdfThumbnails } from './PageSidebar';
 import { colors, fonts, borderRadius, shadows, fontSizes, fontWeights } from '@/styles/theme';
+import { useHoverTip } from './useHoverTip';
 
 const { Text } = Typography;
 
@@ -120,45 +121,48 @@ const InsertButton: React.FC<{
   visible: boolean;
   disabled: boolean;
   onInsert: (after: number) => void;
-}> = ({ after, side, visible, disabled, onInsert }) => (
-  <Tooltip title={after === 0 ? 'Insert before page 1' : `Insert after page ${after}`}>
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onInsert(after);
-      }}
-      onPointerDown={(e) => e.stopPropagation()}
-      disabled={disabled}
-      aria-label={after === 0 ? 'Insert pages before page 1' : `Insert pages after page ${after}`}
-      style={{
-        position: 'absolute',
-        top: '42%',
-        [side]: -(GRID_GAP / 2) - 11,
-        width: 22,
-        height: 22,
-        borderRadius: borderRadius.full,
-        border: `1px solid ${colors.borderDark}`,
-        background: colors.bgWhite,
-        color: colors.textSecondary,
-        boxShadow: shadows.sm,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 0,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: visible ? 1 : 0,
-        transition: 'opacity 0.12s ease',
-        zIndex: 3,
-      }}
-      // Keyboard users reach it even while hidden
-      onFocus={(e) => { e.currentTarget.style.opacity = '1'; }}
-      onBlur={(e) => { if (!visible) e.currentTarget.style.opacity = '0'; }}
-    >
-      <PlusOutlined style={{ fontSize: 11 }} />
-    </button>
-  </Tooltip>
-);
+}> = ({ after, side, visible, disabled, onInsert }) => {
+  const tip = useHoverTip();
+  return (
+    <Tooltip {...tip} title={after === 0 ? 'Insert before page 1' : `Insert after page ${after}`}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onInsert(after);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        disabled={disabled}
+        aria-label={after === 0 ? 'Insert pages before page 1' : `Insert pages after page ${after}`}
+        style={{
+          position: 'absolute',
+          top: '42%',
+          [side]: -(GRID_GAP / 2) - 11,
+          width: 22,
+          height: 22,
+          borderRadius: borderRadius.full,
+          border: `1px solid ${colors.borderDark}`,
+          background: colors.bgWhite,
+          color: colors.textSecondary,
+          boxShadow: shadows.sm,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 0,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: visible ? 1 : 0,
+          transition: 'opacity 0.12s ease',
+          zIndex: 3,
+        }}
+        // Keyboard users reach it even while hidden
+        onFocus={(e) => { e.currentTarget.style.opacity = '1'; }}
+        onBlur={(e) => { if (!visible) e.currentTarget.style.opacity = '0'; }}
+      >
+        <PlusOutlined style={{ fontSize: 11 }} />
+      </button>
+    </Tooltip>
+  );
+};
 
 // ── Page card ─────────────────────────────────────────────────────────────────
 
@@ -193,6 +197,7 @@ const PageCard: React.FC<PageCardProps> = ({
   registerRef,
   onFocusPage,
 }) => {
+  const tip = useHoverTip();
   const [hovered, setHovered] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: pageNum, disabled: busy });
@@ -306,7 +311,7 @@ const PageCard: React.FC<PageCardProps> = ({
               boxShadow: shadows.base,
             }}
           >
-            <Tooltip title="Rotate left">
+            <Tooltip {...tip} title="Rotate left">
               <Button
                 type="text"
                 size="small"
@@ -316,7 +321,7 @@ const PageCard: React.FC<PageCardProps> = ({
                 aria-label={`Rotate page ${pageNum} left`}
               />
             </Tooltip>
-            <Tooltip title="Rotate right">
+            <Tooltip {...tip} title="Rotate right">
               <Button
                 type="text"
                 size="small"
@@ -326,7 +331,7 @@ const PageCard: React.FC<PageCardProps> = ({
                 aria-label={`Rotate page ${pageNum} right`}
               />
             </Tooltip>
-            <Tooltip title="Delete page">
+            <Tooltip {...tip} title="Delete page">
               <Button
                 type="text"
                 size="small"
@@ -365,27 +370,30 @@ const HeaderAction: React.FC<{
   disabled?: boolean;
   danger?: boolean;
   compact: boolean;
-}> = ({ label, icon, onClick, disabled, danger, compact }) => (
-  <Tooltip title={compact ? label : undefined}>
-    <Button
-      size="small"
-      type="text"
-      icon={icon}
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      style={{
-        height: 30,
-        fontSize: fontSizes.xs,
-        fontFamily: fonts.body,
-        color: disabled ? undefined : danger ? colors.error : colors.textSecondary,
-        padding: compact ? '0 7px' : '0 8px',
-      }}
-    >
-      {!compact && label}
-    </Button>
-  </Tooltip>
-);
+}> = ({ label, icon, onClick, disabled, danger, compact }) => {
+  const tip = useHoverTip();
+  return (
+    <Tooltip {...tip} title={compact ? label : undefined}>
+      <Button
+        size="small"
+        type="text"
+        icon={icon}
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        style={{
+          height: 30,
+          fontSize: fontSizes.xs,
+          fontFamily: fonts.body,
+          color: disabled ? undefined : danger ? colors.error : colors.textSecondary,
+          padding: compact ? '0 7px' : '0 8px',
+        }}
+      >
+        {!compact && label}
+      </Button>
+    </Tooltip>
+  );
+};
 
 // ── Main component ────────────────────────────────────────────────────────────
 

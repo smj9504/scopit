@@ -36,6 +36,7 @@ import {
   SwapOutlined,
 } from '@ant-design/icons';
 import type { Annotation, AnnotationStyle } from './types';
+import { useHoverTip } from './useHoverTip';
 import { colors, fonts, borderRadius, fontSizes, fontWeights } from '@/styles/theme';
 
 const { Text } = Typography;
@@ -50,6 +51,8 @@ interface PropertyPanelProps {
   onSendToBack: (id: string) => void;
   /** Set for an Edit replacement: drop it and bring the PDF's own words (or image) back */
   onRestoreOriginal?: (id: string) => void;
+  /** As wide as where it's put (a phone's bottom drawer), not a side panel */
+  fullWidth?: boolean;
 }
 
 /** Fit an image of naturalW x naturalH inside a box, keeping its proportions */
@@ -227,19 +230,22 @@ const StyleToggle: React.FC<{
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
-}> = ({ active, label, icon, onClick }) => (
-  <Tooltip title={label} mouseEnterDelay={0.5}>
-    <button
-      type="button"
-      style={S.toggleBtn(active)}
-      onClick={onClick}
-      aria-pressed={active}
-      aria-label={label}
-    >
-      {icon}
-    </button>
-  </Tooltip>
-);
+}> = ({ active, label, icon, onClick }) => {
+  const tip = useHoverTip();
+  return (
+    <Tooltip {...tip} title={label} mouseEnterDelay={0.5}>
+      <button
+        type="button"
+        style={S.toggleBtn(active)}
+        onClick={onClick}
+        aria-pressed={active}
+        aria-label={label}
+      >
+        {icon}
+      </button>
+    </Tooltip>
+  );
+};
 
 // ── Helper: color field row ───────────────────────────────────────────────────
 
@@ -675,47 +681,50 @@ const TransformSection: React.FC<{
 const LayerSection: React.FC<{
   onBringToFront: () => void;
   onSendToBack: () => void;
-}> = ({ onBringToFront, onSendToBack }) => (
-  <div style={S.section}>
-    <span style={S.sectionTitle}>Layer</span>
-    <div style={S.orderBtnGroup}>
-      <Tooltip title="Bring to front" mouseEnterDelay={0.5}>
-        <Button
-          size="small"
-          icon={<VerticalAlignTopOutlined />}
-          onClick={onBringToFront}
-          style={{
-            flex: 1,
-            height: 28,
-            fontSize: fontSizes.xs,
-            color: colors.textSecondary,
-            borderColor: colors.border,
-          }}
-          aria-label="Bring to front"
-        >
-          Front
-        </Button>
-      </Tooltip>
-      <Tooltip title="Send to back" mouseEnterDelay={0.5}>
-        <Button
-          size="small"
-          icon={<VerticalAlignBottomOutlined />}
-          onClick={onSendToBack}
-          style={{
-            flex: 1,
-            height: 28,
-            fontSize: fontSizes.xs,
-            color: colors.textSecondary,
-            borderColor: colors.border,
-          }}
-          aria-label="Send to back"
-        >
-          Back
-        </Button>
-      </Tooltip>
+}> = ({ onBringToFront, onSendToBack }) => {
+  const tip = useHoverTip();
+  return (
+    <div style={S.section}>
+      <span style={S.sectionTitle}>Layer</span>
+      <div style={S.orderBtnGroup}>
+        <Tooltip {...tip} title="Bring to front" mouseEnterDelay={0.5}>
+          <Button
+            size="small"
+            icon={<VerticalAlignTopOutlined />}
+            onClick={onBringToFront}
+            style={{
+              flex: 1,
+              height: 28,
+              fontSize: fontSizes.xs,
+              color: colors.textSecondary,
+              borderColor: colors.border,
+            }}
+            aria-label="Bring to front"
+          >
+            Front
+          </Button>
+        </Tooltip>
+        <Tooltip {...tip} title="Send to back" mouseEnterDelay={0.5}>
+          <Button
+            size="small"
+            icon={<VerticalAlignBottomOutlined />}
+            onClick={onSendToBack}
+            style={{
+              flex: 1,
+              height: 28,
+              fontSize: fontSizes.xs,
+              color: colors.textSecondary,
+              borderColor: colors.border,
+            }}
+            aria-label="Send to back"
+          >
+            Back
+          </Button>
+        </Tooltip>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -726,7 +735,9 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
   onBringToFront,
   onSendToBack,
   onRestoreOriginal,
+  fullWidth = false,
 }) => {
+  const tip = useHoverTip();
   // Produce a merged annotation update
   const handleChange = useCallback(
     (patch: Partial<Annotation>) => {
@@ -749,7 +760,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
   return (
     <aside
-      style={S.panel}
+      style={fullWidth ? { ...S.panel, width: '100%', minWidth: 0, maxWidth: 'none', borderLeft: 'none' } : S.panel}
       aria-label="Element properties"
       role="complementary"
     >
@@ -870,7 +881,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
           {/* Delete */}
           <div style={{ ...S.section, marginTop: 'auto' }}>
-            <Tooltip title="Delete this element" mouseEnterDelay={0.5}>
+            <Tooltip {...tip} title="Delete this element" mouseEnterDelay={0.5}>
               <button
                 type="button"
                 style={S.deleteBtn}

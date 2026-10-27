@@ -8,7 +8,7 @@
  * Usage (auto-registered in registry.ts):
  *   const PdfEditorTool = lazy(() => import('./pdf-editor/PdfEditorTool'));
  */
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { createAnnotationSaver } from './annotationSaver';
 import {
@@ -74,7 +74,7 @@ import AnnotationLayer, {
   isTextCoverId,
   type ImagePick,
 } from './AnnotationLayer';
-import Toolbar, { headerButtonStyle } from './Toolbar';
+import Toolbar, { headerButtonStyle, ZOOM_MAX, ZOOM_MIN } from './Toolbar';
 import PropertyPanel from './PropertyPanel';
 import MergeModal from './MergeModal';
 import ToolsMenu, { type ToolsMenuAction } from './ToolsMenu';
@@ -84,6 +84,9 @@ import ExtractPagesModal from './ExtractPagesModal';
 import ProtectModal from './ProtectModal';
 import RedactBar, { type RedactApplyOptions } from './RedactBar';
 import EditBar from './EditBar';
+import PageNavBar, { PAGE_NAV_BAR_CLEARANCE } from './PageNavBar';
+import { usePinchZoom } from './usePinchZoom';
+import { useHoverTip } from './useHoverTip';
 import RedactSearchModal from './RedactSearchModal';
 import { CropBar, CropOverlay, type CropRect } from './CropOverlay';
 import { usePdfPassword, apiErrorMessage } from './pdfPassword';
@@ -969,6 +972,9 @@ const SignRequestsTab: React.FC<SignRequestsTabProps> = ({ onViewDetail }) => {
 
 // ── Editor View ───────────────────────────────────────────────────────────────
 
+// Space beside the page on a phone, each side
+const MOBILE_PAGE_GUTTER = 8;
+
 /** Fills the whole window: the Tools page puts the app in focus mode while
  * it's open, and SendForSignModal shows it in a full-screen Modal. */
 export interface EditorViewProps {
@@ -995,7 +1001,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const [isDirty, setIsDirty] = useState(false);
   const annotationsRef = React.useRef(annotations);
   annotationsRef.current = annotations;
-  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  // The page as last drawn: its size on screen, and the zoom it was drawn at
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0, zoom: 1 });
   const [isPdfPageReady, setIsPdfPageReady] = useState(false);
   const [textLayer, setTextLayer] = useState<PdfTextLayer | null>(null);
   // Edit Text covers whose words the page on screen has erased
@@ -1819,10 +1826,56 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const selectedIsReplacement = !!selectedAnnotationId
     && annotations.some((a) => a.id === selectedAnnotationId + TEXT_COVER_SUFFIX);
   // The page in page units, for crop
-  const pageSize = { width: canvasSize.width / zoom, height: canvasSize.height / zoom };
+  const pageSize = { width: canvasSize.width / canvasSize.zoom, height: canvasSize.height / canvasSize.zoom };
   // Until the first page is drawn the canvas is a blank 300×150, not a page,
   // so there's no page card to show yet
   const pageDrawn = canvasSize.width > 0;
+
+  // ── Phone: the page fitted to the screen, pinched to zoom ────────────────
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [viewerWidth, setViewerWidth] = useState(0);
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const observer = new ResizeObserver(() => setViewerWidth(viewer.clientWidth));
+    observer.observe(viewer);
+    return () => observer.disconnect();
+  }, [organizeOpen]);
+  // A phone shows the page as wide as the screen -- the next page too, or
+  // the phone turned -- until it's zoomed
+  const [fitWidth, setFitWidth] = useState(true);
+  const fitZoom = isMobile && viewerWidth > 0 && pageSize.width > 0
+    ? Math.floor(((viewerWidth - 2 * MOBILE_PAGE_GUTTER) / pageSize.width) * 100) / 100
+    : null;
+  useEffect(() => {
+    // A step off is fitted already: each zoom draws the page a pixel wider
+    // or narrower, which can tip the fit a step either way
+    if (fitWidth && fitZoom && Math.abs(fitZoom - zoom) > 0.015) setZoom(fitZoom);
+  }, [fitWidth, fitZoom, zoom]);
+  const clampZoom = useCallback(
+    (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100))) / 100,
+    [],
+  );
+  const pinch = usePinchZoom({
+    viewerRef,
+    pageRef,
+    zoom,
+    clamp: clampZoom,
+    onZoom: (next) => {
+      // Pinched smaller than the screen's width: fitted to it again
+      if (fitZoom && next <= fitZoom) {
+        setFitWidth(true);
+        setZoom(fitZoom);
+        return fitZoom;
+      }
+      const z = clampZoom(next);
+      setFitWidth(false);
+      setZoom(z);
+      return z;
+    },
+  });
+  const tip = useHoverTip();
   // Shown only if the page takes a while: a page turn is quicker
   const pageSpinner = (
     <div
@@ -1845,7 +1898,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        // A phone's browser bars cover the bottom of 100vh
+        height: isMobile ? '100dvh' : '100vh',
         overflow: 'hidden',
         background: colors.bgLight,
       }}
@@ -1859,7 +1913,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
           setActiveTool(tool);
         }}
         zoom={Math.round(zoom * 100)}
-        onZoomChange={(pct) => setZoom(pct / 100)}
+        onZoomChange={(pct) => {
+          setFitWidth(false);
+          setZoom(pct / 100);
+        }}
         currentPage={currentPage}
         pageCount={pageCount}
         onPageChange={setCurrentPage}
@@ -1867,6 +1924,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        showNav={!isMobile}
         onSave={() => handleSave()}
         onExport={handleExport}
         onExportOriginal={handleExportOriginal}
@@ -1893,7 +1951,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 customer this copy is for, or copies of it for customers.
                 Icon-only on mobile so the row fits. */}
             {onOpenDocument && doc?.customer && (
-              <Tooltip title={`Open ${doc.customer.name}'s customer page`}>
+              <Tooltip {...tip} title={`Open ${doc.customer.name}'s customer page`}>
                 <Button
                   icon={<UserOutlined />}
                   onClick={() => handleOpenCustomer(doc.customer!.id)}
@@ -1966,7 +2024,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
       {/* Mode bars: edit / crop / redact */}
       {activeTool === 'edit_text' && !organizeOpen && (
-        <EditBar onDone={() => setActiveTool('select')} />
+        <EditBar onDone={() => setActiveTool('select')} compact={isMobile} />
       )}
       {activeTool === 'crop' && !organizeOpen && (
         <CropBar
@@ -2078,26 +2136,32 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
         {/* PDF canvas + annotation overlay – flex: 1 */}
         <div
+          ref={viewerRef}
           style={{
             flex: 1,
             overflow: 'auto',
             background: '#e5e7eb',
             display: 'flex',
             alignItems: 'flex-start',
-            justifyContent: 'center',
-            padding: isMobile ? '12px 4px' : '24px 16px',
+            padding: isMobile
+              ? `12px ${MOBILE_PAGE_GUTTER}px calc(${PAGE_NAV_BAR_CLEARANCE}px + env(safe-area-inset-bottom))`
+              : '24px 16px',
             WebkitOverflowScrolling: 'touch',
+            // Fingers scroll it; a pinch zooms the editor, not the browser
+            touchAction: 'pan-x pan-y',
             position: 'relative',
           }}
         >
           <div
+            ref={pageRef}
             style={{
               position: 'relative',
               display: 'inline-block',
+              // Centered while it fits; wider, it scrolls from its left edge
+              margin: '0 auto',
               boxShadow: pageDrawn ? '0 4px 24px rgba(0,0,0,0.12)' : 'none',
               borderRadius: 4,
               background: pageDrawn ? '#fff' : 'transparent',
-              maxWidth: isMobile ? '100%' : undefined,
               // A page loading into a fresh canvas (back from Organize
               // pages) holds the last page's size instead of a blank canvas's
               ...(!isPdfPageReady && pageDrawn
@@ -2113,7 +2177,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
               onPageChange={setCurrentPage}
               activeTool={activeTool}
               refreshKey={pdfRefreshKey}
-              onCanvasResize={(w, h) => setCanvasSize({ width: w, height: h })}
+              onCanvasResize={(w, h, drawnAt) => {
+                setCanvasSize({ width: w, height: h, zoom: drawnAt });
+                pinch.pageDrawn(drawnAt);
+              }}
               onPageReady={setIsPdfPageReady}
               onTextLayer={setTextLayer}
               textCovers={pageCovers}
@@ -2192,6 +2259,19 @@ export const EditorView: React.FC<EditorViewProps> = ({
             />
           </div>
         )}
+
+        {/* Undo and the page arrows – over the page on a phone */}
+        {isMobile && (
+          <PageNavBar
+            canUndo={undoStack.length > 0 || !!cropUndo}
+            canRedo={redoStack.length > 0}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            currentPage={currentPage}
+            pageCount={pageCount}
+            onPageChange={setCurrentPage}
+          />
+        )}
       </div>
       )}
 
@@ -2207,6 +2287,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
           styles={{ body: { padding: 0 } }}
         >
           <PropertyPanel
+            fullWidth
             selectedAnnotation={selectedAnnotation}
             onAnnotationUpdate={handleAnnotationQuickUpdate}
             onAnnotationDelete={(id) => {

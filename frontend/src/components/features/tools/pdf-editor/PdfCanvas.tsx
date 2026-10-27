@@ -31,6 +31,7 @@ import { useAuthStore } from '@/stores/authStore';
 import './pdfWorker';
 import { extractTextRuns, loadedFonts, sampleRunColors, type PdfTextLayer } from './pdfTextRuns';
 import { pdfEditorApi, type PreviewCover } from './pdfEditorApi';
+import { canvasPixelRatio } from './canvasPixelRatio';
 // Theme not needed – bare canvas only
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -44,8 +45,8 @@ export interface PdfCanvasProps {
   activeTool: string;
   /** Increment to force PDF reload (e.g. after page rotate/reorder/delete) */
   refreshKey?: number;
-  /** Called when page renders with the CSS display size of the canvas */
-  onCanvasResize?: (width: number, height: number) => void;
+  /** Called when page renders with the CSS display size of the canvas, and the zoom it was drawn at */
+  onCanvasResize?: (width: number, height: number, zoom: number) => void;
   /**
    * Called when the page render completes (true), or when a page or the
    * file starts loading (false): until then what's on the canvas (nothing,
@@ -263,7 +264,7 @@ const PdfCanvas: React.FC<PdfCanvasProps> = ({
         const viewport = page.getViewport({ scale });
 
         // Render off screen, then swap, so the last frame stays up meanwhile
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = canvasPixelRatio(viewport.width, viewport.height);
         const offscreen = document.createElement('canvas');
         offscreen.width = Math.floor(viewport.width * dpr);
         offscreen.height = Math.floor(viewport.height * dpr);
@@ -290,7 +291,7 @@ const PdfCanvas: React.FC<PdfCanvasProps> = ({
         const cssW = Math.floor(viewport.width);
         const cssH = Math.floor(viewport.height);
         setCanvasSize({ width: cssW, height: cssH });
-        onCanvasResize?.(cssW, cssH);
+        onCanvasResize?.(cssW, cssH, scale);
 
         shownViewRef.current = view;
         setIsPageRendering(false);

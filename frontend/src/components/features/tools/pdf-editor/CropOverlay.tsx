@@ -19,6 +19,7 @@ import { Button, InputNumber, Select, Input, Tooltip, Typography } from 'antd';
 import { ScissorOutlined } from '@ant-design/icons';
 import type { CropMargins } from './types';
 import { parsePageRanges } from './pageRanges';
+import { useHoverTip } from './useHoverTip';
 import { colors, fonts, fontSizes, fontWeights, borderRadius } from '@/styles/theme';
 
 const { Text } = Typography;
@@ -269,6 +270,7 @@ export const CropBar: React.FC<CropBarProps> = ({
   onReset,
   onCancel,
 }) => {
+  const tip = useHoverTip();
   const [scope, setScope] = useState<Scope>('page');
   const [range, setRange] = useState('');
 
@@ -363,7 +365,7 @@ export const CropBar: React.FC<CropBarProps> = ({
       </span>
 
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-        <Tooltip title="Show the whole page again on the chosen pages" mouseEnterDelay={0.5}>
+        <Tooltip {...tip} title="Show the whole page again on the chosen pages" mouseEnterDelay={0.5}>
           <Button size="small" disabled={busy || !scopeOk} onClick={() => onReset(pages)}>
             Remove crop
           </Button>

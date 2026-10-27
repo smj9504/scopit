@@ -45,6 +45,7 @@ import {
 } from 'fabric';
 import type { Annotation, AnnotationStyle, PageImage } from './types';
 import { findRunAt, runPoint, type PdfFontFace, type PdfTextLayer, type PdfTextRun } from './pdfTextRuns';
+import { canvasPixelRatio } from './canvasPixelRatio';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -123,6 +124,15 @@ const FABRIC_BASELINE_RATIO = 1 - 0.222;
 // is hard to see)
 const MARQUEE_FILL = 'rgba(17, 24, 39, 0.08)';
 const MARQUEE_STROKE = '#111827';
+// On a touch screen a finger dragged over the page scrolls it, except with
+// the tools that draw with it. Everywhere else a finger acts when it lifts,
+// if it moved less than this (screen pixels): a tap.
+const TOUCH_DRAG_TOOLS = new Set(['draw', 'redact']);
+const TAP_SLOP = 10;
+
+function isTouchEvent(e: unknown): e is TouchEvent {
+  return typeof TouchEvent !== 'undefined' && e instanceof TouchEvent;
+}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -611,17 +621,29 @@ interface StampPickerProps {
 const StampPicker: React.FC<StampPickerProps> = ({ x, y, onSelect, onDismiss }) => {
   const ref = useRef<HTMLDivElement>(null);
 
+  // Kept on screen: a tap near the edge would put it partly off
+  const [pos, setPos] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setPos({
+      left: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - height - 8)),
+    });
+  }, [x, y]);
+
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const handler = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         onDismiss();
       }
     };
     // Delay to avoid the same click that opened the picker from closing it
-    const timer = setTimeout(() => document.addEventListener('mousedown', handler), 50);
+    const timer = setTimeout(() => document.addEventListener('pointerdown', handler), 50);
     return () => {
       clearTimeout(timer);
-      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('pointerdown', handler);
     };
   }, [onDismiss]);
 
@@ -633,8 +655,8 @@ const StampPicker: React.FC<StampPickerProps> = ({ x, y, onSelect, onDismiss }) 
       aria-label="Select stamp type"
       style={{
         position: 'fixed',
-        left: x,
-        top: y,
+        left: pos.left,
+        top: pos.top,
         zIndex: 10000,
         background: '#ffffff',
         border: '1px solid #e5e7eb',
@@ -851,6 +873,14 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     moved: boolean;
   } | null>(null);
 
+  // A finger on the page: where it went down (screen), to tell a tap from a
+  // scroll; whether another finger joined it (a pinch, which zooms the
+  // editor and does nothing on the page); and what was selected before it,
+  // which a scroll or a pinch leaves selected. And the tool's spot (page
+  // units) that a tap acts on once the finger lifts.
+  const touchRef = useRef<{ x: number; y: number; multi: boolean; selected: FabricObject | undefined } | null>(null);
+  const tapRef = useRef<{ tool: string; x: number; y: number } | null>(null);
+
   // What a click with the edit_text tool would edit (PDF text or image, or a
   // spot already replaced), or the redact tool would mark. Top-left corner,
   // size and clockwise angle, page units.
@@ -1027,8 +1057,15 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
 
+    // A second finger anywhere makes the one on the page part of a pinch
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length > 1 && touchRef.current) touchRef.current.multi = true;
+    };
+    window.addEventListener('touchstart', handleTouchStart, { capture: true, passive: true });
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('touchstart', handleTouchStart, { capture: true });
       if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
       fc.dispose();
       fabricRef.current = null;
@@ -1042,6 +1079,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   useEffect(() => {
     const fc = fabricRef.current;
     if (!fc) return;
+    // As many pixels as the page under it gets (a phone has fewer to spare)
+    const ratio = canvasPixelRatio(width, height);
+    fc.getRetinaScaling = () => ratio;
     fc.setDimensions({ width, height });
     fc.renderAll();
   }, [width, height]);
@@ -1069,6 +1109,13 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     // Edit everything (its replacements, picked-up images, other elements)
     fc.skipTargetFind = !isSelect && !isEdit && !isDrawing && !isRedact;
     fc.defaultCursor = isRedact ? 'crosshair' : 'default';
+    // A finger dragged on the page scrolls it (fabric still moves the
+    // selected element under it), unless the tool draws with it. Pinching
+    // is the editor's, to zoom.
+    const touchScroll = !TOUCH_DRAG_TOOLS.has(activeTool);
+    fc.allowTouchScrolling = touchScroll;
+    fc.upperCanvasEl.style.touchAction = touchScroll ? 'pan-x pan-y' : 'none';
+    tapRef.current = null;
 
     // Make existing objects selectable/moveable only in select and edit mode.
     // Keep evented=true for all tools so the canvas-level mouse:down event
@@ -1102,6 +1149,11 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const handlePathCreated = (e: { path?: Path }) => {
       const pathObj = e.path;
       if (!pathObj) return;
+      // The start of a pinch, not a stroke
+      if (touchRef.current?.multi) {
+        fc.remove(pathObj);
+        return;
+      }
 
       // fabric adds the path automatically; we just need to tag it
       const id = generateId();
@@ -1357,6 +1409,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       // A new press moves on from images still being picked up
       joinRef.current = null;
       const tool = activeToolRef.current;
+      const touch = isTouchEvent(opt.e) ? opt.e.touches[0] : undefined;
+      tapRef.current = null;
       // Only handle placement tools
       if (tool === 'select' || tool === 'draw') return;
 
@@ -1381,6 +1435,20 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         if (tool !== 'redact' || isMark) return;
       }
 
+      // A finger may be scrolling the page, or starting a pinch: the tool
+      // waits for it to lift without having moved
+      if (touch && !TOUCH_DRAG_TOOLS.has(tool)) {
+        tapRef.current = { tool, x: cx, y: cy };
+        return;
+      }
+      const me = opt.e as MouseEvent;
+      applyTool(tool, cx, cy, touch ? { x: touch.clientX, y: touch.clientY } : { x: me.clientX, y: me.clientY }, false);
+    };
+
+    // The tool at a page point -- pressed with the mouse, or tapped (a
+    // finger has lifted already: nothing to drag). screen: where that is on
+    // screen.
+    const applyTool = (tool: string, cx: number, cy: number, screen: { x: number; y: number }, tapped: boolean) => {
       // For text tool: if an IText is currently in editing mode, exit editing
       // first and skip placing a new text object (user just wants to deselect).
       // Edit goes straight on to the next text.
@@ -1468,7 +1536,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             const image = findImageAt(cx, cy);
             if (image) pickImages([image], false);
             // Nothing here to edit: a drag selects what its box touches
-            else startBoxDrag('select', cx, cy);
+            else if (!tapped) startBoxDrag('select', cx, cy);
             break;
           }
           if (!layer || !run) {
@@ -1538,13 +1606,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
         case 'stamp': {
           // Record canvas position; show picker near cursor on screen
-          const canvasEl = canvasElRef.current;
-          if (!canvasEl) break;
-          const evtRect = canvasEl.getBoundingClientRect();
-          const me = opt.e as MouseEvent | undefined;
           setStampPicker({
-            screenX: me ? me.clientX : evtRect.left + cx,
-            screenY: me ? me.clientY : evtRect.top + cy,
+            screenX: screen.x,
+            screenY: screen.y,
             canvasX: cx,
             canvasY: cy,
           });
@@ -1758,6 +1822,23 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       setHoverBox((prev) => (prev?.key === box?.key ? prev : box));
     };
 
+    // The page's text an Edit press picked up: released where it was
+    // pressed, it types; dragged, it stays where it was left
+    const releaseEditPress = (): boolean => {
+      const press = editPressRef.current;
+      if (!press) return false;
+      editPressRef.current = null;
+      if (press.moved) {
+        const existing = annotationsRef.current.find((a) => a.id === press.ann.id) ?? press.ann;
+        queueUpdatesRef.current([fabricToAnnotation(press.obj, existing)]);
+      } else {
+        press.obj.enterEditing();
+        press.obj.selectAll();
+      }
+      fc.requestRenderAll();
+      return true;
+    };
+
     // Edit: the page's text a press picked up types on a click and lands
     // where a drag left it; a click on any text types into it right away
     // (a drag moved it, a corner resized it); and a box dragged from an
@@ -1770,24 +1851,48 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       transform?: { corner?: string } | null;
       scenePoint?: { x: number; y: number };
     }) => {
-      const press = editPressRef.current;
-      if (press) {
-        editPressRef.current = null;
-        if (press.moved) {
-          const existing = annotationsRef.current.find((a) => a.id === press.ann.id) ?? press.ann;
-          queueUpdatesRef.current([fabricToAnnotation(press.obj, existing)]);
-        } else {
-          press.obj.enterEditing();
-          press.obj.selectAll();
+      // fabric doesn't see a finger move while the page scrolls under it:
+      // whether it tapped is how far it went on screen
+      let isClick = !!opt.isClick;
+      let pinched = false;
+      if (isTouchEvent(opt.e)) {
+        const touch = touchRef.current;
+        const end = opt.e.changedTouches[0];
+        touchRef.current = null;
+        pinched = !!touch?.multi;
+        isClick = !!touch && !pinched && !!end
+          && Math.hypot(end.clientX - touch.x, end.clientY - touch.y) < TAP_SLOP;
+        // Nothing follows a tap: the mouse events a browser makes of it
+        // would take the focus off text just opened for typing, or land on
+        // whatever the tap opened
+        if (isClick && opt.e.cancelable) opt.e.preventDefault();
+        // fabric selected whatever a scroll or pinch started on
+        const before = touch?.selected;
+        if (
+          touch && !isClick && !TOUCH_DRAG_TOOLS.has(activeToolRef.current)
+          && fc.getActiveObject() !== before && !(before instanceof ActiveSelection)
+        ) {
+          if (before && fc.getObjects().includes(before)) fc.setActiveObject(before);
+          else fc.discardActiveObject();
+          fc.requestRenderAll();
         }
-        fc.requestRenderAll();
-        return;
+        const tap = tapRef.current;
+        tapRef.current = null;
+        if (tap) {
+          if (isClick && touch) {
+            applyTool(tap.tool, tap.x, tap.y, { x: touch.x, y: touch.y }, true);
+            releaseEditPress();
+          }
+          return;
+        }
       }
+
+      if (releaseEditPress()) return;
 
       const t = opt.target;
       if (
         activeToolRef.current === 'edit_text' && t instanceof IText && t.editable && !t.isEditing
-        && opt.isClick && !opt.transform?.corner && opt.e && fc.getActiveObject() === t
+        && isClick && !opt.transform?.corner && opt.e && fc.getActiveObject() === t
       ) {
         t.setCursorByClick(opt.e);
         t.enterEditing(opt.e);
@@ -1798,6 +1903,11 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       const drag = boxDragRef.current;
       if (!drag) return;
       boxDragRef.current = null;
+      if (pinched) {
+        fc.remove(drag.rect);
+        fc.requestRenderAll();
+        return;
+      }
       const end = opt.scenePoint ?? { x: drag.x, y: drag.y };
       const width = Math.abs(end.x - drag.x);
       const height = Math.abs(end.y - drag.y);
@@ -1836,10 +1946,25 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       fc.requestRenderAll();
     };
 
+    // A finger touching the page, before fabric selects what it touched
+    const handleMouseDownBefore = (opt: { e?: TPointerEvent }) => {
+      const touch = isTouchEvent(opt.e) ? opt.e.touches[0] : undefined;
+      touchRef.current = touch
+        ? {
+          x: touch.clientX,
+          y: touch.clientY,
+          multi: (opt.e as TouchEvent).touches.length > 1,
+          selected: fc.getActiveObject(),
+        }
+        : null;
+    };
+
+    fc.on('mouse:down:before' as never, handleMouseDownBefore as never);
     fc.on('mouse:down' as never, handleMouseDown as never);
     fc.on('mouse:move' as never, handleMouseMove as never);
     fc.on('mouse:up' as never, handleMouseUp as never);
     return () => {
+      fc.off('mouse:down:before' as never, handleMouseDownBefore as never);
       fc.off('mouse:down' as never, handleMouseDown as never);
       fc.off('mouse:move' as never, handleMouseMove as never);
       fc.off('mouse:up' as never, handleMouseUp as never);

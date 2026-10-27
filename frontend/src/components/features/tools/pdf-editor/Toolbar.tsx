@@ -66,6 +66,7 @@ import {
   LockOutlined,
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius, fontSizes, fontWeights } from '@/styles/theme';
+import { useHoverTip } from './useHoverTip';
 
 const { Text } = Typography;
 
@@ -100,6 +101,9 @@ interface ToolbarProps {
   headerActions?: React.ReactNode;
   /** Shown at the start of the tools row (the pages panel toggle) */
   toolsLeading?: React.ReactNode;
+  /** Undo / redo and the page arrows in the tools row (default); a phone
+   * has them in a bar over the page instead */
+  showNav?: boolean;
   drawColor?: string;
   drawWidth?: number;
   onDrawColorChange?: (color: string) => void;
@@ -125,8 +129,8 @@ function useIsMobile() {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ZOOM_MIN = 25;
-const ZOOM_MAX = 400;
+export const ZOOM_MIN = 25;
+export const ZOOM_MAX = 400;
 const ZOOM_STEP = 25;
 
 /** Redact: a bar struck through a line of text */
@@ -341,33 +345,36 @@ const IconBtn: React.FC<{
   icon: React.ReactNode;
   disabled?: boolean;
   onClick?: () => void;
-}> = ({ label, icon, disabled = false, onClick }) => (
-  <Tooltip title={label} mouseEnterDelay={0.6}>
-    <button
-      type="button"
-      style={S.iconBtn(disabled)}
-      disabled={disabled}
-      onClick={onClick}
-      aria-label={label}
-      onMouseEnter={(e) => {
-        if (!disabled) {
-          (e.currentTarget as HTMLButtonElement).style.background = colors.bgLight;
-          (e.currentTarget as HTMLButtonElement).style.color = colors.textPrimary;
-          (e.currentTarget as HTMLButtonElement).style.borderColor = colors.border;
-        }
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-        (e.currentTarget as HTMLButtonElement).style.color = disabled
-          ? colors.textMuted
-          : colors.textSecondary;
-        (e.currentTarget as HTMLButtonElement).style.borderColor = 'transparent';
-      }}
-    >
-      {icon}
-    </button>
-  </Tooltip>
-);
+}> = ({ label, icon, disabled = false, onClick }) => {
+  const tip = useHoverTip();
+  return (
+    <Tooltip {...tip} title={label} mouseEnterDelay={0.6}>
+      <button
+        type="button"
+        style={S.iconBtn(disabled)}
+        disabled={disabled}
+        onClick={onClick}
+        aria-label={label}
+        onMouseEnter={(e) => {
+          if (!disabled) {
+            (e.currentTarget as HTMLButtonElement).style.background = colors.bgLight;
+            (e.currentTarget as HTMLButtonElement).style.color = colors.textPrimary;
+            (e.currentTarget as HTMLButtonElement).style.borderColor = colors.border;
+          }
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+          (e.currentTarget as HTMLButtonElement).style.color = disabled
+            ? colors.textMuted
+            : colors.textSecondary;
+          (e.currentTarget as HTMLButtonElement).style.borderColor = 'transparent';
+        }}
+      >
+        {icon}
+      </button>
+    </Tooltip>
+  );
+};
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -400,8 +407,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onDrawWidthChange,
   checkSize,
   onCheckSizeChange,
+  showNav = true,
 }) => {
   const isMobile = useIsMobile();
+  const tip = useHoverTip();
   const [isEditingZoom, setIsEditingZoom] = useState(false);
   const [isEditingPage, setIsEditingPage] = useState(false);
   const zoomInputRef = useRef<InputNumberRef>(null);
@@ -485,7 +494,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* ── Row 1: Header ─────────────────────────────────────────────── */}
       <div style={S.headerRow}>
         <div style={S.headerLeft}>
-          <Tooltip title="Back to documents" mouseEnterDelay={0.6}>
+          <Tooltip {...tip} title="Back to documents" mouseEnterDelay={0.6}>
             <Button
               type="text"
               size="small"
@@ -517,7 +526,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           )}
 
           {isDirty && (
-            <Tooltip title="Unsaved changes" mouseEnterDelay={0.4}>
+            <Tooltip {...tip} title="Unsaved changes" mouseEnterDelay={0.4}>
               <span style={S.dirtyDot} aria-label="Unsaved changes" />
             </Tooltip>
           )}
@@ -584,7 +593,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         {/* Tool buttons */}
         <Space size={2} role="group" aria-label="Editing tools">
           {TOOL_DEFS.map((tool) => (
-            <Tooltip key={tool.key} title={tool.tooltip ?? tool.label} mouseEnterDelay={0.6}>
+            <Tooltip {...tip} key={tool.key} title={tool.tooltip ?? tool.label} mouseEnterDelay={0.6}>
               <button
                 type="button"
                 style={{
@@ -617,7 +626,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           {/* Shape dropdown tool */}
           <Dropdown menu={{ items: shapeMenuItems }} trigger={['click']} placement="bottomLeft">
-            <Tooltip title="Shapes" mouseEnterDelay={0.6}>
+            <Tooltip {...tip} title="Shapes" mouseEnterDelay={0.6}>
               <button
                 type="button"
                 style={{
@@ -654,7 +663,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <>
             <Divider type="vertical" style={{ margin: '0 4px', height: 18, borderColor: colors.border }} />
             <Space size={6} align="center" role="group" aria-label="Draw settings">
-              <Tooltip title="Stroke color" mouseEnterDelay={0.5}>
+              <Tooltip {...tip} title="Stroke color" mouseEnterDelay={0.5}>
                 <ColorPicker
                   size="small"
                   value={drawColor ?? '#111827'}
@@ -664,7 +673,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   style={{ flexShrink: 0 }}
                 />
               </Tooltip>
-              <Tooltip title="Stroke width" mouseEnterDelay={0.5}>
+              <Tooltip {...tip} title="Stroke width" mouseEnterDelay={0.5}>
                 <Select
                   size="small"
                   value={drawWidth ?? 2}
@@ -676,7 +685,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 />
               </Tooltip>
               {activeTool === 'shape_check' && (
-                <Tooltip title="Check size" mouseEnterDelay={0.5}>
+                <Tooltip {...tip} title="Check size" mouseEnterDelay={0.5}>
                   <InputNumber
                     size="small"
                     min={8}
@@ -693,23 +702,27 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </>
         )}
 
-        <Divider type="vertical" style={{ margin: '0 4px', height: 18, borderColor: colors.border }} />
+        {showNav && (
+          <>
+            <Divider type="vertical" style={{ margin: '0 4px', height: 18, borderColor: colors.border }} />
 
-        {/* Undo / Redo */}
-        <Space size={2} role="group" aria-label="History controls">
-          <IconBtn
-            label="Undo"
-            icon={<UndoOutlined />}
-            disabled={!canUndo}
-            onClick={onUndo}
-          />
-          <IconBtn
-            label="Redo"
-            icon={<RedoOutlined />}
-            disabled={!canRedo}
-            onClick={onRedo}
-          />
-        </Space>
+            {/* Undo / Redo */}
+            <Space size={2} role="group" aria-label="History controls">
+              <IconBtn
+                label="Undo"
+                icon={<UndoOutlined />}
+                disabled={!canUndo}
+                onClick={onUndo}
+              />
+              <IconBtn
+                label="Redo"
+                icon={<RedoOutlined />}
+                disabled={!canRedo}
+                onClick={onRedo}
+              />
+            </Space>
+          </>
+        )}
 
         <Divider type="vertical" style={{ margin: '0 4px', height: 18, borderColor: colors.border }} />
 
@@ -722,7 +735,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={handleZoomDecrement}
           />
 
-          <Tooltip title="Click to enter zoom level" mouseEnterDelay={0.6}>
+          <Tooltip {...tip} title="Click to enter zoom level" mouseEnterDelay={0.6}>
             {isEditingZoom ? (
               <InputNumber
                 ref={zoomInputRef}
@@ -781,81 +794,85 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           />
         </Space>
 
-        <Divider type="vertical" style={{ margin: '0 4px', height: 18, borderColor: colors.border }} />
+        {showNav && (
+          <>
+            <Divider type="vertical" style={{ margin: '0 4px', height: 18, borderColor: colors.border }} />
 
-        {/* Page navigation */}
-        <Space size={2} role="group" aria-label="Page navigation">
-          <IconBtn
-            label="Previous page"
-            icon={<LeftOutlined />}
-            disabled={currentPage <= 1}
-            onClick={handlePrevPage}
-          />
+            {/* Page navigation */}
+            <Space size={2} role="group" aria-label="Page navigation">
+              <IconBtn
+                label="Previous page"
+                icon={<LeftOutlined />}
+                disabled={currentPage <= 1}
+                onClick={handlePrevPage}
+              />
 
-          {isEditingPage ? (
-            <InputNumber
-              ref={pageInputRef}
-              size="small"
-              min={1}
-              max={pageCount}
-              defaultValue={currentPage}
-              style={{
-                width: 48,
-                height: 28,
-                fontSize: fontSizes.xs,
-                fontFamily: fonts.body,
-              }}
-              onBlur={(e) => {
-                const raw = parseInt(e.target.value, 10);
-                handlePageCommit(isNaN(raw) ? null : raw);
-              }}
-              onPressEnter={(e) => {
-                const raw = parseInt((e.target as HTMLInputElement).value, 10);
-                handlePageCommit(isNaN(raw) ? null : raw);
-              }}
-              autoFocus
-              controls={false}
-            />
-          ) : (
-            <Tooltip title="Click to go to page" mouseEnterDelay={0.6}>
-              <button
-                type="button"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  padding: '0 2px',
-                  cursor: 'text',
-                  outline: 'none',
-                }}
-                onClick={() => setIsEditingPage(true)}
-                aria-label={`Page ${currentPage} of ${pageCount}. Click to navigate.`}
-              >
-                <Text style={S.pageLabel}>
-                  Page{' '}
-                  <span
+              {isEditingPage ? (
+                <InputNumber
+                  ref={pageInputRef}
+                  size="small"
+                  min={1}
+                  max={pageCount}
+                  defaultValue={currentPage}
+                  style={{
+                    width: 48,
+                    height: 28,
+                    fontSize: fontSizes.xs,
+                    fontFamily: fonts.body,
+                  }}
+                  onBlur={(e) => {
+                    const raw = parseInt(e.target.value, 10);
+                    handlePageCommit(isNaN(raw) ? null : raw);
+                  }}
+                  onPressEnter={(e) => {
+                    const raw = parseInt((e.target as HTMLInputElement).value, 10);
+                    handlePageCommit(isNaN(raw) ? null : raw);
+                  }}
+                  autoFocus
+                  controls={false}
+                />
+              ) : (
+                <Tooltip {...tip} title="Click to go to page" mouseEnterDelay={0.6}>
+                  <button
+                    type="button"
                     style={{
-                      fontWeight: fontWeights.semibold,
-                      color: colors.textPrimary,
-                      textDecoration: 'underline',
-                      textDecorationStyle: 'dotted',
+                      background: 'transparent',
+                      border: 'none',
+                      padding: '0 2px',
                       cursor: 'text',
+                      outline: 'none',
                     }}
+                    onClick={() => setIsEditingPage(true)}
+                    aria-label={`Page ${currentPage} of ${pageCount}. Click to navigate.`}
                   >
-                    {currentPage}
-                  </span>
-                  {' '}/ {pageCount}
-                </Text>
-              </button>
-            </Tooltip>
-          )}
+                    <Text style={S.pageLabel}>
+                      Page{' '}
+                      <span
+                        style={{
+                          fontWeight: fontWeights.semibold,
+                          color: colors.textPrimary,
+                          textDecoration: 'underline',
+                          textDecorationStyle: 'dotted',
+                          cursor: 'text',
+                        }}
+                      >
+                        {currentPage}
+                      </span>
+                      {' '}/ {pageCount}
+                    </Text>
+                  </button>
+                </Tooltip>
+              )}
 
-          <IconBtn
-            label="Next page"
-            icon={<RightOutlined />}
-            disabled={currentPage >= pageCount}
-            onClick={handleNextPage}
-          />
-        </Space>
+              <IconBtn
+                label="Next page"
+                icon={<RightOutlined />}
+                disabled={currentPage >= pageCount}
+                onClick={handleNextPage}
+              />
+            </Space>
+          </>
+        )}
       </div>
     </div>
   );

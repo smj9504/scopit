@@ -55,6 +55,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useAuthStore } from '@/stores/authStore';
 import { colors, fonts, borderRadius, shadows } from '@/styles/theme';
+import { useHoverTip } from './useHoverTip';
 import './pdfWorker';
 
 const { Text } = Typography;
@@ -206,6 +207,7 @@ const ThumbItem: React.FC<ThumbItemProps> = ({
   onDelete,
   onInsertAfter,
 }) => {
+  const tip = useHoverTip();
   const [hovered, setHovered] = useState(false);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -327,7 +329,7 @@ const ThumbItem: React.FC<ThumbItemProps> = ({
             // Stop click propagation so hover buttons don't also trigger page select
             onClick={(e) => e.stopPropagation()}
           >
-            <Tooltip title="Rotate clockwise" placement="right">
+            <Tooltip {...tip} title="Rotate clockwise" placement="right">
               <Button
                 type="text"
                 size="small"
@@ -337,7 +339,7 @@ const ThumbItem: React.FC<ThumbItemProps> = ({
                 aria-label={`Rotate page ${pageNum} clockwise`}
               />
             </Tooltip>
-            <Tooltip title="Rotate counter-clockwise" placement="right">
+            <Tooltip {...tip} title="Rotate counter-clockwise" placement="right">
               <Button
                 type="text"
                 size="small"
@@ -348,7 +350,7 @@ const ThumbItem: React.FC<ThumbItemProps> = ({
               />
             </Tooltip>
             {onInsertAfter && (
-              <Tooltip title="Insert page after" placement="right">
+              <Tooltip {...tip} title="Insert page after" placement="right">
                 <Button
                   type="text"
                   size="small"
@@ -359,7 +361,7 @@ const ThumbItem: React.FC<ThumbItemProps> = ({
                 />
               </Tooltip>
             )}
-            <Tooltip title="Delete page" placement="right">
+            <Tooltip {...tip} title="Delete page" placement="right">
               <Button
                 type="text"
                 size="small"
@@ -403,6 +405,7 @@ const PageSidebar: React.FC<PageSidebarProps> = ({
   onOrganize,
   onInsertAfter,
 }) => {
+  const tip = useHoverTip();
   // Ordered list of 1-based page numbers (reflects local reorder before API call)
   const [pageOrder, setPageOrder] = useState<number[]>(() =>
     Array.from({ length: pageCount }, (_, i) => i + 1),
@@ -564,7 +567,7 @@ const PageSidebar: React.FC<PageSidebarProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {thumbsLoading && <Spin size="small" />}
           {onOrganize && (
-            <Tooltip title="Organize pages">
+            <Tooltip {...tip} title="Organize pages">
               <Button
                 type="text"
                 size="small"
