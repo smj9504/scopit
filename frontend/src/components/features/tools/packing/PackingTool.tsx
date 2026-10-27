@@ -84,6 +84,27 @@ interface LinkedDocRef {
   number: string;
 }
 
+/** What "unsaved estimate changes" is measured by. Shared by the live
+ * fingerprint and the baseline a save records, so that baseline is built from
+ * exactly the values the save sent. */
+function fingerprintEstimate(s: {
+  rooms: PackingRoom[];
+  packoutRooms: PackoutRoom[];
+  packoutSettings: PackoutSettings;
+  settings: PackingSettings;
+  clientInfo: ClientInfo;
+  companyOverride: CompanyInfoOverride;
+  result: EstimateResponse | null;
+  manuallyCompleted: boolean;
+  linkedEstimate: LinkedDocRef | null;
+  linkedInvoice: LinkedDocRef | null;
+}): string {
+  return JSON.stringify([
+    s.rooms, s.packoutRooms, s.packoutSettings, s.settings, s.clientInfo, s.companyOverride,
+    s.result, s.manuallyCompleted, s.linkedEstimate, s.linkedInvoice,
+  ]);
+}
+
 const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate }) => {
   const { message } = App.useApp();
   const isMobile = useIsMobile();
@@ -177,7 +198,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     [photoRooms],
   );
   const estimateFingerprint = useMemo(
-    () => JSON.stringify({
+    () => fingerprintEstimate({
       rooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride,
       result, manuallyCompleted, linkedEstimate, linkedInvoice,
     }),
@@ -303,7 +324,11 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       // no id yet" moment. The restore effect would otherwise treat this
       // sessionId change as "load session X" and wipe the in-progress edits
       // the user just made — skip it for this one self-inflicted transition.
+      // Likewise the unsaved-changes blocker: this runs mid-save, while the
+      // estimate is still dirty, but it is the same estimate gaining its URL,
+      // not the user leaving it.
       skipNextRestoreRef.current = true;
+      bypassBlockerRef.current = true;
       navigate(`/app/tools/packing/${session.id}`, { replace: true });
       return session.id;
     }).finally(() => {
@@ -363,7 +388,6 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       linked_invoice?: LinkedDocRef | null;
     },
   ) => {
-    const snapshot = estimateFingerprint;
     // Use ref to always get the latest result state (avoids stale closure)
     const currentResult = resultData ?? resultRef.current;
     // Overrides let callers pass freshly-set values in the same tick as their
@@ -373,6 +397,17 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       ? linkOverrides.linked_estimate : linkedEstimate;
     const currentLinkedInvoice = linkOverrides && 'linked_invoice' in linkOverrides
       ? linkOverrides.linked_invoice : linkedInvoice;
+    // Baseline from what is actually sent, not this render's
+    // estimateFingerprint — that one predates the setState callers make right
+    // before saving (a fresh result, the Completed toggle, a new link), so the
+    // estimate would read as unsaved the moment the save landed.
+    const snapshot = fingerprintEstimate({
+      rooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride,
+      result: currentResult,
+      manuallyCompleted: currentManuallyCompleted,
+      linkedEstimate: currentLinkedEstimate ?? null,
+      linkedInvoice: currentLinkedInvoice ?? null,
+    });
     setSavingEstimate(true);
     try {
       const sessionData = {
@@ -406,7 +441,7 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     } finally {
       setSavingEstimate(false);
     }
-  }, [rooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride, manuallyCompleted, linkedEstimate, linkedInvoice, estimateFingerprint, ensureSessionId, message]);
+  }, [rooms, packoutRooms, packoutSettings, settings, clientInfo, companyOverride, manuallyCompleted, linkedEstimate, linkedInvoice, ensureSessionId, message]);
 
   // ── Save everything dirty (used by the unsaved-changes exit guard) ─────
   const saveAll = useCallback(async () => {
@@ -589,12 +624,15 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
       message.success(res.updated ? `Estimate ${res.estimateNumber} updated` : `Estimate ${res.estimateNumber} created`);
       const linked: LinkedDocRef = { id: res.estimateId, number: res.estimateNumber };
       setLinkedEstimate(linked);
-      await saveEstimate(estimateMode, undefined, { linked_estimate: linked });
+      const saved = await saveEstimate(estimateMode, undefined, { linked_estimate: linked });
       // The estimates list is cached by react-query and this estimate was
       // created outside it, so without invalidating, the new row is missing
       // from the list until the cache happens to expire.
       queryClient.invalidateQueries({ queryKey: ['estimates'] });
       onCreateEstimate?.(activeSessionId);
+      // Everything was just saved, but the blocker still holds the dirty flag
+      // of the render before that save landed and would stop this navigate.
+      bypassBlockerRef.current = saved;
       navigate(`/app/estimates/${res.estimateId}`);
     } catch {
       message.error(updateExisting ? 'Failed to update estimate' : 'Failed to create estimate');
@@ -662,6 +700,9 @@ const PackingTool: React.FC<ToolComponentProps> = ({ sessionId, onCreateEstimate
     setLinkedEstimate(null);
     setLinkedInvoice(null);
     setEditorOpen(false);
+    // Otherwise the next session's items are compared against the previous
+    // session's and its result is marked stale (and unsaved) on load.
+    itemsFingerprintRef.current = '';
     pendingBaselineSyncRef.current = true;
   }, []);
 
