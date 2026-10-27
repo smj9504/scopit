@@ -12,6 +12,7 @@ These helpers mirror pdf.js's PageViewport math exactly.
 
 from __future__ import annotations
 
+import math
 from typing import NamedTuple
 
 
@@ -99,6 +100,35 @@ def enter_screen_space(canvas, view: PageView) -> None:
     Text and images drawn directly in this space would come out mirrored, so
     draw them inside `local_frame` (which flips back to a y-up frame)."""
     canvas.transform(*view.to_user)
+
+
+def multiply(m: tuple, n: tuple) -> tuple:
+    """m then n, as PDF composes matrices (a point maps as p * m * n)."""
+    a, b, c, d, e, f = m
+    a2, b2, c2, d2, e2, f2 = n
+    return (
+        a * a2 + b * c2, a * b2 + b * d2,
+        c * a2 + d * c2, c * b2 + d * d2,
+        e * a2 + f * c2 + e2, e * b2 + f * d2 + f2,
+    )
+
+
+def invert(m: tuple) -> tuple:
+    a, b, c, d, e, f = m
+    det = a * d - b * c
+    return (
+        d / det, -b / det, -c / det, a / det,
+        (c * f - d * e) / det, (b * e - a * f) / det,
+    )
+
+
+def local_frame_matrix(view: PageView, x: float, y: float, angle: float = 0.0) -> tuple:
+    """What enter_screen_space + local_frame set up, as one matrix (local
+    y-up frame -> PDF user space), for content written without reportlab."""
+    a = math.radians(angle)
+    rotate = (math.cos(a), math.sin(a), -math.sin(a), math.cos(a), 0.0, 0.0)
+    frame = multiply(multiply((1.0, 0.0, 0.0, -1.0, 0.0, 0.0), rotate), (1.0, 0.0, 0.0, 1.0, x, y))
+    return multiply(frame, view.to_user)
 
 
 def local_frame(canvas, x: float, y: float, angle: float = 0.0) -> None:

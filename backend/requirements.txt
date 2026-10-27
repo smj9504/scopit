@@ -63,6 +63,7 @@ pillow-heif>=0.16.0  # HEIC/HEIF (iPhone photo) uploads in the PDF editor
 
 # PDF Editor Tool
 pypdf>=4.0.0
+cryptography>=41.0.0  # pypdf AES-256: Protect a PDF, opening password-protected uploads
 pdf2image>=1.16.0
 python-docx>=1.1.0
 

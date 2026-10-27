@@ -31,9 +31,35 @@ from app.domains.tools.modules.pdf_editor.models import (
 )
 from app.domains.tools.modules.pdf_editor.pdf_geometry import (
     enter_screen_space,
+    invert,
     local_frame,
+    local_frame_matrix,
+    multiply,
     page_view,
     page_view_size,
+)
+from app.domains.tools.modules.pdf_editor.pdf_page_content import (
+    MAX_MATCHES,
+    find_text,
+    page_image,
+    page_images,
+    search_regex,
+)
+from app.domains.tools.modules.pdf_editor.pdf_redact import apply_redactions
+from app.domains.tools.modules.pdf_editor.pdf_security import (
+    PdfPasswordError,
+    protect_pdf,
+    unlock_pdf,
+)
+from app.domains.tools.modules.pdf_editor.pdf_text_edit import (
+    TEXT_COVER_SUFFIX,
+    _Region,
+    append_content,
+    base14_font,
+    erase_text,
+    erased_page_pdf,
+    page_font,
+    with_cover_kinds,
 )
 
 # ---------------------------------------------------------------------------
@@ -54,6 +80,11 @@ ALLOWED_CONVERT_TYPES = {
 }
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+
+# Smallest a crop may leave of a page, either side (points)
+MIN_CROP_SIZE = 36
+# Most pages one insert (blank pages) or one extract (separate files) makes
+MAX_PAGES_PER_OPERATION = 100
 
 
 _heif_registered = False
@@ -120,6 +151,11 @@ def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> byte
     Each annotation burns independently: one malformed annotation (e.g. a
     corrupt image data URL) is skipped, not fatal to the rest of the page.
     "sign_field" placeholders are never burned.
+
+    Edit Text pairs edit the page itself: the original words under a cover
+    are erased from the page's content (the cover is only painted where
+    that isn't possible), and the replacement is written in the PDF font of
+    the words it replaces when the page has that font.
     """
     from pypdf import PdfReader, PdfWriter
     from reportlab.pdfgen import canvas as rl_canvas
@@ -143,43 +179,80 @@ def flatten_annotations_bytes(doc: PdfDocument, storage: StorageBackend) -> byte
             by_page.setdefault(pg, []).append(ann)
 
         # Editor annotations store one-based page numbers, just like PDF.js.
-        for page_number, page in enumerate(reader.pages, start=1):
+        for page_number, source in enumerate(reader.pages, start=1):
+            # Edit the writer's copy: pypdf can't reliably rewrite the
+            # contents of a page that only belongs to a reader
+            page = writer.add_page(source)
             page_anns = by_page.get(page_number, [])
-            if page_anns:
-                media_box = page.mediabox
-                view = page_view(page)
+            if not page_anns:
+                continue
+            media_box = page.mediabox
+            view = page_view(page)
 
-                packet = BytesIO()
-                c = rl_canvas.Canvas(
-                    packet,
-                    pagesize=(float(media_box.width), float(media_box.height)),
-                )
-                enter_screen_space(c, view)
+            in_font = {
+                a.get("id"): a for a in page_anns
+                if a.get("type") == "text" and (a.get("style") or {}).get("pdf_font")
+            }
+            done: set = set()
 
-                drawn = 0
-                for ann in page_anns:
-                    c.saveState()
-                    try:
-                        if _burn_one_annotation(c, ann):
-                            drawn += 1
-                    except Exception:
-                        pass  # skip this annotation, keep the rest of the page
-                    finally:
-                        c.restoreState()
+            def pdf_font_text(ann: dict, ctm=None) -> Optional[bytes]:
+                try:
+                    content = _pdf_font_text_content(page, ann, view, ctm)
+                except Exception:
+                    content = None  # burned the usual way below
+                if content is not None:
+                    done.add(ann.get("id"))
+                return content
 
-                # A Canvas with zero draw calls serializes to a zero-page PDF
-                # (reportlab only finalizes a page once something is drawn on
-                # it), which would make merge_page below blow up on an empty
-                # pages list -- e.g. every annotation on this page was an
-                # unsupported/malformed one. Nothing to merge is a no-op, not
-                # an error.
-                if drawn > 0:
-                    c.save()
-                    packet.seek(0)
-                    overlay_reader = PdfReader(packet)
-                    page.merge_page(overlay_reader.pages[0])
+            def in_place(cover_id: str, ctm) -> Optional[bytes]:
+                ann = in_font.get(cover_id[: -len(TEXT_COVER_SUFFIX)])
+                return pdf_font_text(ann, ctm) if ann else None
 
-            writer.add_page(page)
+            # Before the overlay is merged, so only the PDF's own text (and
+            # images picked up with Edit) goes; each text replacement takes
+            # its original's place in the content
+            done |= erase_text(page, with_cover_kinds(page_anns), writer, in_place)
+            # A cover that couldn't erase is painted below: its text goes on top
+            on_top = [
+                content for content in (
+                    pdf_font_text(ann) for ann_id, ann in in_font.items() if ann_id not in done
+                ) if content is not None
+            ]
+
+            packet = BytesIO()
+            c = rl_canvas.Canvas(
+                packet,
+                pagesize=(float(media_box.width), float(media_box.height)),
+            )
+            enter_screen_space(c, view)
+
+            drawn = 0
+            for ann in page_anns:
+                if ann.get("id") in done:
+                    continue
+                c.saveState()
+                try:
+                    if _burn_one_annotation(c, ann):
+                        drawn += 1
+                except Exception:
+                    pass  # skip this annotation, keep the rest of the page
+                finally:
+                    c.restoreState()
+
+            # A Canvas with zero draw calls serializes to a zero-page PDF
+            # (reportlab only finalizes a page once something is drawn on
+            # it), which would make merge_page below blow up on an empty
+            # pages list -- e.g. every annotation on this page was an
+            # unsupported/malformed one. Nothing to merge is a no-op, not
+            # an error.
+            if drawn > 0:
+                c.save()
+                packet.seek(0)
+                overlay_reader = PdfReader(packet)
+                page.merge_page(overlay_reader.pages[0])
+
+            if on_top:
+                append_content(page, b"\n".join(on_top))
 
         flat_path = os.path.join(tmpdir, "flattened.pdf")
         with open(flat_path, "wb") as fh:
@@ -257,6 +330,109 @@ def _draw_text_block(
             uy = baseline - font_size * _FABRIC_UNDERLINE_OFFSET
             c.setLineWidth(font_size / 15)
             c.line(left, uy, left + widths[i], uy)
+
+
+def _n(v: float) -> str:
+    """A number for a content stream."""
+    s = f"{v:.4f}".rstrip("0").rstrip(".")
+    return "0" if s in ("", "-0") else s
+
+
+def _pdf_font_text_content(page, ann: dict, view, ctm=None) -> Optional[bytes]:
+    """Content that draws an Edit Text replacement in the PDF font its
+    original words were printed in (style.pdf_font, the name pdf.js gave the
+    editor), laid out like _draw_text_block. Characters that font doesn't
+    have -- embedded fonts are usually subsets -- use the base-14 font the
+    editor would otherwise use. `ctm`: the CTM where the content goes, if
+    not the page's default. None if the page doesn't have the font (or the
+    text is translucent): the caller then burns it the usual way."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    style = ann.get("style") or {}
+    opacity = style.get("opacity")
+    if opacity is not None and opacity < 1:
+        return None
+    found = page_font(page, style["pdf_font"])
+    if not found:
+        return None
+    font_res, font = found
+    text = ann.get("content") or ""
+    if not text:
+        return b""
+
+    size = float(style.get("font_size") or 16)
+    fallback = _pdf_font_name(
+        style.get("font_family"),
+        _is_bold(style.get("font_weight")),
+        (style.get("font_style") or "") in ("italic", "oblique"),
+    )
+    fallback_res = None
+    encoder = font.encoder()
+
+    def segments(line: str) -> list[tuple[str, bytes, float]]:
+        """(font resource, codes, width) runs of a line, split where the
+        font changes."""
+        nonlocal fallback_res
+        out: list[tuple[str, bytes, float]] = []
+        for ch in line:
+            code = encoder.get(ch)
+            if code is not None:
+                run = (font_res, code, font.advance(int.from_bytes(code, "big"), len(code)) * size)
+            else:
+                if fallback_res is None:
+                    fallback_res = base14_font(page, fallback)
+                data = ch.encode("cp1252", errors="replace")
+                run = (fallback_res, data, stringWidth(data.decode("cp1252"), fallback, size))
+            if out and out[-1][0] == run[0]:
+                out[-1] = (run[0], out[-1][1] + run[1], out[-1][2] + run[2])
+            else:
+                out.append(run)
+        return out
+
+    lines = [segments(line) for line in text.split("\n")]
+    line_impl = size * _FABRIC_FONT_SIZE_MULT
+    line_step = line_impl * _FABRIC_LINE_HEIGHT
+    box_h = line_impl * (_FABRIC_LINE_HEIGHT * (len(lines) - 1) + 1)
+    widths = [sum(w for _, _, w in line) for line in lines]
+    # The editor measured the box with the same font, so its width places
+    # the text exactly where it was shown
+    box_w = float(ann.get("width") or 0) or max(widths)
+    left = -box_w / 2
+    top = box_h / 2
+    rgb = " ".join(_n(v) for v in _hex_to_rgb(style.get("color"), default=(0.07, 0.09, 0.15)))
+
+    frame = local_frame_matrix(
+        view, float(ann.get("x") or 0), float(ann.get("y") or 0), float(ann.get("rotation") or 0),
+    )
+    if ctm is not None:
+        frame = multiply(frame, invert(ctm))
+    out = ["q", " ".join(_n(v) for v in frame) + " cm"]
+    bg_hex = style.get("background_color")
+    if bg_hex and bg_hex != "transparent":
+        bg = " ".join(_n(v) for v in _hex_to_rgb(bg_hex))
+        out.append(f"{bg} rg {_n(left)} {_n(-box_h / 2)} {_n(box_w)} {_n(box_h)} re f")
+    # Text state may be anything where this goes in the page's content
+    out += ["BT", "0 Tr 0 Tc 0 Tw 100 Tz 0 Ts", f"{rgb} rg"]
+    baselines = []
+    for i, line in enumerate(lines):
+        baseline = top - (i * line_step + line_impl * (1 - _FABRIC_FONT_SIZE_FRACTION))
+        baselines.append(baseline)
+        out.append(f"1 0 0 1 {_n(left)} {_n(baseline)} Tm")
+        current = None
+        for res, codes, _ in line:
+            if res != current:
+                out.append(f"{res} {_n(size)} Tf")
+                current = res
+            out.append(f"<{codes.hex()}> Tj")
+    out.append("ET")
+    if style.get("text_decoration") == "underline":
+        out.append(f"{rgb} RG {_n(size / 15)} w")
+        for baseline, width in zip(baselines, widths):
+            if width:
+                uy = baseline - size * _FABRIC_UNDERLINE_OFFSET
+                out.append(f"{_n(left)} {_n(uy)} m {_n(left + width)} {_n(uy)} l S")
+    out.append("Q")
+    return "\n".join(out).encode("latin-1")
 
 
 def _parse_drawing_path(content: str) -> list:
@@ -561,6 +737,117 @@ def _rotate_field(field: dict, degrees: int) -> dict:
     return {**field, "x": nx, "y": ny, "width": nw, "height": nh}
 
 
+def _with_fresh_ids(annotations: Optional[list]) -> list:
+    """Copies of annotations under new ids, for pages that now exist twice
+    (merging a document with itself, duplicating pages). An Edit cover's id
+    stays its partner's id + TEXT_COVER_SUFFIX, so the pair stays a pair."""
+    new_ids: dict[str, str] = {}
+
+    def fresh(old: str) -> str:
+        return new_ids.setdefault(old, str(uuid.uuid4())) if old else str(uuid.uuid4())
+
+    out = []
+    for ann in annotations or []:
+        old = str(ann.get("id") or "")
+        if old.endswith(TEXT_COVER_SUFFIX):
+            new = fresh(old[: -len(TEXT_COVER_SUFFIX)]) + TEXT_COVER_SUFFIX
+        else:
+            new = fresh(old)
+        out.append({**ann, "id": new})
+    return out
+
+
+def _with_unique_keys(fields: Optional[list], used_keys: set[str]) -> list:
+    """Field definitions whose keys don't clash with `used_keys` (which
+    takes the new keys): a clash gets a _2, _3, ... suffix."""
+    out = []
+    for field in fields or []:
+        key = field.get("key") or "field"
+        unique, n = key, 2
+        while unique in used_keys:
+            unique, n = f"{key}_{n}", n + 1
+        used_keys.add(unique)
+        out.append({**field, "key": unique})
+    return out
+
+
+def _page_ranges(pages: list[int]) -> str:
+    """[1, 2, 3, 5] -> "1-3, 5" """
+    parts, start = [], None
+    for i, p in enumerate(pages):
+        if start is None:
+            start = p
+        if i + 1 == len(pages) or pages[i + 1] != p + 1:
+            parts.append(str(start) if start == p else f"{start}-{p}")
+            start = None
+    return ", ".join(parts)
+
+
+def _cropped_box(view, margins: dict) -> tuple[float, float, float, float]:
+    """The crop box (PDF user space) that trims `margins` (points; left,
+    top, right, bottom as the page is shown) off what's visible now."""
+    left = max(0.0, float(margins.get("left") or 0))
+    top = max(0.0, float(margins.get("top") or 0))
+    right = max(0.0, float(margins.get("right") or 0))
+    bottom = max(0.0, float(margins.get("bottom") or 0))
+    x0, y0, x1, y1 = left, top, view.width - right, view.height - bottom
+    if x1 - x0 < MIN_CROP_SIZE or y1 - y0 < MIN_CROP_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The crop leaves less than {MIN_CROP_SIZE / 72:g} inch of the page.",
+        )
+    a, b, c, d, e, f = view.to_user
+    xs, ys = [], []
+    for px, py in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+        xs.append(a * px + c * py + e)
+        ys.append(b * px + d * py + f)
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _shift_with_view(ann: dict, old_view, new_view) -> dict:
+    """Keep an annotation on the same spot of the page when what's visible
+    of it changes (crop): the viewport moves, the content doesn't."""
+    a, b, c, d, e, f = old_view.to_user
+    x, y = float(ann.get("x") or 0), float(ann.get("y") or 0)
+    ux, uy = a * x + c * y + e, b * x + d * y + f
+    a, b, c, d, e, f = invert(new_view.to_user)
+    return {**ann, "x": a * ux + c * uy + e, "y": b * ux + d * uy + f}
+
+
+def _shift_field_with_view(field: dict, old_view, new_view) -> dict:
+    """Same for a field definition (top-left x/y and size in 0-1 fractions
+    of the page). The page keeps its orientation, so it's a translation."""
+    moved = _shift_with_view({"x": 0, "y": 0}, old_view, new_view)
+    ow, oh, nw, nh = old_view.width, old_view.height, new_view.width, new_view.height
+    return {
+        **field,
+        "x": (float(field.get("x") or 0) * ow + moved["x"]) / nw,
+        "y": (float(field.get("y") or 0) * oh + moved["y"]) / nh,
+        "width": float(field.get("width") or 0) * ow / nw,
+        "height": float(field.get("height") or 0) * oh / nh,
+    }
+
+
+def _without_redacted(annotations: list, marks: list[dict]) -> list:
+    """The annotations left once `marks` are applied: the marks go, and so
+    does anything added on top whose center is in one of them (an Edit pair
+    goes together)."""
+    applied = {str(m.get("id")) for m in marks}
+    regions: dict[int, list[_Region]] = {}
+    for mark in marks:
+        regions.setdefault(mark.get("page"), []).append(_Region(mark))
+    gone: set[str] = set()
+    for ann in annotations:
+        if ann.get("type") == "redact":
+            continue
+        x, y = float(ann.get("x") or 0), float(ann.get("y") or 0)
+        if any(r.contains(x, y) for r in regions.get(ann.get("page"), [])):
+            base = str(ann.get("id") or "")
+            base = base[: -len(TEXT_COVER_SUFFIX)] if base.endswith(TEXT_COVER_SUFFIX) else base
+            gone |= {base, base + TEXT_COVER_SUFFIX}
+    return [a for a in annotations if str(a.get("id")) not in applied | gone]
+
+
 # ===========================================================================
 # PdfEditorService
 # ===========================================================================
@@ -596,8 +883,10 @@ class PdfEditorService:
         try:
             from pdf2image import convert_from_path
 
+            # The crop box, as the editor (pdf.js) shows the page
             images = convert_from_path(
-                pdf_local_path, first_page=1, last_page=1, size=(300, None)
+                pdf_local_path, first_page=1, last_page=1, size=(300, None),
+                use_cropbox=True,
             )
             if images:
                 images[0].save(thumb_local_path, "PNG")
@@ -617,6 +906,54 @@ class PdfEditorService:
     # ------------------------------------------------------------------
     # File-format converters
     # ------------------------------------------------------------------
+
+    def _upload_to_pdf(
+        self,
+        file: UploadFile,
+        tmpdir: str,
+        password: Optional[str] = None,
+        rotation: int = 0,
+    ) -> str:
+        """An uploaded PDF, image or DOCX as a local PDF file (in tmpdir).
+        A password-protected PDF is opened with `password`; a 400 whose
+        detail has `code` "pdf_password_required" / "pdf_password_incorrect"
+        says the editor should ask for one."""
+        if file.content_type not in ALLOWED_CONVERT_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {file.content_type}",
+            )
+
+        content = file.file.read()
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail="File too large. Maximum size is 50 MB.",
+            )
+
+        pdf_path = os.path.join(tmpdir, f"upload-{uuid.uuid4().hex}.pdf")
+        if file.content_type == "application/pdf":
+            try:
+                content = unlock_pdf(content, password)
+            except PdfPasswordError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": f"pdf_{exc.code}", "message": exc.message},
+                )
+            with open(pdf_path, "wb") as fh:
+                fh.write(content)
+            return pdf_path
+
+        ext = (
+            file.filename.rsplit(".", 1)[-1]
+            if file.filename and "." in file.filename
+            else "bin"
+        )
+        original_path = os.path.join(tmpdir, f"original-{uuid.uuid4().hex}.{ext}")
+        with open(original_path, "wb") as fh:
+            fh.write(content)
+        self._convert_to_pdf(original_path, pdf_path, file.content_type, rotation)
+        return pdf_path
 
     def _image_to_pdf(
         self, image_path: str, output_path: str, rotation: int = 0
@@ -743,41 +1080,13 @@ class PdfEditorService:
         file: UploadFile,
         name: Optional[str] = None,
         rotation: int = 0,
+        password: Optional[str] = None,
     ) -> PdfDocument:
-        if file.content_type not in ALLOWED_CONVERT_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type: {file.content_type}",
-            )
-
-        content = file.file.read()
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=400,
-                detail="File too large. Maximum size is 50 MB.",
-            )
-
         doc_id = uuid.uuid4()
         is_pdf = file.content_type == "application/pdf"
 
         with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
-            if is_pdf:
-                pdf_path = os.path.join(tmpdir, "document.pdf")
-                with open(pdf_path, "wb") as fh:
-                    fh.write(content)
-            else:
-                ext = (
-                    file.filename.rsplit(".", 1)[-1]
-                    if file.filename and "." in file.filename
-                    else "bin"
-                )
-                original_path = os.path.join(tmpdir, f"original.{ext}")
-                with open(original_path, "wb") as fh:
-                    fh.write(content)
-                pdf_path = os.path.join(tmpdir, "document.pdf")
-                self._convert_to_pdf(
-                    original_path, pdf_path, file.content_type, rotation
-                )
+            pdf_path = self._upload_to_pdf(file, tmpdir, password, rotation)
 
             pdf_key, file_size, page_count, thumb_key = (
                 self._persist_pdf_and_thumb(
@@ -961,21 +1270,13 @@ class PdfEditorService:
                 # Carry over unflattened edits and field mappings, shifted to
                 # where this document's pages land in the merged file
                 offset = page_offset
-                merged_annotations += [
-                    {**a, "id": str(uuid.uuid4())}  # same doc may be merged twice
-                    for a in _remap_page_items(
-                        doc.annotations, lambda p: p + offset if p else None
-                    )
-                ]
-                for field in _remap_page_items(
-                    doc.field_definitions, lambda p: p + offset if p else None
-                ):
-                    key = field.get("key") or "field"
-                    unique, n = key, 2
-                    while unique in used_keys:
-                        unique, n = f"{key}_{n}", n + 1
-                    used_keys.add(unique)
-                    merged_fields.append({**field, "key": unique})
+                merged_annotations += _with_fresh_ids(  # same doc may be merged twice
+                    _remap_page_items(doc.annotations, lambda p: p + offset if p else None)
+                )
+                merged_fields += _with_unique_keys(
+                    _remap_page_items(doc.field_definitions, lambda p: p + offset if p else None),
+                    used_keys,
+                )
                 page_offset += len(reader.pages)
 
             merged_path = os.path.join(tmpdir, "document.pdf")
@@ -1204,6 +1505,288 @@ class PdfEditorService:
         self.db.refresh(doc)
         return doc
 
+    def _local_copy(self, doc: PdfDocument, tmpdir: str, name: str = "document.pdf") -> str:
+        path = os.path.join(tmpdir, name)
+        with open(path, "wb") as fh:
+            fh.write(self.storage.read(doc.file_path))
+        return path
+
+    def _store_pdf(self, doc: PdfDocument, writer, tmpdir: str) -> None:
+        """Make `writer`'s output the document's file: storage, thumbnail,
+        size and page count. The caller commits."""
+        local_path = os.path.join(tmpdir, "rewritten.pdf")
+        with open(local_path, "wb") as fh:
+            writer.write(fh)
+        with open(local_path, "rb") as fh:
+            self.storage.write(doc.file_path, fh.read(), "application/pdf")
+        thumb_local = os.path.join(tmpdir, "thumbnail.png")
+        if self._generate_thumbnail(local_path, thumb_local):
+            if not doc.thumbnail_path:
+                doc.thumbnail_path = self._key(doc.company_id, doc.id, "thumbnail.png")
+            with open(thumb_local, "rb") as fh:
+                self.storage.write(doc.thumbnail_path, fh.read(), "image/png")
+        doc.file_size = os.path.getsize(local_path)
+        doc.page_count = len(writer.pages)
+        doc.updated_at = datetime.utcnow()
+
+    def _new_document(
+        self,
+        company_id: UUID,
+        user_id: UUID,
+        writer,
+        tmpdir: str,
+        name: str,
+        source_type: str,
+        annotations: Optional[list] = None,
+        fields: Optional[list] = None,
+    ) -> PdfDocument:
+        """A new document from `writer`'s pages. The caller commits."""
+        new_id = uuid.uuid4()
+        local_path = os.path.join(tmpdir, f"{new_id}.pdf")
+        with open(local_path, "wb") as fh:
+            writer.write(fh)
+        pdf_key, file_size, page_count, thumb_key = self._persist_pdf_and_thumb(
+            company_id, new_id, local_path, tmpdir
+        )
+        doc = PdfDocument(
+            id=new_id,
+            company_id=company_id,
+            created_by=user_id,
+            name=name,
+            file_path=pdf_key,
+            file_size=file_size,
+            page_count=page_count,
+            mime_type="application/pdf",
+            source_type=source_type,
+            annotations=annotations or [],
+            field_definitions=fields or [],
+            thumbnail_path=thumb_key,
+        )
+        self.db.add(doc)
+        return doc
+
+    @staticmethod
+    def _check_pages(page_numbers: list[int], total: int) -> list[int]:
+        pages = sorted(set(page_numbers))
+        invalid = [p for p in pages if not 1 <= p <= total]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Page(s) out of range: {invalid}",
+            )
+        if not pages:
+            raise HTTPException(status_code=400, detail="No pages selected")
+        return pages
+
+    def crop_pages(
+        self,
+        company_id: UUID,
+        document_id: UUID,
+        page_numbers: Optional[list[int]],
+        margins: Optional[dict] = None,
+        reset: bool = False,
+    ) -> PdfDocument:
+        """Set the crop box of pages (all when page_numbers is None): trim
+        `margins` (points; left/top/right/bottom as the page is shown) off
+        what's visible now, or with `reset` show the whole page again.
+        Content outside the crop stays in the file, hidden -- as in Acrobat.
+        Annotations and fields stay where they were on the page."""
+        from pypdf import PdfReader, PdfWriter
+        from pypdf.generic import RectangleObject
+
+        if not reset and not margins:
+            raise HTTPException(status_code=400, detail="Give margins to crop, or reset")
+        doc = self.get_document_or_404(company_id, document_id)
+
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
+            reader = PdfReader(self._local_copy(doc, tmpdir))
+            total = len(reader.pages)
+            targets = set(
+                self._check_pages(page_numbers, total) if page_numbers is not None
+                else range(1, total + 1)
+            )
+            writer = PdfWriter()
+            views: dict[int, tuple] = {}
+            for page_number, source in enumerate(reader.pages, start=1):
+                page = writer.add_page(source)
+                if page_number not in targets:
+                    continue
+                old = page_view(page)
+                if reset:
+                    box = tuple(float(v) for v in page.mediabox)
+                else:
+                    box = _cropped_box(old, margins)
+                page.cropbox = RectangleObject(box)
+                views[page_number] = (old, page_view(page))
+
+            doc.annotations = [
+                _shift_with_view(a, *views[a.get("page")]) if a.get("page") in views else a
+                for a in doc.annotations or []
+            ]
+            doc.field_definitions = [
+                _shift_field_with_view(f, *views[f.get("page")]) if f.get("page") in views else f
+                for f in doc.field_definitions or []
+            ]
+            flag_modified(doc, "annotations")
+            flag_modified(doc, "field_definitions")
+            self._store_pdf(doc, writer, tmpdir)
+
+        self.db.commit()
+        self.db.refresh(doc)
+        return doc
+
+    def insert_pages(
+        self,
+        company_id: UUID,
+        user_id: UUID,
+        document_id: UUID,
+        after: int,
+        kind: str,
+        count: int = 1,
+        file: Optional[UploadFile] = None,
+        password: Optional[str] = None,
+        source_document_id: Optional[UUID] = None,
+        source_pages: Optional[list[int]] = None,
+    ) -> PdfDocument:
+        """Insert pages after page `after` (0 = before the first): `count`
+        blank pages the size of that page ("blank"), an uploaded PDF, image
+        or Word file ("file"), or pages of another document -- or of this
+        one, to duplicate them -- with their unflattened edits ("document")."""
+        from pypdf import PdfReader, PdfWriter
+
+        doc = self.get_document_or_404(company_id, document_id)
+
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
+            reader = PdfReader(self._local_copy(doc, tmpdir))
+            total = len(reader.pages)
+            if not 0 <= after <= total:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insert position must be between 0 and {total}",
+                )
+
+            new_pages: list = []
+            new_annotations: list = []
+            new_fields: list = []
+            blank_size = None
+            if kind == "blank":
+                if not 1 <= count <= MAX_PAGES_PER_OPERATION:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Insert between 1 and {MAX_PAGES_PER_OPERATION} blank pages",
+                    )
+                # As the neighboring page is shown (turned pages included)
+                blank_size = page_view_size(reader.pages[max(after, 1) - 1])
+            elif kind == "file":
+                if file is None:
+                    raise HTTPException(status_code=400, detail="Choose a file to insert")
+                new_pages = list(PdfReader(self._upload_to_pdf(file, tmpdir, password)).pages)
+            elif kind == "document":
+                source = (
+                    self.get_document(company_id, source_document_id)
+                    if source_document_id else None
+                )
+                if not source:
+                    raise HTTPException(status_code=404, detail="Document to insert from not found")
+                source_reader = PdfReader(self._local_copy(source, tmpdir, "source.pdf"))
+                pages = (
+                    self._check_pages(source_pages, len(source_reader.pages)) if source_pages
+                    else list(range(1, len(source_reader.pages) + 1))
+                )
+                new_pages = [source_reader.pages[p - 1] for p in pages]
+                position = {p: after + i + 1 for i, p in enumerate(pages)}
+                new_annotations = _with_fresh_ids(_remap_page_items(source.annotations, position.get))
+                new_fields = _remap_page_items(source.field_definitions, position.get)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unknown insert kind: {kind}")
+
+            writer = PdfWriter()
+            for page in reader.pages[:after]:
+                writer.add_page(page)
+            if blank_size:
+                for _ in range(count):
+                    writer.add_blank_page(*blank_size)
+            for page in new_pages:
+                writer.add_page(page)
+            inserted = len(writer.pages) - after
+            for page in reader.pages[after:]:
+                writer.add_page(page)
+
+            def shifted(p):
+                return p if p <= after else p + inserted
+
+            doc.annotations = _remap_page_items(doc.annotations, shifted) + new_annotations
+            used_keys = {f.get("key") for f in doc.field_definitions or []}
+            doc.field_definitions = (
+                _remap_page_items(doc.field_definitions, shifted)
+                + _with_unique_keys(new_fields, used_keys)
+            )
+            flag_modified(doc, "annotations")
+            flag_modified(doc, "field_definitions")
+            self._store_pdf(doc, writer, tmpdir)
+
+        self.db.commit()
+        self.db.refresh(doc)
+        return doc
+
+    def extract_pages(
+        self,
+        company_id: UUID,
+        user_id: UUID,
+        document_id: UUID,
+        page_numbers: list[int],
+        separate: bool = False,
+        delete_after: bool = False,
+        name: Optional[str] = None,
+    ) -> tuple[list[PdfDocument], Optional[PdfDocument]]:
+        """Copy pages into a new document -- or one document per page with
+        `separate` -- carrying their unflattened edits along. With
+        `delete_after` they're then removed from this one, which is
+        returned too."""
+        from pypdf import PdfReader, PdfWriter
+
+        doc = self.get_document_or_404(company_id, document_id)
+        created: list[PdfDocument] = []
+
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
+            reader = PdfReader(self._local_copy(doc, tmpdir))
+            total = len(reader.pages)
+            pages = self._check_pages(page_numbers, total)
+            if delete_after and len(pages) == total:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Can't delete every page: a document needs at least one",
+                )
+            if separate and len(pages) > MAX_PAGES_PER_OPERATION:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Extract at most {MAX_PAGES_PER_OPERATION} pages as separate files",
+                )
+            base = doc.name[:-4] if doc.name.lower().endswith(".pdf") else doc.name
+            groups = [[p] for p in pages] if separate else [pages]
+            for group in groups:
+                writer = PdfWriter()
+                for p in group:
+                    writer.add_page(reader.pages[p - 1])
+                position = {p: i + 1 for i, p in enumerate(group)}
+                if name and not separate:
+                    label = name
+                else:
+                    label = f"{base} ({'page' if len(group) == 1 else 'pages'} {_page_ranges(group)})"
+                created.append(self._new_document(
+                    company_id, user_id, writer, tmpdir, label[:255], "extract",
+                    _with_fresh_ids(_remap_page_items(doc.annotations, position.get)),
+                    _remap_page_items(doc.field_definitions, position.get),
+                ))
+            self.db.commit()
+
+        for new_doc in created:
+            self.db.refresh(new_doc)
+        source = (
+            self.delete_pages(company_id, document_id, pages) if delete_after else None
+        )
+        return created, source
+
     # ------------------------------------------------------------------
     # Annotations
     # ------------------------------------------------------------------
@@ -1266,6 +1849,143 @@ class PdfEditorService:
         """
         doc = self.get_document_or_404(company_id, document_id)
         return flatten_annotations_bytes(doc, self.storage)
+
+    def preview_text_edits(
+        self, company_id: UUID, document_id: UUID, page_number: int, covers: list
+    ) -> tuple[bytes, list[str]]:
+        """One page with what Edit covers sit on (text, or an image picked up)
+        erased (see erased_page_pdf), for the editor to show while it edits."""
+        doc = self.get_document_or_404(company_id, document_id)
+        try:
+            return erased_page_pdf(self.storage.read(doc.file_path), page_number, covers)
+        except IndexError:
+            raise HTTPException(status_code=404, detail="Page not found")
+
+    # ------------------------------------------------------------------
+    # Reading a page: images (Edit) and text (Redact search)
+    # ------------------------------------------------------------------
+
+    def list_page_images(
+        self, company_id: UUID, document_id: UUID, page_number: int
+    ) -> list[dict]:
+        doc = self.get_document_or_404(company_id, document_id)
+        try:
+            return page_images(self.storage.read(doc.file_path), page_number)
+        except IndexError:
+            raise HTTPException(status_code=404, detail="Page not found")
+
+    def get_page_image(
+        self, company_id: UUID, document_id: UUID, page_number: int, index: int
+    ) -> dict:
+        doc = self.get_document_or_404(company_id, document_id)
+        try:
+            return page_image(self.storage.read(doc.file_path), page_number, index)
+        except IndexError:
+            raise HTTPException(status_code=404, detail="Page not found")
+        except LookupError:
+            raise HTTPException(status_code=404, detail="This image can't be edited")
+
+    def search_text(
+        self,
+        company_id: UUID,
+        document_id: UUID,
+        query: str = "",
+        pattern: Optional[str] = None,
+        match_case: bool = False,
+        whole_word: bool = False,
+    ) -> tuple[list[dict], bool]:
+        """Where the words (or a SEARCH_PATTERNS pattern) are printed in the
+        document: (matches with their page and boxes, truncated)."""
+        try:
+            regex = search_regex(query, pattern, match_case, whole_word)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        doc = self.get_document_or_404(company_id, document_id)
+        return find_text(self.storage.read(doc.file_path), regex, MAX_MATCHES)
+
+    # ------------------------------------------------------------------
+    # Redact / Protect
+    # ------------------------------------------------------------------
+
+    def apply_redactions(
+        self,
+        company_id: UUID,
+        document_id: UUID,
+        mark_ids: Optional[list[str]] = None,
+        fill_color: str = "#000000",
+        remove_metadata: bool = False,
+    ) -> tuple[PdfDocument, int]:
+        """Redact the areas marked with "redact" annotations (those in
+        mark_ids, or all) out of the document's file for good -- see
+        pdf_redact. The marks are used up, and anything added on top in
+        those areas goes with them. Returns the document and how many images
+        were removed whole (their pixels couldn't be edited)."""
+        doc = self.get_document_or_404(company_id, document_id)
+        wanted = set(mark_ids) if mark_ids is not None else None
+        marks = [
+            a for a in doc.annotations or []
+            if a.get("type") == "redact" and (wanted is None or a.get("id") in wanted)
+        ]
+        if not marks:
+            raise HTTPException(status_code=400, detail="Nothing is marked for redaction")
+        areas: dict[int, list[dict]] = {}
+        for mark in marks:
+            areas.setdefault(int(mark.get("page") or 0), []).append(mark)
+
+        try:
+            redacted, removed_images = apply_redactions(
+                self.storage.read(doc.file_path), areas, fill_color, remove_metadata
+            )
+        except IndexError as exc:
+            raise HTTPException(status_code=400, detail=f"Page {exc} doesn't exist")
+
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
+            local_path = os.path.join(tmpdir, "document.pdf")
+            with open(local_path, "wb") as fh:
+                fh.write(redacted)
+            self.storage.write(doc.file_path, redacted, "application/pdf")
+            thumb_local = os.path.join(tmpdir, "thumbnail.png")
+            if doc.thumbnail_path and self._generate_thumbnail(local_path, thumb_local):
+                with open(thumb_local, "rb") as fh:
+                    self.storage.write(doc.thumbnail_path, fh.read(), "image/png")
+
+        doc.file_size = len(redacted)
+        doc.annotations = _without_redacted(doc.annotations or [], marks)
+        flag_modified(doc, "annotations")
+        doc.updated_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(doc)
+        return doc, removed_images
+
+    def protected_copy(
+        self,
+        company_id: UUID,
+        document_id: UUID,
+        open_password: Optional[str] = None,
+        permissions_password: Optional[str] = None,
+        allow_printing: bool = True,
+        allow_copying: bool = True,
+        allow_editing: bool = True,
+        allow_commenting: bool = True,
+    ) -> bytes:
+        """The document as Download PDF gives it (edits burned in),
+        password-protected -- see pdf_security.protect_pdf."""
+        doc = self.get_document_or_404(company_id, document_id)
+        flat = flatten_annotations_bytes(doc, self.storage)
+        try:
+            return protect_pdf(
+                flat,
+                open_password=open_password,
+                permissions_password=permissions_password,
+                allow_printing=allow_printing,
+                allow_copying=allow_copying,
+                allow_editing=allow_editing,
+                allow_commenting=allow_commenting,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
 
     # ------------------------------------------------------------------
     # Multi-image -> PDF

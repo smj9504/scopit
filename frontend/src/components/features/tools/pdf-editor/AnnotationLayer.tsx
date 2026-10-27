@@ -42,8 +42,8 @@ import {
   ActiveSelection,
   util,
 } from 'fabric';
-import type { Annotation, AnnotationStyle } from './types';
-import { findRunAt, runPoint, type PdfTextLayer, type PdfTextRun } from './pdfTextRuns';
+import type { Annotation, AnnotationStyle, PageImage } from './types';
+import { findRunAt, runPoint, type PdfFontFace, type PdfTextLayer } from './pdfTextRuns';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -80,13 +80,38 @@ const UPDATE_DEBOUNCE_MS = 120;
 
 /**
  * Edit Text replaces a piece of the PDF's own text with a pair of
- * annotations: a box in the page's background color over the original
- * (id = text id + this suffix) and the new text on top. The id link lets a
- * second click on the same spot reopen the replacement instead of stacking
- * another one. Deleting just the text leaves the box: the original stays
- * hidden, which is how text gets removed.
+ * annotations: a cover over the original words (id = text id + this
+ * suffix) and the new text. The cover erases the words from the page itself
+ * (the backend drops their glyphs, in the preview PdfCanvas shows and in the
+ * export); it's only painted, in the page's background color, until the
+ * erased page is on screen, or where the words couldn't be erased. The id
+ * link lets a second click on the same spot reopen the replacement instead
+ * of stacking another one. Deleting the text empties it and keeps the
+ * cover, which is how words get removed; the pair goes away together only
+ * to restore the original.
  */
 export const TEXT_COVER_SUFFIX = ':cover';
+
+/**
+ * Whether an annotation id is a cover's. Edit uses the same pairing for the
+ * page's own images: picking one up adds a cover over it (which takes it off
+ * the page) and an image annotation of it to move, resize, replace or delete.
+ */
+export function isTextCoverId(id: string | null | undefined): boolean {
+  return !!id && id.endsWith(TEXT_COVER_SUFFIX);
+}
+
+/** Whether a cover's partner is an image: it covers a picked-up image, not words */
+export function isImageCover(cover: Annotation, all: Annotation[]): boolean {
+  const partnerId = cover.id.slice(0, -TEXT_COVER_SUFFIX.length);
+  return all.some((a) => a.id === partnerId && a.type === 'image');
+}
+
+// Redaction marks: red until applied, when what's under them goes for good
+const REDACT_STROKE = '#dc2626';
+const REDACT_FILL = 'rgba(220, 38, 38, 0.14)';
+// A redact drag shorter than this (page units) is a click: it marks the text under it
+const REDACT_CLICK_SLOP = 3;
 // fabric IText: a single line is fontSize * 1.13 tall with the baseline at
 // 77.8% of that (see _FABRIC_* in the backend's burn code)
 const FABRIC_BASELINE_RATIO = 1 - 0.222;
@@ -114,6 +139,8 @@ export interface AnnotationLayerProps {
   onSignRequest?: (pos: { x: number; y: number }) => void;
   /** The page's existing text, for the edit_text tool */
   textLayer?: PdfTextLayer | null;
+  /** Edit Text covers whose words the page on screen has already erased */
+  erasedCoverIds?: ReadonlySet<string>;
   /**
    * The edit_text tool covered a piece of PDF text: `added` is [cover, text]
    * (or just [text] if the cover already existed), already on the canvas
@@ -121,6 +148,10 @@ export interface AnnotationLayerProps {
    * existing replacement instead.
    */
   onTextReplace?: (added: Annotation[]) => void;
+  /** The page's own images, for the edit_text tool to pick up (null while loading) */
+  pageImages?: PageImage[] | null;
+  /** The edit_text tool clicked one of the page's images: make it editable */
+  onImagePick?: (image: PageImage) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -208,14 +239,47 @@ function foldTextScale(obj: IText): number | null {
   return fontSize;
 }
 
+type Box = Pick<Annotation, 'x' | 'y' | 'width' | 'height' | 'rotation'>;
+
 /** Whether a page point lies inside an annotation's (rotated) box. */
-function annotationContains(ann: Annotation, px: number, py: number): boolean {
+function annotationContains(ann: Box, px: number, py: number): boolean {
   const a = (-(ann.rotation || 0) * Math.PI) / 180;
   const dx = px - ann.x;
   const dy = py - ann.y;
   const lx = dx * Math.cos(a) - dy * Math.sin(a);
   const ly = dx * Math.sin(a) + dy * Math.cos(a);
   return Math.abs(lx) <= ann.width / 2 && Math.abs(ly) <= ann.height / 2;
+}
+
+/** Corner (top-left, before rotation) of an annotation's box. */
+function annotationCorner(ann: Box): { x: number; y: number } {
+  const a = ((ann.rotation || 0) * Math.PI) / 180;
+  const dx = -ann.width / 2;
+  const dy = -ann.height / 2;
+  return {
+    x: ann.x + dx * Math.cos(a) - dy * Math.sin(a),
+    y: ann.y + dx * Math.sin(a) + dy * Math.cos(a),
+  };
+}
+
+/**
+ * Font of a text annotation on the canvas. An Edit Text replacement is
+ * drawn with the PDF font of the words it replaced, exactly as pdf.js draws
+ * them, while pdf.js has that font loaded; otherwise with its fallback.
+ */
+function textFontProps(
+  style: AnnotationStyle | undefined,
+  fonts: Map<string, PdfFontFace> | null,
+): { fontFamily: string; fontWeight: string; fontStyle: '' | 'normal' | 'italic' | 'oblique' } {
+  const face = style?.pdfFont ? fonts?.get(style.pdfFont) : undefined;
+  if (face) {
+    return { fontFamily: face.family, fontWeight: face.weight, fontStyle: face.style as 'normal' | 'italic' };
+  }
+  return {
+    fontFamily: style?.fontFamily ?? DEFAULT_FONT_FAMILY,
+    fontWeight: style?.fontWeight ?? 'normal',
+    fontStyle: (style?.fontStyle as 'normal' | 'italic' | 'oblique') ?? 'normal',
+  };
 }
 
 /** Image border, drawn by fabric as a stroke around the image. */
@@ -228,16 +292,21 @@ function imageBorderProps(style: AnnotationStyle | undefined) {
 
 // ─── Annotation → Fabric object ──────────────────────────────────────────────
 
-function buildTextObject(ann: Annotation): IText {
+interface BuildOptions {
+  /** Loaded PDF fonts, for Edit Text replacements */
+  fonts?: Map<string, PdfFontFace> | null;
+  /** An Edit Text replacement: may be empty (its words were deleted) */
+  replacement?: boolean;
+}
+
+function buildTextObject(ann: Annotation, opts: BuildOptions = {}): IText {
   const style = ann.style ?? {};
-  const obj = new IText(ann.content || 'Text', {
+  const obj = new IText(opts.replacement ? ann.content : ann.content || 'Text', {
     left: ann.x,
     top: ann.y,
     angle: ann.rotation,
     fontSize: style.fontSize ?? DEFAULT_FONT_SIZE,
-    fontFamily: style.fontFamily ?? DEFAULT_FONT_FAMILY,
-    fontWeight: style.fontWeight ?? 'normal',
-    fontStyle: (style.fontStyle as 'normal' | 'italic' | 'oblique') ?? 'normal',
+    ...textFontProps(style, opts.fonts ?? null),
     underline: style.textDecoration === 'underline',
     fill: style.color ?? DEFAULT_TEXT_COLOR,
     backgroundColor: style.backgroundColor ?? '',
@@ -267,6 +336,23 @@ function buildSignFieldObject(ann: Annotation): Rect {
     ry: 3,
     selectable: true,
     opacity: ann.style?.opacity ?? 1,
+  });
+  setAnnotationId(obj, ann.id);
+  return obj;
+}
+
+function buildRedactObject(ann: Annotation): Rect {
+  const obj = new Rect({
+    left: ann.x,
+    top: ann.y,
+    width: Math.max(1, ann.width),
+    height: Math.max(1, ann.height),
+    angle: ann.rotation,
+    fill: REDACT_FILL,
+    stroke: REDACT_STROKE,
+    strokeWidth: 1.5,
+    strokeUniform: true,
+    selectable: true,
   });
   setAnnotationId(obj, ann.id);
   return obj;
@@ -379,10 +465,13 @@ function buildShapeCheckObject(ann: Annotation): Path {
 }
 
 /** Build a fabric object from a persisted Annotation. */
-async function annotationToFabricObject(ann: Annotation): Promise<FabricObject | null> {
+async function annotationToFabricObject(
+  ann: Annotation,
+  opts: BuildOptions = {},
+): Promise<FabricObject | null> {
   switch (ann.type) {
     case 'text':
-      return buildTextObject(ann);
+      return buildTextObject(ann, opts);
 
     case 'image': {
       if (!ann.content) return null;
@@ -440,6 +529,9 @@ async function annotationToFabricObject(ann: Annotation): Promise<FabricObject |
 
     case 'sign_field':
       return buildSignFieldObject(ann);
+
+    case 'redact':
+      return buildRedactObject(ann);
 
     case 'stamp': {
       const stampDef = STAMPS.find((s) => s.label === ann.content);
@@ -584,7 +676,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   checkSize,
   onSignRequest,
   textLayer,
+  erasedCoverIds,
   onTextReplace,
+  pageImages,
+  onImagePick,
 }) => {
   const canvasElRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<Canvas | null>(null);
@@ -619,6 +714,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     onAnnotationDelete,
     onSignRequest,
     onTextReplace,
+    onImagePick,
   });
   useEffect(() => {
     callbacksRef.current = {
@@ -628,6 +724,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       onAnnotationDelete,
       onSignRequest,
       onTextReplace,
+      onImagePick,
     };
   });
 
@@ -640,6 +737,12 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   // Keep stable refs for event handlers (avoids stale closures)
   const activeToolRef = useRef(activeTool);
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+
+  // The selection, for objects that are built after it was made (images
+  // load asynchronously); and images rebuilt while selected
+  const selectedIdRef = useRef(selectedAnnotationId);
+  selectedIdRef.current = selectedAnnotationId;
+  const reselectRef = useRef<Set<string>>(new Set());
 
   const pageNumberRef = useRef(pageNumber);
   useEffect(() => { pageNumberRef.current = pageNumber; }, [pageNumber]);
@@ -655,11 +758,29 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
   const textLayerRef = useRef(textLayer ?? null);
   useEffect(() => { textLayerRef.current = textLayer ?? null; }, [textLayer]);
+  // Kept while a page re-renders (the layer is null then), so replacements
+  // don't flicker to their fallback font
+  const fontsRef = useRef<Map<string, PdfFontFace> | null>(null);
 
-  // PDF text under the pointer while the edit_text tool is active
-  const [hoverRun, setHoverRun] = useState<PdfTextRun | null>(null);
-  useEffect(() => { if (activeTool !== 'edit_text') setHoverRun(null); }, [activeTool]);
-  useEffect(() => { setHoverRun(null); }, [textLayer]);
+  const erasedCoversRef = useRef<ReadonlySet<string>>(erasedCoverIds ?? new Set());
+  useEffect(() => { erasedCoversRef.current = erasedCoverIds ?? new Set(); }, [erasedCoverIds]);
+
+  const pageImagesRef = useRef<PageImage[]>(pageImages ?? []);
+  useEffect(() => { pageImagesRef.current = pageImages ?? []; }, [pageImages]);
+
+  // A redact drag in progress: where it started and the box drawn so far
+  const redactDragRef = useRef<{ x: number; y: number; rect: Rect } | null>(null);
+
+  // What a click with the edit_text tool would edit (PDF text or image, or a
+  // spot already replaced), or the redact tool would mark. Top-left corner,
+  // size and clockwise angle, page units.
+  const [hoverBox, setHoverBox] = useState<
+    { key: string; x: number; y: number; width: number; height: number; angle: number } | null
+  >(null);
+  useEffect(() => {
+    if (activeTool !== 'edit_text' && activeTool !== 'redact') setHoverBox(null);
+  }, [activeTool]);
+  useEffect(() => { setHoverBox(null); }, [textLayer, pageImages]);
 
   // ── Initialize fabric canvas on mount ────────────────────────────────────
   useLayoutEffect(() => {
@@ -791,23 +912,24 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         if (!selected) return;
         e.preventDefault();
 
+        // An Edit Text replacement stays on the canvas: the editor empties
+        // it instead, and its cover keeps the original words erased
+        const remove = (obj: FabricObject) => {
+          const id = getAnnotationId(obj);
+          if (!id) return;
+          const isReplacement = annotationsRef.current.some((a) => a.id === id + TEXT_COVER_SUFFIX);
+          if (!isReplacement) fc.remove(obj);
+          callbacksRef.current.onAnnotationDelete(id);
+        };
+
         // Multi-selection (ActiveSelection group)
         if (selected instanceof ActiveSelection) {
           const objects = selected.getObjects();
           fc.discardActiveObject();
-          objects.forEach((obj) => {
-            const id = getAnnotationId(obj);
-            if (id) {
-              fc.remove(obj);
-              callbacksRef.current.onAnnotationDelete(id);
-            }
-          });
+          objects.forEach(remove);
         } else {
-          const id = getAnnotationId(selected);
-          if (!id) return;
-          fc.remove(selected);
           fc.discardActiveObject();
-          callbacksRef.current.onAnnotationDelete(id);
+          remove(selected);
         }
         fc.renderAll();
         callbacksRef.current.onAnnotationSelect(null);
@@ -841,18 +963,25 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
     const isSelect = activeTool === 'select';
     const isDrawing = activeTool === 'draw';
+    const isRedact = activeTool === 'redact';
 
     fc.isDrawingMode = isDrawing;
     fc.selection = isSelect;
-    fc.skipTargetFind = !isSelect && !isDrawing;
-    fc.defaultCursor = 'default';
+    // The redact tool can still grab its marks to move or resize them
+    fc.skipTargetFind = !isSelect && !isDrawing && !isRedact;
+    fc.defaultCursor = isRedact ? 'crosshair' : 'default';
 
     // Make existing objects selectable/moveable only in select mode.
     // Keep evented=true for all tools so the canvas-level mouse:down event
     // continues to fire reliably (setting evented=false can suppress the
     // canvas event pipeline in fabric v7 when selection is also false).
+    // Edit covers are never picked: they go with their text or image.
+    const marks = new Set(annotationsRef.current.filter((a) => a.type === 'redact').map((a) => a.id));
     fc.forEachObject((obj) => {
-      obj.set({ selectable: isSelect, evented: true });
+      const id = getAnnotationId(obj);
+      const cover = isTextCoverId(id);
+      const mark = !!id && marks.has(id);
+      obj.set({ selectable: (isSelect || (isRedact && mark)) && !cover, evented: !cover });
       obj.setCoords();
     });
 
@@ -920,6 +1049,64 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const fc = fabricRef.current;
     if (!fc) return;
 
+    // An Edit replacement at a page point, over the words it erased (the
+    // cover) or its new text -- or a picked-up image where it is now (an
+    // image's cover isn't one: words printed where the image used to be
+    // are still there to edit): { cover, hit: whichever of the two is there }
+    const findReplacement = (px: number, py: number): { cover: Annotation; hit: Annotation } | null => {
+      const anns = annotationsRef.current;
+      for (let i = anns.length - 1; i >= 0; i--) {
+        const a = anns[i];
+        if (!annotationContains(a, px, py)) continue;
+        if (isTextCoverId(a.id)) {
+          if (isImageCover(a, anns)) continue;
+          return { cover: a, hit: a };
+        }
+        const cover = (a.type === 'text' || a.type === 'image') && a.content
+          ? anns.find((c) => c.id === a.id + TEXT_COVER_SUFFIX)
+          : undefined;
+        if (cover) return { cover, hit: a };
+      }
+      return null;
+    };
+    const replacementAt = (px: number, py: number) => findReplacement(px, py)?.cover ?? null;
+
+    // One of the page's own images under a page point that Edit can pick
+    // up: not its background (a scan), and not one already picked up
+    const findImageAt = (px: number, py: number): PageImage | null => {
+      const anns = annotationsRef.current;
+      const images = pageImagesRef.current;
+      for (let i = images.length - 1; i >= 0; i--) {
+        const img = images[i];
+        if (img.background || !annotationContains(img, px, py)) continue;
+        const taken = anns.some(
+          (c) => isTextCoverId(c.id) && isImageCover(c, anns) && annotationContains(c, img.x, img.y),
+        );
+        if (!taken) return img;
+      }
+      return null;
+    };
+
+    // A redaction mark over a run of the page's text
+    const runMark = (layer: PdfTextLayer, px: number, py: number): Annotation | null => {
+      const run = findRunAt(layer.runs, px, py);
+      if (!run) return null;
+      const pad = Math.max(1, run.fontSize * 0.08);
+      const center = runPoint(run, run.width / 2, (run.descent - run.ascent) / 2);
+      return {
+        id: generateId(),
+        type: 'redact',
+        page: pageNumberRef.current,
+        x: center.x,
+        y: center.y,
+        width: run.width + pad * 2,
+        height: run.ascent + run.descent + pad * 2,
+        rotation: ((run.angle % 360) + 360) % 360,
+        content: run.text,
+        style: {},
+      };
+    };
+
     const handleMouseDown = (opt: Record<string, unknown>) => {
       const tool = activeToolRef.current;
       // Only handle placement tools
@@ -938,8 +1125,13 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         cy = ((opt.e as MouseEvent).clientY - rect.top) / (fc.getZoom() || 1);
       }
 
-      // Ignore if clicking an existing fabric object.
-      if (opt.target != null) return;
+      // Ignore if clicking an existing fabric object -- except that the
+      // redact tool draws over anything but its own marks (it moves those)
+      if (opt.target != null) {
+        const targetId = getAnnotationId(opt.target as FabricObject);
+        const isMark = annotationsRef.current.some((a) => a.id === targetId && a.type === 'redact');
+        if (tool !== 'redact' || isMark) return;
+      }
 
       // For text tool: if an IText is currently in editing mode, exit editing
       // first and skip placing a new text object (user just wants to deselect).
@@ -996,27 +1188,86 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
         case 'edit_text': {
           const layer = textLayerRef.current;
-          const run = layer ? findRunAt(layer.runs, cx, cy) : null;
-          if (!layer || !run) break;
           const pg = pageNumberRef.current;
-          const runCenter = runPoint(run, run.width / 2, (run.descent - run.ascent) / 2);
 
-          // Already replaced here: reopen that text rather than stack another
-          const cover = annotationsRef.current.find(
-            (a) => a.id.endsWith(TEXT_COVER_SUFFIX) && annotationContains(a, runCenter.x, runCenter.y),
-          );
-          const textId = cover ? cover.id.slice(0, -TEXT_COVER_SUFFIX.length) : generateId();
-          if (cover) {
-            const existing = fc.getObjects().find((o) => getAnnotationId(o) === textId);
-            if (existing instanceof IText) {
+          // Already replaced here (the words under it are erased, so there's
+          // no run to find): reopen that text rather than stack another --
+          // or, for a picked-up image, select it
+          const reopen = (cover: Annotation): boolean => {
+            const partnerId = cover.id.slice(0, -TEXT_COVER_SUFFIX.length);
+            const existing = fc.getObjects().find((o) => getAnnotationId(o) === partnerId);
+            if (existing instanceof FabricImage) {
               fc.setActiveObject(existing);
-              existing.enterEditing();
-              existing.selectAll();
               fc.renderAll();
               callbacksRef.current.onTextReplace?.([]);
+              return true;
+            }
+            if (!(existing instanceof IText)) return false;
+            fc.setActiveObject(existing);
+            existing.enterEditing();
+            existing.selectAll();
+            fc.renderAll();
+            callbacksRef.current.onTextReplace?.([]);
+            return true;
+          };
+          const replaced = replacementAt(cx, cy);
+          if (replaced && reopen(replaced)) break;
+          const replacedImage = !!replaced && isImageCover(replaced, annotationsRef.current);
+
+          const run = layer ? findRunAt(layer.runs, cx, cy) : null;
+          if (!run && !replaced) {
+            const image = findImageAt(cx, cy);
+            if (image) {
+              callbacksRef.current.onImagePick?.(image);
               break;
             }
           }
+          if (!layer || !run) {
+            // A cover whose text is gone (saved before replacements were
+            // kept): start a new one where its words were
+            if (replaced && !replacedImage) {
+              const size = Math.max(4, Math.round((replaced.height / 1.16) * 10) / 10);
+              const corner = annotationCorner(replaced);
+              const a = ((replaced.rotation || 0) * Math.PI) / 180;
+              const u = size * 0.08;
+              const v = size * 0.88;
+              const textAnn: Annotation = {
+                id: replaced.id.slice(0, -TEXT_COVER_SUFFIX.length),
+                type: 'text',
+                page: pg,
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                rotation: replaced.rotation || 0,
+                content: '',
+                style: { fontSize: size, fontFamily: DEFAULT_FONT_FAMILY, color: DEFAULT_TEXT_COLOR },
+              };
+              const textObj = buildTextObject(textAnn, { replacement: true });
+              const baseline = { x: corner.x + u * Math.cos(a) - v * Math.sin(a), y: corner.y + u * Math.sin(a) + v * Math.cos(a) };
+              const th = textObj.height ?? 0;
+              const off = th / 2 - th * FABRIC_BASELINE_RATIO;
+              textObj.set({ left: baseline.x - off * Math.sin(a), top: baseline.y + off * Math.cos(a) });
+              textObj.setCoords();
+              Object.assign(textAnn, { x: textObj.left, y: textObj.top, width: textObj.width ?? 0, height: th });
+              fc.add(textObj);
+              fc.setActiveObject(textObj);
+              textObj.enterEditing();
+              fc.renderAll();
+              callbacksRef.current.onTextReplace?.([textAnn]);
+            }
+            break;
+          }
+          const runCenter = runPoint(run, run.width / 2, (run.descent - run.ascent) / 2);
+
+          // The run is still on screen but already covered (its erased page
+          // isn't back yet)
+          const cover = annotationsRef.current.find(
+            (a) => isTextCoverId(a.id) && !isImageCover(a, annotationsRef.current)
+              && annotationContains(a, runCenter.x, runCenter.y),
+          );
+          if (cover && reopen(cover)) break;
+          const textId = cover ? cover.id.slice(0, -TEXT_COVER_SUFFIX.length) : generateId();
 
           const sampled = layer.sampleColors(run);
           const rotation = ((run.angle % 360) + 360) % 360;
@@ -1037,10 +1288,14 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
               content: 'rect',
               style: { backgroundColor: fill, color: fill, borderWidth: 0 },
             };
-            fc.add(buildShapeRectObject(coverAnn));
+            const coverObj = buildShapeRectObject(coverAnn);
+            coverObj.set({ selectable: false, evented: false });
+            fc.add(coverObj);
             added.push(coverAnn);
           }
 
+          // Same PDF font as the words it replaces, if pdf.js can draw it
+          const pdfFont = run.pdfFont && layer.fonts.has(run.pdfFont) ? run.pdfFont : undefined;
           const textAnn: Annotation = {
             id: textId,
             type: 'text',
@@ -1057,9 +1312,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
               fontWeight: run.bold ? 'bold' : 'normal',
               fontStyle: run.italic ? 'italic' : 'normal',
               color: sampled?.text ?? DEFAULT_TEXT_COLOR,
+              ...(pdfFont ? { pdfFont } : {}),
             },
           };
-          const textObj = buildTextObject(textAnn);
+          const textObj = buildTextObject(textAnn, { fonts: layer.fonts, replacement: true });
           // Put the new text's baseline-left where the original's was
           const tw = textObj.width ?? 0;
           const th = textObj.height ?? 0;
@@ -1081,6 +1337,18 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         case 'image': {
           pendingClickRef.current = { x: cx, y: cy };
           fileInputRef.current?.click();
+          break;
+        }
+
+        case 'redact': {
+          // A drag marks an area; a click (see handleMouseUp) the text under it
+          const rect = buildRedactObject({
+            id: '', type: 'redact', page: pageNumberRef.current,
+            x: cx, y: cy, width: 1, height: 1, rotation: 0, content: '', style: {},
+          });
+          rect.set({ selectable: false, evented: false });
+          fc.add(rect);
+          redactDragRef.current = { x: cx, y: cy, rect };
           break;
         }
 
@@ -1232,21 +1500,100 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       }
     };
 
-    // Edit Text: highlight the PDF text that a click would replace
+    // Edit: highlight the PDF text or image that a click would make
+    // editable, or the replacement it would reopen. Redact: the text a click
+    // would mark (and the box being dragged).
     const handleMouseMove = (opt: { scenePoint?: { x: number; y: number } }) => {
-      if (activeToolRef.current !== 'edit_text') return;
-      const layer = textLayerRef.current;
+      const tool = activeToolRef.current;
       const sp = opt.scenePoint;
-      const run = layer && sp ? findRunAt(layer.runs, sp.x, sp.y) : null;
-      fc.defaultCursor = run ? 'text' : 'default';
-      setHoverRun((prev) => (prev === run ? prev : run));
+      const drag = redactDragRef.current;
+      if (drag && sp) {
+        drag.rect.set({
+          left: (drag.x + sp.x) / 2,
+          top: (drag.y + sp.y) / 2,
+          width: Math.max(1, Math.abs(sp.x - drag.x)),
+          height: Math.max(1, Math.abs(sp.y - drag.y)),
+        });
+        drag.rect.setCoords();
+        fc.requestRenderAll();
+        return;
+      }
+      if (tool !== 'edit_text' && tool !== 'redact') return;
+      const layer = textLayerRef.current;
+      let box: typeof hoverBox = null;
+      let cursor = tool === 'redact' ? 'crosshair' : 'default';
+      if (sp) {
+        const replaced = tool === 'edit_text' ? findReplacement(sp.x, sp.y) : null;
+        const run = replaced || !layer ? null : findRunAt(layer.runs, sp.x, sp.y);
+        const image = tool === 'edit_text' && !replaced && !run ? findImageAt(sp.x, sp.y) : null;
+        if (replaced) {
+          const { hit } = replaced;
+          const corner = annotationCorner(hit);
+          box = { key: hit.id, ...corner, width: hit.width, height: hit.height, angle: hit.rotation || 0 };
+          cursor = hit.type === 'image' ? 'pointer' : 'text';
+        } else if (layer && run) {
+          const corner = runPoint(run, 0, -run.ascent);
+          box = {
+            key: `run:${layer.runs.indexOf(run)}`,
+            ...corner,
+            width: run.width,
+            height: run.ascent + run.descent,
+            angle: run.angle,
+          };
+          cursor = tool === 'redact' ? 'pointer' : 'text';
+        } else if (image) {
+          const corner = annotationCorner(image);
+          box = { key: `img:${image.index}`, ...corner, width: image.width, height: image.height, angle: image.rotation };
+          cursor = 'pointer';
+        }
+      }
+      fc.defaultCursor = cursor;
+      setHoverBox((prev) => (prev?.key === box?.key ? prev : box));
+    };
+
+    // Redact: finish the mark being dragged -- or, for a click, mark the
+    // text under it
+    const handleMouseUp = (opt: { scenePoint?: { x: number; y: number } }) => {
+      const drag = redactDragRef.current;
+      if (!drag) return;
+      redactDragRef.current = null;
+      const end = opt.scenePoint ?? { x: drag.x, y: drag.y };
+      const width = Math.abs(end.x - drag.x);
+      const height = Math.abs(end.y - drag.y);
+      fc.remove(drag.rect);
+      let mark: Annotation | null;
+      if (width < REDACT_CLICK_SLOP && height < REDACT_CLICK_SLOP) {
+        const layer = textLayerRef.current;
+        mark = layer ? runMark(layer, drag.x, drag.y) : null;
+      } else {
+        mark = {
+          id: generateId(),
+          type: 'redact',
+          page: pageNumberRef.current,
+          x: (drag.x + end.x) / 2,
+          y: (drag.y + end.y) / 2,
+          width,
+          height,
+          rotation: 0,
+          content: '',
+          style: {},
+        };
+      }
+      if (mark) {
+        const obj = buildRedactObject(mark);
+        fc.add(obj);
+        callbacksRef.current.onAnnotationAdd(mark);
+      }
+      fc.requestRenderAll();
     };
 
     fc.on('mouse:down' as never, handleMouseDown as never);
     fc.on('mouse:move' as never, handleMouseMove as never);
+    fc.on('mouse:up' as never, handleMouseUp as never);
     return () => {
       fc.off('mouse:down' as never, handleMouseDown as never);
       fc.off('mouse:move' as never, handleMouseMove as never);
+      fc.off('mouse:up' as never, handleMouseUp as never);
     };
     // Register once — handler reads tool/page from refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1372,13 +1719,23 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const fc = fabricRef.current;
     if (!fc) return;
 
-    const annMap = new Map<string, Annotation>(annotations.map((a) => [a.id, a]));
+    // An image annotation without a picture is a picked-up image the user
+    // deleted (its cover keeps the original off the page): nothing to show
+    const shown = annotations.filter((a) => !(a.type === 'image' && !a.content));
+    const annMap = new Map<string, Annotation>(shown.map((a) => [a.id, a]));
 
-    // Remove fabric objects whose annotation no longer exists
+    // Remove fabric objects whose annotation no longer exists -- or whose
+    // picture was replaced, so it's built again from the new one
     const toRemove: FabricObject[] = [];
     fc.forEachObject((obj) => {
       const id = getAnnotationId(obj);
-      if (id && !annMap.has(id)) {
+      if (!id) return;
+      const ann = annMap.get(id);
+      if (!ann) {
+        toRemove.push(obj);
+      } else if (obj instanceof FabricImage && ann.type === 'image' && obj.getSrc() !== ann.content) {
+        // Selected again once rebuilt, so the property panel stays on it
+        if (fc.getActiveObject() === obj) reselectRef.current.add(id);
         toRemove.push(obj);
       }
     });
@@ -1402,22 +1759,35 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     let needsRender = toRemove.length > 0;
     const addPromises: Promise<void>[] = [];
 
-    for (const ann of annotations) {
+    for (const ann of shown) {
       const existingObj = fabricMap.get(ann.id);
 
       if (!existingObj) {
         if (pendingAddsRef.current.has(ann.id)) continue;
         pendingAddsRef.current.add(ann.id);
         // New annotation — create fabric object
-        const p = annotationToFabricObject(ann).then((obj) => {
+        const p = annotationToFabricObject(ann, {
+          fonts: fontsRef.current,
+          replacement: annMap.has(ann.id + TEXT_COVER_SUFFIX),
+        }).then((obj) => {
           pendingAddsRef.current.delete(ann.id);
           if (!obj) return;
           // The page may have changed (or the annotation been deleted)
           // while an image was loading
           if (!annotationsRef.current.some((a) => a.id === ann.id)) return;
-          obj.selectable = activeToolRef.current === 'select';
-          obj.evented = true;
+          if (isTextCoverId(ann.id)) {
+            obj.set({ selectable: false, evented: false, visible: !erasedCoversRef.current.has(ann.id) });
+          } else {
+            const tool = activeToolRef.current;
+            obj.selectable = tool === 'select' || (tool === 'redact' && ann.type === 'redact');
+            obj.evented = true;
+          }
           fc.add(obj);
+          // Selected before it existed (a picked-up image), or rebuilt while
+          // selected (a replaced picture)
+          if (reselectRef.current.delete(ann.id) || selectedIdRef.current === ann.id) {
+            fc.setActiveObject(obj);
+          }
         });
         addPromises.push(p);
       } else {
@@ -1455,9 +1825,13 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         if (existingObj instanceof IText) {
           existingObj.set({
             fontSize: s.fontSize ?? existingObj.fontSize,
-            fontFamily: s.fontFamily ?? existingObj.fontFamily,
-            fontWeight: (s.fontWeight as string) ?? existingObj.fontWeight,
-            fontStyle: (s.fontStyle as string) ?? existingObj.fontStyle,
+            ...(ann.type === 'text'
+              ? textFontProps(s, fontsRef.current)
+              : {
+                fontFamily: s.fontFamily ?? existingObj.fontFamily,
+                fontWeight: (s.fontWeight as string) ?? existingObj.fontWeight,
+                fontStyle: (s.fontStyle as string) ?? existingObj.fontStyle,
+              }),
             underline: s.textDecoration === 'underline',
             fill: s.color ?? existingObj.fill,
             backgroundColor: s.backgroundColor ?? '',
@@ -1492,6 +1866,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         // Update opacity (all types). A saved style can carry opacity: null,
         // and fabric multiplies globalAlpha by it, so null would hide the object
         existingObj.set({ opacity: s.opacity ?? 1 });
+        if (isTextCoverId(ann.id)) existingObj.set({ visible: !erasedCoversRef.current.has(ann.id) });
 
         existingObj.setCoords();
         needsRender = true;
@@ -1524,6 +1899,51 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     // `activeTool` intentionally omitted – tool mode is handled separately
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotations]);
+
+  // ── Edit Text covers: painted only while their words are still on screen ──
+  useEffect(() => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    const erased = erasedCoverIds ?? new Set<string>();
+    let changed = false;
+    fc.forEachObject((obj) => {
+      const id = getAnnotationId(obj);
+      if (!isTextCoverId(id)) return;
+      const visible = !erased.has(id!);
+      if (obj.visible !== visible) {
+        obj.set({ visible });
+        changed = true;
+      }
+    });
+    if (changed) fc.requestRenderAll();
+  }, [erasedCoverIds]);
+
+  // ── Replacements follow the PDF fonts of the page on screen ──────────────
+  // Each pdf.js document registers its fonts under its own names, and the
+  // page may now come from a different one (an erased preview)
+  useEffect(() => {
+    if (!textLayer) return;
+    fontsRef.current = textLayer.fonts;
+    const fc = fabricRef.current;
+    if (!fc) return;
+    let changed = false;
+    fc.forEachObject((obj) => {
+      if (!(obj instanceof IText)) return;
+      const ann = annotationsRef.current.find((a) => a.id === getAnnotationId(obj));
+      if (ann?.type !== 'text' || !ann.style?.pdfFont) return;
+      const props = textFontProps(ann.style, textLayer.fonts);
+      if (
+        props.fontFamily !== obj.fontFamily ||
+        props.fontWeight !== String(obj.fontWeight) ||
+        props.fontStyle !== obj.fontStyle
+      ) {
+        obj.set(props);
+        obj.setCoords();
+        changed = true;
+      }
+    });
+    if (changed) fc.requestRenderAll();
+  }, [textLayer]);
 
   // ── Sync selectedAnnotationId → fabric active object ─────────────────────
   useEffect(() => {
@@ -1627,20 +2047,20 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         />
       )}
 
-      {hoverRun && activeTool === 'edit_text' && (
+      {hoverBox && (activeTool === 'edit_text' || activeTool === 'redact') && (
         <div
           aria-hidden="true"
           style={{
             position: 'absolute',
-            left: hoverRun.x * zoom,
-            top: hoverRun.y * zoom,
-            width: hoverRun.width * zoom,
-            height: (hoverRun.ascent + hoverRun.descent) * zoom,
-            transform: `rotate(${hoverRun.angle}deg) translateY(${-hoverRun.ascent * zoom}px)`,
+            left: hoverBox.x * zoom,
+            top: hoverBox.y * zoom,
+            width: hoverBox.width * zoom,
+            height: hoverBox.height * zoom,
+            transform: `rotate(${hoverBox.angle}deg)`,
             transformOrigin: '0 0',
-            outline: '1.5px solid #3b82f6',
+            outline: `1.5px solid ${activeTool === 'redact' ? REDACT_STROKE : '#3b82f6'}`,
             outlineOffset: 2,
-            background: 'rgba(59, 130, 246, 0.08)',
+            background: activeTool === 'redact' ? REDACT_FILL : 'rgba(59, 130, 246, 0.08)',
             borderRadius: 2,
             pointerEvents: 'none',
           }}

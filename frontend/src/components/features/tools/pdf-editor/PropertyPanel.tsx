@@ -12,7 +12,7 @@
  *     onAnnotationDelete={handleDelete}
  *   />
  */
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
   Button,
   InputNumber,
@@ -32,6 +32,8 @@ import {
   UnderlineOutlined,
   VerticalAlignTopOutlined,
   VerticalAlignBottomOutlined,
+  UndoOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import type { Annotation, AnnotationStyle } from './types';
 import { colors, fonts, borderRadius, fontSizes, fontWeights } from '@/styles/theme';
@@ -46,6 +48,14 @@ interface PropertyPanelProps {
   onAnnotationDelete: (id: string) => void;
   onBringToFront: (id: string) => void;
   onSendToBack: (id: string) => void;
+  /** Set for an Edit replacement: drop it and bring the PDF's own words (or image) back */
+  onRestoreOriginal?: (id: string) => void;
+}
+
+/** Fit an image of naturalW x naturalH inside a box, keeping its proportions */
+function fitInside(naturalW: number, naturalH: number, boxW: number, boxH: number) {
+  const scale = Math.min(boxW / naturalW, boxH / naturalH);
+  return { width: naturalW * scale, height: naturalH * scale };
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -57,6 +67,14 @@ const FONT_FAMILIES = [
   { value: 'Courier',         label: 'Courier' },
   { value: 'Georgia',         label: 'Georgia' },
 ];
+
+// Font picker value for an Edit Text replacement still in its PDF font
+const PDF_FONT_OPTION = '__pdf_font__';
+
+/** "ABCDEF+Calibri-Bold" -> "Calibri-Bold" (drops the subset tag) */
+function pdfFontLabel(name: string): string {
+  return name.replace(/^[A-Z]{6}\+/, '');
+}
 
 const PANEL_WIDTH = 240;
 
@@ -296,6 +314,11 @@ const TextStyleSection: React.FC<{
   const isBold      = style.fontWeight === 'bold';
   const isItalic    = style.fontStyle  === 'italic';
   const isUnderline = style.textDecoration === 'underline';
+  // The PDF's own font can't change family, weight or slant: changing any
+  // of them switches to the standard font that stands in for it
+  const fontOptions = style.pdfFont
+    ? [{ value: PDF_FONT_OPTION, label: `${pdfFontLabel(style.pdfFont)} (original)` }, ...FONT_FAMILIES]
+    : FONT_FAMILIES;
 
   return (
     <div style={S.section}>
@@ -305,9 +328,11 @@ const TextStyleSection: React.FC<{
       <div style={{ marginBottom: 6 }}>
         <Select
           size="small"
-          value={style.fontFamily ?? 'Arial'}
-          onChange={(v) => onStyleChange({ fontFamily: v })}
-          options={FONT_FAMILIES}
+          value={style.pdfFont ? PDF_FONT_OPTION : style.fontFamily ?? 'Arial'}
+          onChange={(v) => {
+            if (v !== PDF_FONT_OPTION) onStyleChange({ fontFamily: v, pdfFont: undefined });
+          }}
+          options={fontOptions}
           style={{ width: '100%', fontSize: fontSizes.xs }}
           aria-label="Font family"
           popupMatchSelectWidth={false}
@@ -328,13 +353,13 @@ const TextStyleSection: React.FC<{
           active={isBold}
           label="Bold"
           icon={<BoldOutlined />}
-          onClick={() => onStyleChange({ fontWeight: isBold ? 'normal' : 'bold' })}
+          onClick={() => onStyleChange({ fontWeight: isBold ? 'normal' : 'bold', pdfFont: undefined })}
         />
         <StyleToggle
           active={isItalic}
           label="Italic"
           icon={<ItalicOutlined />}
-          onClick={() => onStyleChange({ fontStyle: isItalic ? 'normal' : 'italic' })}
+          onClick={() => onStyleChange({ fontStyle: isItalic ? 'normal' : 'italic', pdfFont: undefined })}
         />
         <StyleToggle
           active={isUnderline}
@@ -368,9 +393,59 @@ const ImageSection: React.FC<{
   annotation: Annotation;
   onChange: (patch: Partial<Annotation>) => void;
   onStyleChange: (patch: Partial<AnnotationStyle>) => void;
-}> = ({ annotation, onChange, onStyleChange }) => (
+}> = ({ annotation, onChange, onStyleChange }) => {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // A new picture in the same spot, fitted inside the current box
+  const replacePicture = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        if (!img.width || !img.height) return;
+        onChange({
+          content: dataUrl,
+          ...fitInside(img.width, img.height, annotation.width, annotation.height),
+        });
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
   <div style={S.section}>
     <span style={S.sectionTitle}>Image</span>
+
+    <Button
+      size="small"
+      block
+      icon={<SwapOutlined />}
+      onClick={() => fileRef.current?.click()}
+      style={{
+        height: 28,
+        marginBottom: 8,
+        fontSize: fontSizes.xs,
+        color: colors.textSecondary,
+        borderColor: colors.border,
+      }}
+    >
+      Replace image
+    </Button>
+    <input
+      ref={fileRef}
+      type="file"
+      accept="image/*"
+      style={{ display: 'none' }}
+      aria-hidden="true"
+      tabIndex={-1}
+      onChange={(e) => {
+        replacePicture(e.target.files?.[0]);
+        e.target.value = '';
+      }}
+    />
 
     <div style={S.row}>
       <span style={S.label}>W</span>
@@ -409,6 +484,19 @@ const ImageSection: React.FC<{
         }
       />
     </div>
+  </div>
+  );
+};
+
+// ── Section: Redaction mark ───────────────────────────────────────────────────
+
+const RedactSection: React.FC = () => (
+  <div style={S.section}>
+    <span style={S.sectionTitle}>Marked for redaction</span>
+    <p style={{ ...S.emptyText, margin: 0, textAlign: 'left' }}>
+      Nothing is removed yet. Apply redactions to take the text, images and
+      graphics under this area out of the PDF for good.
+    </p>
   </div>
 );
 
@@ -637,6 +725,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
   onAnnotationDelete,
   onBringToFront,
   onSendToBack,
+  onRestoreOriginal,
 }) => {
   // Produce a merged annotation update
   const handleChange = useCallback(
@@ -725,22 +814,59 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
             </>
           )}
 
-          {/* Transform: Rotation + Opacity (all types) */}
-          <TransformSection
-            annotation={selectedAnnotation}
-            onChange={handleChange}
-            onStyleChange={handleStyleChange}
-          />
+          {selectedAnnotation.type === 'redact' ? (
+            <>
+              <RedactSection />
+              <Divider style={{ margin: 0, borderColor: colors.border }} />
+              <PositionSection annotation={selectedAnnotation} onChange={handleChange} />
+              <Divider style={{ margin: 0, borderColor: colors.border }} />
+            </>
+          ) : (
+            <>
+              {/* Transform: Rotation + Opacity (all types) */}
+              <TransformSection
+                annotation={selectedAnnotation}
+                onChange={handleChange}
+                onStyleChange={handleStyleChange}
+              />
 
-          <Divider style={{ margin: 0, borderColor: colors.border }} />
+              <Divider style={{ margin: 0, borderColor: colors.border }} />
 
-          {/* Layer order */}
-          <LayerSection
-            onBringToFront={() => onBringToFront(selectedAnnotation.id)}
-            onSendToBack={() => onSendToBack(selectedAnnotation.id)}
-          />
+              {/* Layer order */}
+              <LayerSection
+                onBringToFront={() => onBringToFront(selectedAnnotation.id)}
+                onSendToBack={() => onSendToBack(selectedAnnotation.id)}
+              />
 
-          <Divider style={{ margin: 0, borderColor: colors.border }} />
+              <Divider style={{ margin: 0, borderColor: colors.border }} />
+            </>
+          )}
+
+          {/* Edit replacement: back to the PDF's own words or image */}
+          {onRestoreOriginal && (
+            <>
+              <div style={S.section}>
+                <span style={S.sectionTitle}>
+                  {selectedAnnotation.type === 'image' ? 'Original image' : 'Original text'}
+                </span>
+                <Button
+                  size="small"
+                  block
+                  icon={<UndoOutlined />}
+                  onClick={() => onRestoreOriginal(selectedAnnotation.id)}
+                  style={{
+                    height: 28,
+                    fontSize: fontSizes.xs,
+                    color: colors.textSecondary,
+                    borderColor: colors.border,
+                  }}
+                >
+                  {selectedAnnotation.type === 'image' ? 'Restore original image' : 'Restore original text'}
+                </Button>
+              </div>
+              <Divider style={{ margin: 0, borderColor: colors.border }} />
+            </>
+          )}
 
           {/* Delete */}
           <div style={{ ...S.section, marginTop: 'auto' }}>
@@ -762,7 +888,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
                 }}
               >
                 <DeleteOutlined style={{ fontSize: 13 }} />
-                Delete element
+                {selectedAnnotation.type === 'redact' ? 'Remove mark' : 'Delete element'}
               </button>
             </Tooltip>
           </div>

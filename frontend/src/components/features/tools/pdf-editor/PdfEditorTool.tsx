@@ -8,7 +8,7 @@
  * Usage (auto-registered in registry.ts):
  *   const PdfEditorTool = lazy(() => import('./pdf-editor/PdfEditorTool'));
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { createAnnotationSaver } from './annotationSaver';
 import {
   Button,
@@ -48,17 +48,38 @@ import {
   SlidersOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { pdfEditorApi } from './pdfEditorApi';
-import type { PdfDocument, SignRequest, Annotation } from './types';
+import { pdfEditorApi, type PreviewCover } from './pdfEditorApi';
+import type {
+  PdfDocument,
+  SignRequest,
+  Annotation,
+  CropMargins,
+  PageImage,
+  TextSearchMatch,
+} from './types';
 import type { PdfTextLayer } from './pdfTextRuns';
 import type { ToolComponentProps } from '../registry';
 import { colors, fonts, borderRadius, shadows } from '@/styles/theme';
 import PdfCanvas from './PdfCanvas';
 import PageSidebar from './PageSidebar';
-import AnnotationLayer, { DEFAULT_CHECK_SIZE } from './AnnotationLayer';
+import AnnotationLayer, {
+  DEFAULT_CHECK_SIZE,
+  TEXT_COVER_SUFFIX,
+  isImageCover,
+  isTextCoverId,
+} from './AnnotationLayer';
 import Toolbar from './Toolbar';
 import PropertyPanel from './PropertyPanel';
 import MergeModal from './MergeModal';
+import ToolsMenu, { type ToolsMenuAction } from './ToolsMenu';
+import OrganizePagesView from './OrganizePagesView';
+import InsertPagesModal, { type InsertSource } from './InsertPagesModal';
+import ExtractPagesModal from './ExtractPagesModal';
+import ProtectModal from './ProtectModal';
+import RedactBar, { type RedactApplyOptions } from './RedactBar';
+import RedactSearchModal from './RedactSearchModal';
+import { CropBar, CropOverlay, type CropRect } from './CropOverlay';
+import { usePdfPassword, apiErrorMessage } from './pdfPassword';
 import ImportModal, { type ImportTabKey } from './ImportModal';
 import SendForSignModal from './SendForSignModal';
 import FieldMappingModal from './FieldMappingModal';
@@ -94,6 +115,15 @@ const SIGN_STATUS_COLOR: Record<string, string> = {
   declined: colors.error,
   expired: colors.warning,
   cancelled: colors.textMuted,
+};
+
+// Where a document came from, under its name in the list
+const SOURCE_LABEL: Record<string, string> = {
+  estimate: 'From estimate',
+  invoice: 'From invoice',
+  merge: 'Combined files',
+  extract: 'Extracted pages',
+  convert: 'Converted to PDF',
 };
 
 const SIGN_STATUS_LABEL: Record<string, string> = {
@@ -200,13 +230,18 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
     placeholderData: (prev) => prev,
   });
 
+  // A password-protected PDF asks for its password, then uploads again
+  const withPdfPassword = usePdfPassword();
   const uploadMutation = useMutation({
     mutationFn: ({ file, rotation }: { file: File; rotation?: number }) =>
-      pdfEditorApi.uploadDocument(file, undefined, rotation || 0),
+      withPdfPassword(
+        (password) => pdfEditorApi.uploadDocument(file, undefined, rotation || 0, password),
+        file.name,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pdf-editor-documents'] });
     },
-    onError: () => message.error('Upload failed'),
+    onError: (err) => message.error(apiErrorMessage(err, 'Upload failed')),
   });
 
   const imagesToPdfMutation = useMutation({
@@ -371,11 +406,7 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
           {doc.sourceType && doc.sourceType !== 'upload' && (
             <div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {doc.sourceType === 'estimate'
-                  ? 'From estimate'
-                  : doc.sourceType === 'invoice'
-                  ? 'From invoice'
-                  : 'From template'}
+                {SOURCE_LABEL[doc.sourceType] ?? 'From template'}
               </Text>
             </div>
           )}
@@ -898,10 +929,17 @@ export interface EditorViewProps {
    * pass 0 when embedding full-screen inside something with no such bar
    * (e.g. a full-screen Modal). */
   heightOffset?: number;
+  /** Open another document in the editor (a combined or extracted one) */
+  onOpenDocument?: (id: string) => void;
 }
 
-export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heightOffset = 56 }) => {
-  const { message } = App.useApp();
+export const EditorView: React.FC<EditorViewProps> = ({
+  documentId,
+  onBack,
+  heightOffset = 56,
+  onOpenDocument,
+}) => {
+  const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
 
   // ── Editor state ──────────────────────────────────────────────────────────
@@ -916,6 +954,8 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [isPdfPageReady, setIsPdfPageReady] = useState(false);
   const [textLayer, setTextLayer] = useState<PdfTextLayer | null>(null);
+  // Edit Text covers whose words the page on screen has erased
+  const [erasedCoverIds, setErasedCoverIds] = useState<ReadonlySet<string>>(() => new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [undoStack, setUndoStack] = useState<Annotation[][]>([]);
   const [redoStack, setRedoStack] = useState<Annotation[][]>([]);
@@ -933,6 +973,22 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   // A page operation rewrites the saved annotations on the server; nothing
   // may autosave the editor's old copy over them while it runs
   const pageOpRef = React.useRef(false);
+  const [pageOpBusy, setPageOpBusy] = useState(false);
+
+  // ── Page tools (Organize, Insert, Extract, Crop, Combine, Protect, Redact) ──
+  const [organizeOpen, setOrganizeOpen] = useState(false);
+  const [insertAfter, setInsertAfter] = useState<number | null>(null);
+  const [extractPages, setExtractPages] = useState<number[] | null>(null);
+  const [combineOpen, setCombineOpen] = useState(false);
+  const [protectOpen, setProtectOpen] = useState(false);
+  const [redactSearchOpen, setRedactSearchOpen] = useState(false);
+  const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  const withPdfPassword = usePdfPassword();
+
+  // The crop area belongs to the page it was drawn on (pages differ in size)
+  useEffect(() => {
+    setCropRect(null);
+  }, [activeTool, currentPage]);
 
   useEffect(() => {
     const mql = window.matchMedia('(max-width: 768px)');
@@ -998,8 +1054,9 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
   // ── Annotation handlers ───────────────────────────────────────────────────
   const handleAnnotationAdd = useCallback((ann: Annotation) => {
     commitAnnotations([...annotationsRef.current, ann]);
-    // One placement per tool pick; freehand drawing stays on for more strokes
-    if (ann.type !== 'drawing') setActiveTool('select');
+    // One placement per tool pick; freehand drawing and redaction marking
+    // stay on for more
+    if (ann.type !== 'drawing' && ann.type !== 'redact') setActiveTool('select');
   }, [commitAnnotations]);
 
   // Edit Text: the cover box and its replacement text are one undo step
@@ -1007,6 +1064,53 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
     if (added.length) commitAnnotations([...annotationsRef.current, ...added]);
     setActiveTool('select');
   }, [commitAnnotations]);
+
+  // Edit: one of the page's own images, picked up to move, resize, replace
+  // or delete. A cover takes the original off the page (the export removes
+  // it from the page's content) and an image annotation of it takes its
+  // place -- one undo step, like an Edit Text pair.
+  const pickingImageRef = React.useRef(false);
+  const handleImagePick = useCallback(async (image: PageImage) => {
+    if (pickingImageRef.current) return;
+    pickingImageRef.current = true;
+    const page = currentPage;
+    const hide = message.loading('Picking up image…', 0);
+    try {
+      const picked = await pdfEditorApi.getEmbeddedImage(documentId, page, image.index);
+      const id = crypto.randomUUID();
+      const box = {
+        x: picked.x,
+        y: picked.y,
+        width: picked.width,
+        height: picked.height,
+        rotation: picked.rotation,
+      };
+      const cover: Annotation = {
+        id: id + TEXT_COVER_SUFFIX,
+        type: 'shape',
+        page,
+        ...box,
+        content: 'rect',
+        style: { backgroundColor: '#ffffff', color: '#ffffff', borderWidth: 0 },
+      };
+      const img: Annotation = {
+        id,
+        type: 'image',
+        page,
+        ...box,
+        content: picked.dataUrl,
+        style: { opacity: 1 },
+      };
+      commitAnnotations([...annotationsRef.current, cover, img]);
+      setActiveTool('select');
+      setSelectedAnnotationId(id);
+    } catch (err) {
+      message.error(apiErrorMessage(err, 'This image can’t be edited'));
+    } finally {
+      hide();
+      pickingImageRef.current = false;
+    }
+  }, [currentPage, documentId, commitAnnotations, message]);
 
   const rememberCheckSize = useCallback((ann: Annotation) => {
     if (ann.type === 'shape' && ann.content === 'check' && ann.width > 0) {
@@ -1036,8 +1140,38 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
     rememberCheckSize(updated);
   }, [commitAnnotations, rememberCheckSize]);
 
+  // Deleting an Edit Text replacement empties it: its cover keeps the
+  // original words erased (Restore original brings them back). The empty
+  // text keeps its top-left corner, where typing into it again starts.
   const handleAnnotationDelete = useCallback((id: string) => {
-    commitAnnotations(annotationsRef.current.filter((a) => a.id !== id));
+    const list = annotationsRef.current;
+    const isReplacement = list.some((a) => a.id === id + TEXT_COVER_SUFFIX);
+    const emptied = (a: Annotation): Annotation => {
+      const r = ((a.rotation || 0) * Math.PI) / 180;
+      const height = (a.style?.fontSize ?? 16) * 1.13; // one fabric line
+      const dx = -a.width / 2;
+      const dy = (height - a.height) / 2;
+      return {
+        ...a,
+        content: '',
+        x: a.x + dx * Math.cos(r) - dy * Math.sin(r),
+        y: a.y + dx * Math.sin(r) + dy * Math.cos(r),
+        width: 0,
+        height,
+      };
+    };
+    commitAnnotations(isReplacement
+      ? list.map((a) => {
+        if (a.id !== id) return a;
+        // A picked-up image just goes; its cover keeps the original off the page
+        return a.type === 'image' ? { ...a, content: '' } : emptied(a);
+      })
+      : list.filter((a) => a.id !== id));
+    setSelectedAnnotationId(null);
+  }, [commitAnnotations]);
+
+  const handleRestoreOriginal = useCallback((id: string) => {
+    commitAnnotations(annotationsRef.current.filter((a) => a.id !== id && a.id !== id + TEXT_COVER_SUFFIX));
     setSelectedAnnotationId(null);
   }, [commitAnnotations]);
 
@@ -1130,8 +1264,12 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
         e.preventDefault();
         handleSave();
       }
-      // Escape = back to select tool
-      if (e.key === 'Escape') {
+      // Escape = back to select tool -- unless it's closing a dialog or menu,
+      // or leaving a field (a crop margin, a search box)
+      const inOverlay = !!(e.target as HTMLElement | null)?.closest?.(
+        '.ant-modal-wrap, .ant-drawer, .ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown',
+      );
+      if (e.key === 'Escape' && !isTyping && !inOverlay) {
         setActiveTool('select');
         setSelectedAnnotationId(null);
       }
@@ -1203,14 +1341,33 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
     URL.revokeObjectURL(url);
   }, [doc]);
 
+  // Redaction marks never reach a download: say so before one leaves with
+  // marks still unapplied
+  const confirmUnappliedMarks = useCallback(() => {
+    const marks = annotationsRef.current.filter((a) => a.type === 'redact').length;
+    if (!marks) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      modal.confirm({
+        title: 'Redactions aren’t applied yet',
+        content: `${marks} marked area${marks === 1 ? ' is' : 's are'} still readable in the download. `
+          + 'Apply redactions first to remove what’s under them.',
+        okText: 'Download anyway',
+        cancelText: 'Go back',
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+  }, [modal]);
+
   const handleExport = useCallback(async () => {
+    if (!(await confirmUnappliedMarks())) return;
     if ((isDirty || isSaving) && !(await handleSave(true))) return;
     try {
       downloadBlob(await pdfEditorApi.downloadDocument(documentId, true));
     } catch {
       message.error('Export failed');
     }
-  }, [documentId, isDirty, isSaving, message, handleSave, downloadBlob]);
+  }, [documentId, isDirty, isSaving, message, handleSave, downloadBlob, confirmUnappliedMarks]);
 
   const handleExportOriginal = useCallback(async () => {
     try {
@@ -1220,21 +1377,31 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
     }
   }, [documentId, message, downloadBlob]);
 
+  // The protected copy includes the edits, so they're saved first
+  const beforeProtectedDownload = useCallback(async () => {
+    if (!(await confirmUnappliedMarks())) return false;
+    return (isDirty || isSaving) ? handleSave(true) : true;
+  }, [isDirty, isSaving, handleSave, confirmUnappliedMarks]);
+
   // ── Page operations ───────────────────────────────────────────────────────
   const [pdfRefreshKey, setPdfRefreshKey] = useState(0);
 
   // The server moves/rotates/drops annotations together with their pages, so
   // unsaved edits are saved first and the editor then takes the server's
   // copy (undo history no longer matches the pages, so it's cleared).
+  // `operation` may resolve null (the user cancelled, e.g. a password
+  // prompt). Resolves whether the operation went through.
   const runPageOperation = useCallback(async (
     label: string,
-    operation: () => Promise<PdfDocument>,
+    operation: () => Promise<PdfDocument | null>,
     pageAfter?: (updated: PdfDocument) => number,
-  ) => {
-    if ((isDirty || isSaving) && !(await handleSave(true))) return;
+  ): Promise<boolean> => {
+    if ((isDirty || isSaving) && !(await handleSave(true))) return false;
     pageOpRef.current = true;
+    setPageOpBusy(true);
     try {
       const updated = await operation();
+      if (!updated) return false;
       queryClient.setQueryData(['pdf-document', documentId], updated);
       const fresh = updated.annotations ?? [];
       annotationsRef.current = fresh;
@@ -1244,11 +1411,14 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
       setSelectedAnnotationId(null);
       setIsDirty(false);
       if (pageAfter) setCurrentPage(Math.max(1, Math.min(pageAfter(updated), updated.pageCount)));
+      return true;
     } catch (err) {
-      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-      message.error(typeof detail === 'string' ? `${label} failed: ${detail}` : `${label} failed`);
+      const detail = apiErrorMessage(err, '');
+      message.error(detail ? `${label} failed: ${detail}` : `${label} failed`);
+      return false;
     } finally {
       pageOpRef.current = false;
+      setPageOpBusy(false);
       setPdfRefreshKey((k) => k + 1);
     }
   }, [isDirty, isSaving, handleSave, documentId, queryClient, message]);
@@ -1271,6 +1441,207 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
     () => pdfEditorApi.rotatePages(documentId, rotations),
   ), [runPageOperation, documentId]);
 
+  // Insert pages: blank, from a file (a protected PDF asks for its
+  // password), or from a document -- this one too. Opens the first new page.
+  const handleInsert = useCallback((after: number, source: InsertSource) => runPageOperation(
+    'Insert',
+    () => (source.kind === 'file'
+      ? withPdfPassword(
+        (password) => pdfEditorApi.insertPages(documentId, after, { ...source, password }),
+        source.file.name,
+      )
+      : pdfEditorApi.insertPages(documentId, after, source)),
+    () => after + 1,
+  ), [runPageOperation, documentId, withPdfPassword]);
+
+  // Duplicate: each run of pages right after the last of them
+  const handleDuplicate = useCallback((pages: number[]) => {
+    const sorted = [...pages].sort((a, b) => a - b);
+    const last = sorted[sorted.length - 1];
+    return runPageOperation(
+      'Duplicate',
+      () => pdfEditorApi.insertPages(documentId, last, { kind: 'document', documentId, pages: sorted }),
+      () => last + 1,
+    );
+  }, [runPageOperation, documentId]);
+
+  // Switching to another document saves this one first, like going back
+  // does. Read through refs: the Open link in a toast outlives this render.
+  const unsavedRef = React.useRef(false);
+  unsavedRef.current = isDirty || isSaving;
+  const saveRef = React.useRef(handleSave);
+  saveRef.current = handleSave;
+  const openDocument = useCallback(async (id: string) => {
+    if (!onOpenDocument) return;
+    if (unsavedRef.current && !(await saveRef.current(true))) return;
+    onOpenDocument(id);
+  }, [onOpenDocument]);
+
+  const openDocumentLink = useCallback((created: PdfDocument) => (
+    onOpenDocument ? (
+      <>
+        {' '}
+        <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => openDocument(created.id)}>
+          Open
+        </Button>
+      </>
+    ) : null
+  ), [onOpenDocument, openDocument]);
+
+  // Extract: new documents from these pages (with their edits); with
+  // deleteAfter they also leave this one, which is a page operation
+  const handleExtract = useCallback(async (
+    pages: number[],
+    options: { separate: boolean; deleteAfter: boolean; name?: string },
+  ): Promise<boolean> => {
+    let created: PdfDocument[] = [];
+    const extract = async () => {
+      const result = await pdfEditorApi.extractPages(documentId, pages, options);
+      created = result.documents;
+      return result.source;
+    };
+    let ok: boolean;
+    if (options.deleteAfter) {
+      // Stay on the page being viewed, as deleting pages does
+      ok = await runPageOperation('Extract', extract, () => currentPage - pages.filter((p) => p < currentPage).length);
+    } else {
+      if ((isDirty || isSaving) && !(await handleSave(true))) return false;
+      try {
+        await extract();
+        ok = true;
+      } catch (err) {
+        message.error(`Extract failed${apiErrorMessage(err, '') ? `: ${apiErrorMessage(err, '')}` : ''}`);
+        ok = false;
+      }
+    }
+    if (ok && created.length) {
+      queryClient.invalidateQueries({ queryKey: ['pdf-editor-documents'] });
+      message.success(
+        <span>
+          {created.length === 1
+            ? <>Extracted to &ldquo;{created[0].name}&rdquo;.</>
+            : <>Extracted into {created.length} documents.</>}
+          {created.length === 1 && openDocumentLink(created[0])}
+        </span>,
+        6,
+      );
+    }
+    return ok;
+  }, [documentId, runPageOperation, currentPage, isDirty, isSaving, handleSave, message, queryClient, openDocumentLink]);
+
+  // Crop: the same margins on each chosen page, as the pages are shown
+  const handleCropApply = useCallback(async (margins: CropMargins, pages: number[] | undefined) => {
+    const ok = await runPageOperation(
+      'Crop',
+      () => pdfEditorApi.cropPages(documentId, { pageNumbers: pages, margins }),
+    );
+    if (ok) setActiveTool('select');
+  }, [runPageOperation, documentId]);
+
+  const handleCropReset = useCallback(async (pages: number[] | undefined) => {
+    const ok = await runPageOperation(
+      'Remove crop',
+      () => pdfEditorApi.cropPages(documentId, { pageNumbers: pages, reset: true }),
+    );
+    if (ok) setCropRect(null);
+  }, [runPageOperation, documentId]);
+
+  // Combine files: a new document, opened right away when possible
+  const combineMutation = useMutation({
+    mutationFn: ({ ids, name }: { ids: string[]; name: string }) => pdfEditorApi.mergeDocuments(ids, name),
+    onSuccess: (merged) => {
+      setCombineOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['pdf-editor-documents'] });
+      if (onOpenDocument) {
+        openDocument(merged.id);
+      } else {
+        message.success(<span>Combined into &ldquo;{merged.name}&rdquo;.</span>);
+      }
+    },
+    onError: (err) => message.error(apiErrorMessage(err, 'Combine failed')),
+  });
+
+  const handleCombine = useCallback(async (ids: string[], name: string) => {
+    // The open document goes in with its latest edits
+    if (ids.includes(documentId) && (isDirty || isSaving) && !(await handleSave(true))) return;
+    combineMutation.mutate({ ids, name });
+  }, [documentId, isDirty, isSaving, handleSave, combineMutation]);
+
+  // ── Redact ────────────────────────────────────────────────────────────────
+  const redactMarks = annotations.filter((a) => a.type === 'redact');
+
+  const addMarks = useCallback((boxes: Omit<Annotation, 'id' | 'type' | 'content' | 'style'>[]) => {
+    if (!boxes.length) return;
+    const marks: Annotation[] = boxes.map((b) => ({
+      ...b,
+      id: crypto.randomUUID(),
+      type: 'redact',
+      content: '',
+      style: {},
+    }));
+    commitAnnotations([...annotationsRef.current, ...marks]);
+  }, [commitAnnotations]);
+
+  const handleMarkMatches = useCallback((matches: TextSearchMatch[]) => {
+    addMarks(matches.flatMap((m) => m.boxes.map((box) => ({ ...box, page: m.page }))));
+    const pages = new Set(matches.map((m) => m.page));
+    message.success(
+      `Marked ${matches.length} result${matches.length === 1 ? '' : 's'} on ${pages.size} page${pages.size === 1 ? '' : 's'}`,
+    );
+    setActiveTool('redact');
+  }, [addMarks, message]);
+
+  const handleMarkPage = useCallback(() => {
+    // The page's size in page units, with a point to spare at each edge
+    const w = canvasSize.width / zoom;
+    const h = canvasSize.height / zoom;
+    if (!w || !h) return;
+    addMarks([{ page: currentPage, x: w / 2, y: h / 2, width: w + 2, height: h + 2, rotation: 0 }]);
+  }, [addMarks, canvasSize, zoom, currentPage]);
+
+  const handleClearMarks = useCallback(() => {
+    commitAnnotations(annotationsRef.current.filter((a) => a.type !== 'redact'));
+    setSelectedAnnotationId(null);
+  }, [commitAnnotations]);
+
+  const handleApplyRedactions = useCallback(async (options: RedactApplyOptions) => {
+    let removedImages = 0;
+    const ok = await runPageOperation('Redact', async () => {
+      const result = await pdfEditorApi.applyRedactions(documentId, options);
+      removedImages = result.removedImages;
+      return result.document;
+    });
+    if (!ok) return;
+    setActiveTool('select');
+    message.success('Redactions applied. What was under them is gone from the PDF.');
+    if (removedImages) {
+      message.warning(
+        `${removedImages} image${removedImages === 1 ? '' : 's'} under a marked area couldn’t be `
+        + 'partly blacked out and were removed whole.',
+        8,
+      );
+    }
+  }, [runPageOperation, documentId, message]);
+
+  // ── All tools menu (Acrobat's Edit panel) ─────────────────────────────────
+  const handleToolsAction = useCallback((action: ToolsMenuAction) => {
+    switch (action) {
+      case 'edit': setOrganizeOpen(false); setActiveTool('edit_text'); break;
+      case 'crop': setOrganizeOpen(false); setActiveTool('crop'); break;
+      case 'redact': setOrganizeOpen(false); setActiveTool('redact'); break;
+      case 'organize':
+      case 'reorder':
+      case 'rotate':
+        setActiveTool('select');
+        setOrganizeOpen(true);
+        break;
+      case 'insert': setInsertAfter(currentPage); break;
+      case 'extract': setExtractPages([currentPage]); break;
+      case 'combine': setCombineOpen(true); break;
+      case 'protect': setProtectOpen(true); break;
+    }
+  }, [currentPage]);
+
   // ── Derived values ────────────────────────────────────────────────────────
   const pageCount = doc?.pageCount ?? 1;
   const docName = doc?.name ?? 'Loading...';
@@ -1282,10 +1653,33 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
 
   // Annotations visible on the current page (for AnnotationLayer)
   const pageAnnotations = annotations.filter((a) => a.page === currentPage);
+  // Edit covers on this page, each with what it takes off the page
+  const pageCovers: PreviewCover[] = useMemo(
+    () => pageAnnotations
+      .filter((a) => isTextCoverId(a.id))
+      .map(({ id, x, y, width, height, rotation }) => ({
+        id, x, y, width, height, rotation,
+        kind: isImageCover({ id } as Annotation, pageAnnotations) ? 'image' as const : 'text' as const,
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [annotations, currentPage],
+  );
+
+  // The page's own images, for Edit to pick up (only while it's on)
+  const { data: pageImages = null } = useQuery({
+    queryKey: ['pdf-page-images', documentId, currentPage, pdfRefreshKey],
+    queryFn: () => pdfEditorApi.listPageImages(documentId, currentPage),
+    enabled: activeTool === 'edit_text',
+    staleTime: Infinity,
+  });
 
   const selectedAnnotation = selectedAnnotationId
     ? annotations.find((a) => a.id === selectedAnnotationId) ?? null
     : null;
+  const selectedIsReplacement = !!selectedAnnotationId
+    && annotations.some((a) => a.id === selectedAnnotationId + TEXT_COVER_SUFFIX);
+  // The page in page units, for crop
+  const pageSize = { width: canvasSize.width / zoom, height: canvasSize.height / zoom };
 
   // ── Layout ────────────────────────────────────────────────────────────────
   return (
@@ -1301,7 +1695,11 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
       {/* Toolbar – full width */}
       <Toolbar
         activeTool={activeTool}
-        onToolChange={setActiveTool}
+        onToolChange={(tool) => {
+          // A tool works on the page, so it leaves the page organizer
+          setOrganizeOpen(false);
+          setActiveTool(tool);
+        }}
         zoom={Math.round(zoom * 100)}
         onZoomChange={(pct) => setZoom(pct / 100)}
         currentPage={currentPage}
@@ -1314,6 +1712,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
         onSave={() => handleSave()}
         onExport={handleExport}
         onExportOriginal={handleExportOriginal}
+        onExportProtected={() => setProtectOpen(true)}
         isSaving={isSaving}
         isDirty={isDirty}
         documentName={docName}
@@ -1336,16 +1735,20 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
         background: '#fff',
         gap: 8,
       }}>
-        <Button
-          type="text"
-          size="small"
-          icon={sidebarOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
-          onClick={() => setSidebarOpen((v) => !v)}
-          style={{ color: colors.textSecondary, flexShrink: 0 }}
-          aria-label={sidebarOpen ? 'Hide pages' : 'Show pages'}
-        >
-          {!isMobile && 'Pages'}
-        </Button>
+        <Space size={8}>
+          <Button
+            type="text"
+            size="small"
+            icon={sidebarOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+            onClick={() => setSidebarOpen((v) => !v)}
+            style={{ color: colors.textSecondary, flexShrink: 0 }}
+            aria-label={sidebarOpen ? 'Hide pages' : 'Show pages'}
+            disabled={organizeOpen}
+          >
+            {!isMobile && 'Pages'}
+          </Button>
+          <ToolsMenu onAction={handleToolsAction} compact={isMobile} />
+        </Space>
         <Space size={8}>
           {isMobile && selectedAnnotation && (
             <Button
@@ -1376,7 +1779,59 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
         </Space>
       </div>
 
-      {/* Three-column body */}
+      {/* Mode bars: crop / redact */}
+      {activeTool === 'crop' && !organizeOpen && (
+        <CropBar
+          pageWidth={pageSize.width}
+          pageHeight={pageSize.height}
+          rect={cropRect}
+          onRectChange={setCropRect}
+          currentPage={currentPage}
+          pageCount={pageCount}
+          busy={pageOpBusy}
+          onApply={handleCropApply}
+          onReset={handleCropReset}
+          onCancel={() => setActiveTool('select')}
+        />
+      )}
+      {(activeTool === 'redact' || redactMarks.length > 0) && !organizeOpen && (
+        <RedactBar
+          active={activeTool === 'redact'}
+          markCount={redactMarks.length}
+          busy={pageOpBusy}
+          onToggle={() => setActiveTool(activeTool === 'redact' ? 'select' : 'redact')}
+          onFindText={() => setRedactSearchOpen(true)}
+          onMarkPage={handleMarkPage}
+          onClearMarks={handleClearMarks}
+          onApply={handleApplyRedactions}
+        />
+      )}
+
+      {/* Organize pages: the page grid in place of the editor */}
+      {organizeOpen ? (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: colors.bgLight }}>
+          <OrganizePagesView
+            documentId={documentId}
+            documentName={docName}
+            pageCount={pageCount}
+            currentPage={currentPage}
+            refreshKey={pdfRefreshKey}
+            busy={pageOpBusy}
+            onClose={() => setOrganizeOpen(false)}
+            onOpenPage={(page) => {
+              setCurrentPage(page);
+              setOrganizeOpen(false);
+            }}
+            onReorder={handlePagesReorder}
+            onRotate={handlePagesRotate}
+            onDelete={handlePagesDelete}
+            onDuplicate={handleDuplicate}
+            onInsert={(after) => setInsertAfter(after)}
+            onExtract={(pages) => setExtractPages(pages)}
+          />
+        </div>
+      ) : (
+      /* Three-column body */
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
         {/* Page sidebar – toggleable */}
         {sidebarOpen && (
@@ -1411,6 +1866,11 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
               onPagesDelete={handlePagesDelete}
               onPagesRotate={handlePagesRotate}
               refreshKey={pdfRefreshKey}
+              onOrganize={() => {
+                setActiveTool('select');
+                setOrganizeOpen(true);
+              }}
+              onInsertAfter={(page) => setInsertAfter(page)}
             />
           </div>
         )}
@@ -1462,6 +1922,8 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
               onCanvasResize={(w, h) => setCanvasSize({ width: w, height: h })}
               onPageReady={setIsPdfPageReady}
               onTextLayer={setTextLayer}
+              textCovers={pageCovers}
+              onCoversErased={setErasedCoverIds}
             />
             {canvasSize.width > 0 && canvasSize.height > 0 && (
               <div
@@ -1493,9 +1955,21 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
                   checkSize={checkSize}
                   onSignRequest={handleSignRequest}
                   textLayer={textLayer}
+                  erasedCoverIds={erasedCoverIds}
                   onTextReplace={handleTextReplace}
+                  pageImages={activeTool === 'edit_text' ? pageImages : null}
+                  onImagePick={handleImagePick}
                 />
               </div>
+            )}
+            {activeTool === 'crop' && isPdfPageReady && canvasSize.width > 0 && (
+              <CropOverlay
+                pageWidth={pageSize.width}
+                pageHeight={pageSize.height}
+                zoom={zoom}
+                rect={cropRect}
+                onChange={setCropRect}
+              />
             )}
           </div>
         </div>
@@ -1517,10 +1991,12 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
               onAnnotationDelete={handleAnnotationDelete}
               onBringToFront={handleBringToFront}
               onSendToBack={handleSendToBack}
+              onRestoreOriginal={selectedIsReplacement ? handleRestoreOriginal : undefined}
             />
           </div>
         )}
       </div>
+      )}
 
       {/* Property panel – bottom drawer on mobile */}
       {isMobile && (
@@ -1542,6 +2018,10 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
             }}
             onBringToFront={handleBringToFront}
             onSendToBack={handleSendToBack}
+            onRestoreOriginal={selectedIsReplacement ? (id) => {
+              handleRestoreOriginal(id);
+              setMobilePropsOpen(false);
+            } : undefined}
           />
         </Drawer>
       )}
@@ -1572,6 +2052,46 @@ export const EditorView: React.FC<EditorViewProps> = ({ documentId, onBack, heig
         open={signModalOpen}
         onClose={() => setSignModalOpen(false)}
         onInsert={handleSignInsert}
+      />
+
+      {/* Page tools */}
+      <InsertPagesModal
+        open={insertAfter !== null}
+        onClose={() => setInsertAfter(null)}
+        documentId={documentId}
+        pageCount={pageCount}
+        defaultAfter={insertAfter ?? currentPage}
+        onInsert={handleInsert}
+      />
+      <ExtractPagesModal
+        open={extractPages !== null}
+        onClose={() => setExtractPages(null)}
+        pageCount={pageCount}
+        documentName={docName}
+        defaultPages={extractPages ?? [currentPage]}
+        onExtract={handleExtract}
+      />
+      <MergeModal
+        open={combineOpen}
+        onClose={() => setCombineOpen(false)}
+        onMerge={handleCombine}
+        merging={combineMutation.isPending}
+        initialDocumentIds={[documentId]}
+        title="Combine files"
+      />
+      <ProtectModal
+        open={protectOpen}
+        onClose={() => setProtectOpen(false)}
+        documentId={documentId}
+        documentName={docName}
+        beforeDownload={beforeProtectedDownload}
+      />
+      <RedactSearchModal
+        open={redactSearchOpen}
+        onClose={() => setRedactSearchOpen(false)}
+        documentId={documentId}
+        onMark={handleMarkMatches}
+        onGoToPage={setCurrentPage}
       />
     </div>
   );
@@ -1632,8 +2152,10 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
   if (editingDocumentId) {
     return (
       <EditorView
+        key={editingDocumentId}
         documentId={editingDocumentId}
         onBack={() => setEditingDocumentId(null)}
+        onOpenDocument={setEditingDocumentId}
       />
     );
   }

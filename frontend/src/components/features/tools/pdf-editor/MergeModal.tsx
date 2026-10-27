@@ -1,8 +1,10 @@
 /**
- * Scopit - PDF Editor Merge Modal
+ * Scopit - PDF Editor Merge Modal ("Combine files")
  *
- * Allows the user to select existing PDF documents, arrange them in order
- * via drag-and-drop, name the result, and trigger a merge.
+ * Allows the user to select existing PDF documents -- or add files from
+ * their computer (PDF, images, Word), which are uploaded as documents --
+ * arrange them in order via drag-and-drop, name the result, and trigger a
+ * merge.
  *
  * Usage:
  *   <MergeModal
@@ -10,10 +12,13 @@
  *     onClose={() => setOpen(false)}
  *     onMerge={(ids, name) => mergeMutation.mutate({ ids, name })}
  *     merging={mergeMutation.isPending}
+ *     initialDocumentIds={[openDocumentId]}   // optional: start with these
+ *     title="Combine files"                    // optional
  *   />
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
+  App,
   Modal,
   Input,
   Checkbox,
@@ -22,11 +27,13 @@ import {
   Button,
   Empty,
   Alert,
+  Upload,
 } from 'antd';
 import {
   HolderOutlined,
   FileTextOutlined,
   SearchOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -43,12 +50,18 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { pdfEditorApi } from './pdfEditorApi';
+import { apiErrorMessage, usePdfPassword } from './pdfPassword';
 import type { PdfDocument } from './types';
 import { colors, fonts, borderRadius, fontSizes } from '@/styles/theme';
 
 const { Text } = Typography;
+
+// Files "Add files" takes: what the upload endpoint converts to PDF
+const ADD_FILES_ACCEPT =
+  '.pdf,.jpg,.jpeg,.png,.webp,.heic,.tiff,.docx,application/pdf,image/*,' +
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -57,6 +70,10 @@ export interface MergeModalProps {
   onClose: () => void;
   onMerge: (documentIds: string[], name: string) => void;
   merging: boolean;
+  /** Documents to start with, in this order (e.g. the one open in the editor) */
+  initialDocumentIds?: string[];
+  /** Dialog title; defaults to "Merge Documents" */
+  title?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -263,11 +280,23 @@ const DocRow: React.FC<DocRowProps> = ({ doc, checked, onChange }) => (
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-const MergeModal: React.FC<MergeModalProps> = ({ open, onClose, onMerge, merging }) => {
+const MergeModal: React.FC<MergeModalProps> = ({
+  open,
+  onClose,
+  onMerge,
+  merging,
+  initialDocumentIds,
+  title = 'Merge Documents',
+}) => {
+  const { message } = App.useApp();
+  const queryClient = useQueryClient();
+  const withPdfPassword = usePdfPassword();
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mergeOrder, setMergeOrder] = useState<PdfDocument[]>([]);
   const [mergeName, setMergeName] = useState('Merged Document');
+  // Files from the computer still uploading: { done, total } of this batch
+  const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -285,15 +314,57 @@ const MergeModal: React.FC<MergeModalProps> = ({ open, onClose, onMerge, merging
 
   const allDocs = data?.items ?? [];
 
-  // Reset state when modal opens
+  // Reset state when modal opens, starting with the initial documents. They
+  // are fetched one by one: the open document may not be in the list's first
+  // 100.
+  const initialKey = (initialDocumentIds ?? []).join(',');
   useEffect(() => {
-    if (open) {
-      setSearch('');
-      setSelectedIds([]);
-      setMergeOrder([]);
-      setMergeName('Merged Document');
-    }
-  }, [open]);
+    if (!open) return;
+    setSearch('');
+    setSelectedIds([]);
+    setMergeOrder([]);
+    setMergeName('Merged Document');
+    setUploading(null);
+    const ids = initialKey ? initialKey.split(',') : [];
+    if (!ids.length) return;
+    let cancelled = false;
+    Promise.all(ids.map((id) => pdfEditorApi.getDocument(id).catch(() => null))).then((docs) => {
+      if (cancelled) return;
+      const found = docs.filter((d): d is PdfDocument => !!d);
+      setSelectedIds((prev) => [...found.map((d) => d.id), ...prev.filter((id) => !ids.includes(id))]);
+      setMergeOrder((prev) => [...found, ...prev.filter((d) => !ids.includes(d.id))]);
+    });
+    return () => { cancelled = true; };
+  }, [open, initialKey]);
+
+  // Add files from the computer: each becomes a document (images and Word
+  // files converted to PDF) and joins the end of the merge order
+  const handleAddFiles = useCallback(
+    async (files: File[]) => {
+      setUploading({ done: 0, total: files.length });
+      const added: PdfDocument[] = [];
+      for (const file of files) {
+        try {
+          const doc = await withPdfPassword(
+            (password) => pdfEditorApi.uploadDocument(file, undefined, 0, password),
+            file.name,
+          );
+          if (doc) added.push(doc);
+        } catch (err) {
+          message.error(apiErrorMessage(err, `Couldn’t add ${file.name}`));
+        }
+        setUploading((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
+      }
+      setUploading(null);
+      if (!added.length) return;
+      queryClient.invalidateQueries({ queryKey: ['pdf-documents-merge'] });
+      queryClient.invalidateQueries({ queryKey: ['pdf-editor-documents'] });
+      setSelectedIds((prev) => [...prev, ...added.map((d) => d.id)]);
+      setMergeOrder((prev) => [...prev, ...added]);
+      message.success(`Added ${added.length} file${added.length === 1 ? '' : 's'}`);
+    },
+    [withPdfPassword, message, queryClient],
+  );
 
   // Filtered list for the checkbox panel
   const filteredDocs = search.trim()
@@ -336,7 +407,7 @@ const MergeModal: React.FC<MergeModalProps> = ({ open, onClose, onMerge, merging
   };
 
   const totalPages = mergeOrder.reduce((sum, d) => sum + d.pageCount, 0);
-  const canMerge = mergeOrder.length >= 2 && mergeName.trim().length > 0;
+  const canMerge = mergeOrder.length >= 2 && mergeName.trim().length > 0 && !uploading;
 
   const handleMerge = () => {
     if (!canMerge) return;
@@ -382,14 +453,14 @@ const MergeModal: React.FC<MergeModalProps> = ({ open, onClose, onMerge, merging
     <Modal
       title={
         <span style={{ fontFamily: fonts.heading, fontWeight: 600, fontSize: fontSizes.md }}>
-          Merge Documents
+          {title}
         </span>
       }
       open={open}
       onCancel={onClose}
       width={560}
       footer={footerEl}
-      maskClosable={!merging}
+      maskClosable={!merging && !uploading}
       closable={!merging}
       styles={{
         body: { padding: '16px 0 0', fontFamily: fonts.body },
@@ -399,20 +470,54 @@ const MergeModal: React.FC<MergeModalProps> = ({ open, onClose, onMerge, merging
     >
       {/* ── Section: Select Documents ── */}
       <div style={{ padding: '0 24px' }}>
-        <Text
+        <div
           style={{
-            fontSize: fontSizes.xs,
-            fontWeight: 600,
-            color: colors.textMuted,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            display: 'block',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
             marginBottom: 8,
-            fontFamily: fonts.body,
           }}
         >
-          Select documents to merge
-        </Text>
+          <Text
+            style={{
+              fontSize: fontSizes.xs,
+              fontWeight: 600,
+              color: colors.textMuted,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              fontFamily: fonts.body,
+            }}
+          >
+            Select documents to merge
+          </Text>
+          <Upload
+            multiple
+            accept={ADD_FILES_ACCEPT}
+            showUploadList={false}
+            disabled={!!uploading || merging}
+            beforeUpload={(file, fileList) => {
+              // Called once per file, each time with the whole batch:
+              // handle the batch once, on its first file
+              if (file.uid === fileList[0]?.uid) {
+                handleAddFiles(fileList as unknown as File[]);
+              }
+              return false;
+            }}
+          >
+            <Button
+              size="small"
+              icon={uploading ? <Spin size="small" /> : <UploadOutlined />}
+              disabled={!!uploading || merging}
+              aria-label="Add files from your computer"
+              style={{ fontFamily: fonts.body, fontSize: fontSizes.xs }}
+            >
+              {uploading
+                ? `Adding ${Math.min(uploading.done + 1, uploading.total)} of ${uploading.total}…`
+                : 'Add files'}
+            </Button>
+          </Upload>
+        </div>
 
         {/* Search */}
         <Input
@@ -454,7 +559,7 @@ const MergeModal: React.FC<MergeModalProps> = ({ open, onClose, onMerge, merging
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
                 <Text style={{ fontSize: fontSizes.sm, color: colors.textMuted }}>
-                  {search ? 'No documents match your search' : 'No documents found'}
+                  {search ? 'No documents match your search' : 'No documents yet. Add files from your computer.'}
                 </Text>
               }
               style={{ padding: '16px 0' }}
@@ -577,7 +682,7 @@ const MergeModal: React.FC<MergeModalProps> = ({ open, onClose, onMerge, merging
               fontFamily: fonts.body,
             }}
           >
-            Select at least 2 documents to merge.
+            Select or add at least 2 documents to merge.
           </Text>
         )}
       </div>

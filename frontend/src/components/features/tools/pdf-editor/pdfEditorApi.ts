@@ -19,7 +19,18 @@ import type {
   CompanyDocument,
   CompanyDocumentListResponse,
   DeliveryMethod,
+  CropMargins,
+  PageBox,
+  PageImage,
+  ProtectOptions,
+  RedactPattern,
+  TextSearchMatch,
 } from './types';
+
+/** An Edit cover sent for the erased-page preview: over words, or over an image picked up */
+export type PreviewCover = Pick<Annotation, 'id' | 'x' | 'y' | 'width' | 'height' | 'rotation'> & {
+  kind: 'text' | 'image';
+};
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
 
@@ -60,11 +71,18 @@ export const pdfEditorApi = {
   /**
    * Upload a PDF file and create a new document record.
    */
-  uploadDocument: async (file: File, name?: string, rotation = 0): Promise<PdfDocument> => {
+  uploadDocument: async (
+    file: File,
+    name?: string,
+    rotation = 0,
+    password?: string,
+  ): Promise<PdfDocument> => {
     const form = new FormData();
     form.append('file', file);
     if (name) form.append('name', name);
     if (rotation) form.append('rotation', String(rotation));
+    // Opens a password-protected PDF (see withPdfPassword)
+    if (password) form.append('password', password);
     const response = await api.post<PdfDocument>('/tools/pdf-editor/documents/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -114,6 +132,106 @@ export const pdfEditorApi = {
       responseType: 'blob',
       params: flatten ? { flatten: true } : undefined,
     });
+    return response.data;
+  },
+
+  /**
+   * One page as a PDF with what the given Edit covers sit on erased: the
+   * original words, or an image picked up. `erased`: the covers that found
+   * something to erase.
+   */
+  previewTextEdits: async (
+    id: string,
+    pageNum: number,
+    covers: PreviewCover[],
+  ): Promise<{ pdf: Uint8Array; erased: string[] }> => {
+    const response = await api.post<{ pdf: string; erased: string[] }>(
+      `/tools/pdf-editor/documents/${id}/pages/${pageNum}/text-edit-preview`,
+      { covers },
+    );
+    const bin = atob(response.data.pdf);
+    const pdf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) pdf[i] = bin.charCodeAt(i);
+    return { pdf, erased: response.data.erased };
+  },
+
+  /**
+   * The images a page draws that Edit can pick up (the page as stored,
+   * before any edits).
+   */
+  listPageImages: async (id: string, pageNum: number): Promise<PageImage[]> => {
+    const response = await api.get<{ images: PageImage[] }>(
+      `/tools/pdf-editor/documents/${id}/pages/${pageNum}/images`,
+    );
+    return response.data.images;
+  },
+
+  /**
+   * One of a page's images as a data URL, turned the way the page shows
+   * it, with where it's drawn.
+   */
+  getEmbeddedImage: async (
+    id: string,
+    pageNum: number,
+    index: number,
+  ): Promise<PageBox & { index: number; dataUrl: string }> => {
+    const response = await api.get(
+      `/tools/pdf-editor/documents/${id}/pages/${pageNum}/images/${index}`,
+    );
+    return response.data;
+  },
+
+  /**
+   * Where words -- or a pattern (emails, phone numbers, ...) -- are printed
+   * in the document, for Redact to mark.
+   */
+  searchText: async (
+    id: string,
+    query: { q?: string; pattern?: RedactPattern; matchCase?: boolean; wholeWord?: boolean },
+  ): Promise<{ matches: TextSearchMatch[]; truncated: boolean }> => {
+    const response = await api.get(`/tools/pdf-editor/documents/${id}/text-search`, {
+      params: {
+        ...(query.q ? { q: query.q } : {}),
+        ...(query.pattern ? { pattern: query.pattern } : {}),
+        match_case: !!query.matchCase,
+        whole_word: !!query.wholeWord,
+      },
+    });
+    return response.data;
+  },
+
+  /**
+   * Permanently take what's under the redaction marks (`markIds`, or all)
+   * out of the PDF. `removedImages`: images that had to go whole.
+   */
+  applyRedactions: async (
+    id: string,
+    options: { markIds?: string[]; fillColor?: string; removeMetadata?: boolean } = {},
+  ): Promise<{ document: PdfDocument; removedImages: number }> => {
+    const response = await api.post(`/tools/pdf-editor/documents/${id}/redactions/apply`, {
+      ...(options.markIds ? { mark_ids: options.markIds } : {}),
+      fill_color: options.fillColor ?? '#000000',
+      remove_metadata: !!options.removeMetadata,
+    });
+    return response.data;
+  },
+
+  /**
+   * Download the document (edits burned in) password-protected.
+   */
+  protectDocument: async (id: string, options: ProtectOptions): Promise<Blob> => {
+    const response = await api.post(
+      `/tools/pdf-editor/documents/${id}/protect`,
+      {
+        ...(options.openPassword ? { open_password: options.openPassword } : {}),
+        ...(options.permissionsPassword ? { permissions_password: options.permissionsPassword } : {}),
+        allow_printing: options.allowPrinting,
+        allow_copying: options.allowCopying,
+        allow_editing: options.allowEditing,
+        allow_commenting: options.allowCommenting,
+      },
+      { responseType: 'blob' },
+    );
     return response.data;
   },
 
@@ -214,6 +332,74 @@ export const pdfEditorApi = {
       `/tools/pdf-editor/documents/${id}/pages/rotate`,
       { rotations },
     );
+    return response.data;
+  },
+
+  /**
+   * Crop pages (1-based; all when `pageNumbers` is omitted): trim `margins`
+   * (points, as the page is shown) off what's visible, or `reset` to show
+   * the whole page again.
+   */
+  cropPages: async (
+    id: string,
+    options: { pageNumbers?: number[]; margins?: CropMargins; reset?: boolean },
+  ): Promise<PdfDocument> => {
+    const response = await api.post<PdfDocument>(`/tools/pdf-editor/documents/${id}/pages/crop`, {
+      ...(options.pageNumbers ? { page_numbers: options.pageNumbers } : {}),
+      ...(options.margins ? { margins: options.margins } : {}),
+      reset: !!options.reset,
+    });
+    return response.data;
+  },
+
+  /**
+   * Insert pages after page `after` (0 = at the start): blank pages, an
+   * uploaded file (PDF, image or Word), or pages of a document -- this one
+   * too, which duplicates them.
+   */
+  insertPages: async (
+    id: string,
+    after: number,
+    source:
+      | { kind: 'blank'; count: number }
+      | { kind: 'file'; file: File; password?: string }
+      | { kind: 'document'; documentId: string; pages?: number[] },
+  ): Promise<PdfDocument> => {
+    const form = new FormData();
+    form.append('after', String(after));
+    form.append('kind', source.kind);
+    if (source.kind === 'blank') form.append('count', String(source.count));
+    if (source.kind === 'file') {
+      form.append('file', source.file);
+      if (source.password) form.append('password', source.password);
+    }
+    if (source.kind === 'document') {
+      form.append('source_document_id', source.documentId);
+      if (source.pages?.length) form.append('source_pages', source.pages.join(','));
+    }
+    const response = await api.post<PdfDocument>(
+      `/tools/pdf-editor/documents/${id}/pages/insert`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    return response.data;
+  },
+
+  /**
+   * Copy pages into a new document (or one per page with `separate`).
+   * With `deleteAfter` they're removed from this one, returned as `source`.
+   */
+  extractPages: async (
+    id: string,
+    pageNumbers: number[],
+    options: { separate?: boolean; deleteAfter?: boolean; name?: string } = {},
+  ): Promise<{ documents: PdfDocument[]; source: PdfDocument | null }> => {
+    const response = await api.post(`/tools/pdf-editor/documents/${id}/pages/extract`, {
+      page_numbers: pageNumbers,
+      separate: !!options.separate,
+      delete_after: !!options.deleteAfter,
+      ...(options.name ? { name: options.name } : {}),
+    });
     return response.data;
   },
 

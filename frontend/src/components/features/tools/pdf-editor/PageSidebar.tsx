@@ -6,8 +6,9 @@
  *   - Thumbnails rendered via pdfjs-dist (no extra API calls)
  *   - Drag-and-drop reorder via @dnd-kit
  *   - Single and Ctrl+Click multi-select
- *   - Hover icons: rotate CW / CCW, delete
+ *   - Hover icons: rotate CW / CCW, delete (and insert after, when wanted)
  *   - "Delete Selected" batch action
+ *   - Optional "Organize pages" button opening the full-size grid view
  *
  * Usage:
  *   <PageSidebar
@@ -29,7 +30,9 @@ import React, {
 } from 'react';
 import { App, Button, Spin, Tooltip, Typography } from 'antd';
 import {
+  AppstoreOutlined,
   DeleteOutlined,
+  PlusOutlined,
   RotateLeftOutlined,
   RotateRightOutlined,
 } from '@ant-design/icons';
@@ -74,18 +77,23 @@ export interface PageSidebarProps {
   onPagesRotate: (rotations: Record<string, number>) => void;
   /** Increment to force thumbnail reload after page operations */
   refreshKey?: number;
+  /** Shows an "Organize pages" button in the header */
+  onOrganize?: () => void;
+  /** Adds an "Insert page after" hover action to each thumbnail */
+  onInsertAfter?: (page: number) => void;
 }
 
 // ── Thumbnail Hook ────────────────────────────────────────────────────────────
 
 /**
- * Loads the PDF once and renders all pages to data-URLs at THUMB_SCALE.
+ * Loads the PDF once and renders all pages to data-URLs at `scale`.
  * Returns a map of 1-based page number → data-URL string.
  */
-function usePdfThumbnails(
+export function usePdfThumbnails(
   documentId: string,
   pageCount: number,
   refreshKey = 0,
+  scale = THUMB_SCALE,
 ): { thumbs: Record<number, string>; loading: boolean } {
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
@@ -131,7 +139,7 @@ function usePdfThumbnails(
           if (cancelled) break;
           try {
             const page = await pdf.getPage(i);
-            const viewport = page.getViewport({ scale: THUMB_SCALE });
+            const viewport = page.getViewport({ scale });
 
             const offscreen = document.createElement('canvas');
             offscreen.width = viewport.width;
@@ -168,7 +176,7 @@ function usePdfThumbnails(
       pdfRef.current?.destroy();
       pdfRef.current = null;
     };
-  }, [documentId, pageCount, refreshKey]);
+  }, [documentId, pageCount, refreshKey, scale]);
 
   return { thumbs, loading };
 }
@@ -184,6 +192,7 @@ interface ThumbItemProps {
   onRotateCW: (pageNum: number) => void;
   onRotateCCW: (pageNum: number) => void;
   onDelete: (pageNum: number) => void;
+  onInsertAfter?: (pageNum: number) => void;
 }
 
 const ThumbItem: React.FC<ThumbItemProps> = ({
@@ -195,6 +204,7 @@ const ThumbItem: React.FC<ThumbItemProps> = ({
   onRotateCW,
   onRotateCCW,
   onDelete,
+  onInsertAfter,
 }) => {
   const [hovered, setHovered] = useState(false);
 
@@ -337,6 +347,18 @@ const ThumbItem: React.FC<ThumbItemProps> = ({
                 aria-label={`Rotate page ${pageNum} counter-clockwise`}
               />
             </Tooltip>
+            {onInsertAfter && (
+              <Tooltip title="Insert page after" placement="right">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<PlusOutlined style={{ fontSize: 13 }} />}
+                  onClick={() => onInsertAfter(pageNum)}
+                  style={{ width: 24, height: 24, padding: 0, color: colors.textSecondary }}
+                  aria-label={`Insert a page after page ${pageNum}`}
+                />
+              </Tooltip>
+            )}
             <Tooltip title="Delete page" placement="right">
               <Button
                 type="text"
@@ -378,6 +400,8 @@ const PageSidebar: React.FC<PageSidebarProps> = ({
   onPagesDelete,
   onPagesRotate,
   refreshKey = 0,
+  onOrganize,
+  onInsertAfter,
 }) => {
   // Ordered list of 1-based page numbers (reflects local reorder before API call)
   const [pageOrder, setPageOrder] = useState<number[]>(() =>
@@ -537,7 +561,21 @@ const PageSidebar: React.FC<PageSidebarProps> = ({
         >
           Pages ({pageCount})
         </Text>
-        {thumbsLoading && <Spin size="small" />}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {thumbsLoading && <Spin size="small" />}
+          {onOrganize && (
+            <Tooltip title="Organize pages">
+              <Button
+                type="text"
+                size="small"
+                icon={<AppstoreOutlined style={{ fontSize: 13 }} />}
+                onClick={onOrganize}
+                style={{ width: 24, height: 24, padding: 0, color: colors.textSecondary }}
+                aria-label="Organize pages"
+              />
+            </Tooltip>
+          )}
+        </div>
       </div>
 
       {/* Batch delete bar */}
@@ -600,6 +638,7 @@ const PageSidebar: React.FC<PageSidebarProps> = ({
                 onRotateCW={handleRotateCW}
                 onRotateCCW={handleRotateCCW}
                 onDelete={handleDeleteSingle}
+                onInsertAfter={onInsertAfter}
               />
             ))}
           </SortableContext>

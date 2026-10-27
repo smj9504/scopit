@@ -2,8 +2,9 @@
  * Scopit - PDF Editor: existing-text runs
  *
  * Finds the text already printed on a PDF page so the "Edit Text" tool can
- * replace it visually: the original stays in the file, covered by a box in
- * the page's own background color, with the new text drawn on top.
+ * replace it: the original words are erased from the page (the backend
+ * removes their glyphs, see pdf_text_edit.py) and the new text is drawn in
+ * their place, in the same PDF font when the page has it.
  *
  * Geometry is in the pdf.js viewport at scale 1, the same space annotations
  * use. Each run is anchored at its baseline-left point and laid out along
@@ -27,10 +28,12 @@ export interface PdfTextRun {
   ascent: number;
   descent: number;
   fontSize: number;
-  /** One of the editor's font choices */
+  /** One of the editor's font choices, standing in for the PDF font */
   fontFamily: string;
   bold: boolean;
   italic: boolean;
+  /** The PDF font it's printed in, as pdf.js names it (a PdfTextLayer.fonts key) */
+  pdfFont?: string;
 }
 
 export interface SampledColors {
@@ -38,8 +41,18 @@ export interface SampledColors {
   text: string;
 }
 
+/** How pdf.js draws a PDF font on its canvas, for drawing text the same way. */
+export interface PdfFontFace {
+  /** CSS font-family list: the font pdf.js loaded from the PDF, then its fallback */
+  family: string;
+  weight: string;
+  style: string;
+}
+
 export interface PdfTextLayer {
   runs: PdfTextRun[];
+  /** The document's PDF fonts pdf.js has loaded, by PDF font name */
+  fonts: Map<string, PdfFontFace>;
   /** Reads the rendered page to match the run's background and ink colors. */
   sampleColors: (run: PdfTextRun) => SampledColors | null;
 }
@@ -55,6 +68,22 @@ interface FontInfo {
   fontFamily: string;
   bold: boolean;
   italic: boolean;
+  pdfFont?: string;
+}
+
+/** The parts of pdf.js's FontFaceObject used here */
+interface PdfJsFont {
+  name?: string;
+  loadedName?: string;
+  bold?: boolean;
+  black?: boolean;
+  italic?: boolean;
+  isSerifFont?: boolean;
+  isMonospace?: boolean;
+  isType3Font?: boolean;
+  disableFontFace?: boolean;
+  fallbackName?: string;
+  systemFontInfo?: { css?: string } | null;
 }
 
 function fontInfo(page: PDFPageProxy, fontName: string, style: TextStyle | undefined): FontInfo {
@@ -66,14 +95,7 @@ function fontInfo(page: PDFPageProxy, fontName: string, style: TextStyle | undef
   try {
     // Loaded by the page render, which runs before text extraction
     if (page.commonObjs.has(fontName)) {
-      const font = page.commonObjs.get(fontName) as {
-        name?: string;
-        bold?: boolean;
-        black?: boolean;
-        italic?: boolean;
-        isSerifFont?: boolean;
-        isMonospace?: boolean;
-      };
+      const font = page.commonObjs.get(fontName) as PdfJsFont;
       name = font.name ?? '';
       serif = serif || !!font.isSerifFont;
       mono = mono || !!font.isMonospace;
@@ -92,7 +114,30 @@ function fontInfo(page: PDFPageProxy, fontName: string, style: TextStyle | undef
     fontFamily: mono ? 'Courier' : serif ? 'Times New Roman' : 'Arial',
     bold,
     italic,
+    pdfFont: name || undefined,
   };
+}
+
+/**
+ * The PDF fonts pdf.js has loaded for this page's document, keyed by name,
+ * each as pdf.js's canvas draws it (CanvasGraphics.setFont): the font is
+ * registered with the browser under its loadedName. The fonts of erased
+ * words are here too: their Tf operators are still in the page.
+ */
+export function loadedFonts(page: PDFPageProxy): Map<string, PdfFontFace> {
+  const fonts = new Map<string, PdfFontFace>();
+  for (const [, data] of page.commonObjs as unknown as Iterable<[string, unknown]>) {
+    const font = data as PdfJsFont | null;
+    // Type 3 glyphs and fonts the browser refused are drawn as paths
+    if (!font?.name || !font.loadedName || font.isType3Font || font.disableFontFace) continue;
+    if (fonts.has(font.name)) continue;
+    fonts.set(font.name, {
+      family: font.systemFontInfo?.css || `"${font.loadedName}", ${font.fallbackName ?? 'sans-serif'}`,
+      weight: font.black ? '900' : font.bold ? 'bold' : 'normal',
+      style: font.italic ? 'italic' : 'normal',
+    });
+  }
+  return fonts;
 }
 
 function itemToRun(

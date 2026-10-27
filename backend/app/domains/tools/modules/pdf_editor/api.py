@@ -6,6 +6,7 @@ Scopit - PDF Editor Tool API
 Document management, page operations, annotations, flattening, and import
 endpoints for the PDF Editor tool.
 """
+import base64
 import io
 import tempfile
 from typing import Optional
@@ -29,15 +30,20 @@ from app.domains.tools.dependencies import require_tool_access
 from app.domains.tools.modules.pdf_editor.field_registry import get_available_fields
 from app.domains.tools.modules.pdf_editor.schemas import (
     AnnotationSaveRequest,
+    ApplyRedactionsRequest,
     FieldDefinitionsUpdateRequest,
     ImportCompanyDocRequest,
     ImportEstimateRequest,
     ImportInvoiceRequest,
     MergeDocumentsRequest,
+    PageCropRequest,
     PageDeleteRequest,
+    PageExtractRequest,
     PageReorderRequest,
     PageRotateRequest,
     PdfDocumentUpdate,
+    ProtectRequest,
+    TextEditPreviewRequest,
 )
 from app.domains.tools.modules.pdf_editor.service import PdfEditorService
 from app.domains.user.models import User
@@ -68,6 +74,7 @@ def _annotation_to_camel(ann: dict) -> dict:
         "borderColor": style.get("border_color"),
         "borderWidth": style.get("border_width"),
         "opacity": style.get("opacity"),
+        "pdfFont": style.get("pdf_font"),
     }
     # Leave unset keys out rather than sending null: the editor treats a
     # present key as a value to apply (opacity: null renders invisible)
@@ -156,11 +163,14 @@ async def upload_document(
     file: UploadFile = File(...),
     name: Optional[str] = Form(None),
     rotation: int = Form(0),
+    password: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_gate),
 ):
     """Upload a PDF or convertible file (image, DOCX) as a new document.
     rotation: degrees clockwise (0, 90, 180, 270) for image files.
+    password: opens a password-protected PDF; without the right one the 400
+    detail is {"code": "pdf_password_required" | "pdf_password_incorrect"}.
     """
     service = PdfEditorService(db)
     doc = service.upload_document(
@@ -169,6 +179,7 @@ async def upload_document(
         file=file,
         name=name,
         rotation=rotation,
+        password=password,
     )
     return _to_response(doc)
 
@@ -392,6 +403,7 @@ async def get_page_image(
             first_page=page_num,
             last_page=page_num,
             size=(1200, None),
+            use_cropbox=True,
         )
     except ImportError:
         # pdf2image not available - fall back to convert_from_path
@@ -408,6 +420,7 @@ async def get_page_image(
                 first_page=page_num,
                 last_page=page_num,
                 size=(1200, None),
+                use_cropbox=True,
             )
         finally:
             os.unlink(tmp_path)
@@ -501,6 +514,92 @@ async def rotate_pages(
     return _to_response(doc)
 
 
+@router.post("/documents/{document_id}/pages/crop")
+async def crop_pages(
+    document_id: UUID,
+    body: PageCropRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Crop pages (all when page_numbers is omitted): trim the margins
+    (points, as the page is shown) off what's visible, or reset to show the
+    whole page."""
+    service = PdfEditorService(db)
+    doc = service.crop_pages(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        page_numbers=body.page_numbers,
+        margins=body.margins.model_dump() if body.margins else None,
+        reset=body.reset,
+    )
+    return _to_response(doc)
+
+
+@router.post("/documents/{document_id}/pages/insert")
+async def insert_pages(
+    document_id: UUID,
+    after: int = Form(...),
+    kind: str = Form(...),
+    count: int = Form(1),
+    file: Optional[UploadFile] = File(None),
+    password: Optional[str] = Form(None),
+    source_document_id: Optional[UUID] = Form(None),
+    source_pages: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Insert pages after page `after` (0 = at the start). kind: "blank"
+    (`count` pages), "file" (an uploaded PDF/image/DOCX; `password` for a
+    protected PDF) or "document" (pages of a document -- this one too, to
+    duplicate -- given as `source_pages`, e.g. "1,3,4"; all if omitted)."""
+    pages = None
+    if source_pages:
+        try:
+            pages = [int(p) for p in source_pages.split(",") if p.strip()]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="source_pages must be page numbers")
+    service = PdfEditorService(db)
+    doc = service.insert_pages(
+        company_id=current_user.company_id,
+        user_id=current_user.id,
+        document_id=document_id,
+        after=after,
+        kind=kind,
+        count=count,
+        file=file,
+        password=password,
+        source_document_id=source_document_id,
+        source_pages=pages,
+    )
+    return _to_response(doc)
+
+
+@router.post("/documents/{document_id}/pages/extract", status_code=201)
+async def extract_pages(
+    document_id: UUID,
+    body: PageExtractRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Copy pages into a new document (or one per page with `separate`),
+    optionally deleting them from this one (`delete_after`; the updated
+    document comes back as `source`)."""
+    service = PdfEditorService(db)
+    created, source = service.extract_pages(
+        company_id=current_user.company_id,
+        user_id=current_user.id,
+        document_id=document_id,
+        page_numbers=body.page_numbers,
+        separate=body.separate,
+        delete_after=body.delete_after,
+        name=body.name,
+    )
+    return {
+        "documents": [_to_response(d) for d in created],
+        "source": _to_response(source) if source else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Annotations
 # ---------------------------------------------------------------------------
@@ -521,6 +620,146 @@ async def save_annotations(
         annotations=serialized,
     )
     return _to_response(doc)
+
+
+@router.post("/documents/{document_id}/pages/{page_num}/text-edit-preview")
+async def preview_text_edits(
+    document_id: UUID,
+    page_num: int,
+    body: TextEditPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """One page as a PDF with the original text under the given Edit Text
+    covers erased, for the editor to render while it edits. `erased` lists
+    the covers that found text to erase; the editor paints the others, as
+    the export does."""
+    service = PdfEditorService(db)
+    pdf, erased = service.preview_text_edits(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        page_number=page_num,
+        covers=[c.model_dump() for c in body.covers],
+    )
+    return {"pdf": base64.b64encode(pdf).decode("ascii"), "erased": erased}
+
+
+@router.get("/documents/{document_id}/pages/{page_num}/images")
+async def list_page_images(
+    document_id: UUID,
+    page_num: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """The images a page draws that Edit can pick up: index (drawing
+    order), center x/y, width/height and clockwise rotation in the editor's
+    page space, and whether it's the page's background (a scan)."""
+    service = PdfEditorService(db)
+    images = service.list_page_images(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        page_number=page_num,
+    )
+    return {"images": images}
+
+
+@router.get("/documents/{document_id}/pages/{page_num}/images/{index}")
+async def get_embedded_image(
+    document_id: UUID,
+    page_num: int,
+    index: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """One of the page's images as a data URL (turned as the page shows
+    it), with its box -- for Edit to turn into an image annotation."""
+    service = PdfEditorService(db)
+    return service.get_page_image(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        page_number=page_num,
+        index=index,
+    )
+
+
+@router.get("/documents/{document_id}/text-search")
+async def search_text(
+    document_id: UUID,
+    q: str = Query("", max_length=200),
+    pattern: Optional[str] = Query(None),
+    match_case: bool = Query(False),
+    whole_word: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Where words -- or a pattern: email, phone, ssn, credit_card, date --
+    are printed, for Redact to mark. Each match has its page, text and one
+    box per line it spans (annotation geometry)."""
+    service = PdfEditorService(db)
+    matches, truncated = service.search_text(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        query=q,
+        pattern=pattern,
+        match_case=match_case,
+        whole_word=whole_word,
+    )
+    return {"matches": matches, "truncated": truncated}
+
+
+@router.post("/documents/{document_id}/redactions/apply")
+async def apply_redactions(
+    document_id: UUID,
+    body: ApplyRedactionsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Permanently remove what's under the document's redaction marks (or
+    the listed ones) and paint the areas over. Can't be undone."""
+    service = PdfEditorService(db)
+    doc, removed_images = service.apply_redactions(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        mark_ids=body.mark_ids,
+        fill_color=body.fill_color,
+        remove_metadata=body.remove_metadata,
+    )
+    return {"document": _to_response(doc), "removedImages": removed_images}
+
+
+@router.post("/documents/{document_id}/protect")
+async def protect_document(
+    document_id: UUID,
+    body: ProtectRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Download the document (edits burned in) password-protected: a
+    password to open it and/or a permissions password restricting printing,
+    copying, editing and commenting. The stored document isn't changed."""
+    service = PdfEditorService(db)
+    doc = service.get_document_or_404(
+        company_id=current_user.company_id,
+        document_id=document_id,
+    )
+    content = service.protected_copy(
+        company_id=current_user.company_id,
+        document_id=document_id,
+        open_password=body.open_password,
+        permissions_password=body.permissions_password,
+        allow_printing=body.allow_printing,
+        allow_copying=body.allow_copying,
+        allow_editing=body.allow_editing,
+        allow_commenting=body.allow_commenting,
+    )
+    base = doc.name[:-4] if doc.name.lower().endswith(".pdf") else doc.name
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{base} (protected).pdf"',
+        },
+    )
 
 
 @router.put("/documents/{document_id}/fields")

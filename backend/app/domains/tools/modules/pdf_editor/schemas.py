@@ -7,7 +7,7 @@ page operations, annotations, signing workflow, and company document library.
 
 import re
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -71,6 +71,42 @@ class PageRotateRequest(BaseModel):
     rotations: dict[str, int]  # {"1": 90, "3": 180} - page_number: degrees
 
 
+class CropMargins(BaseModel):
+    """Points to trim off each side, as the page is shown in the editor."""
+    left: float = Field(0, ge=0)
+    top: float = Field(0, ge=0)
+    right: float = Field(0, ge=0)
+    bottom: float = Field(0, ge=0)
+
+
+class PageCropRequest(BaseModel):
+    page_numbers: Optional[list[int]] = None  # 1-indexed; None = every page
+    margins: Optional[CropMargins] = None
+    reset: bool = False  # show the whole page again
+
+
+class PageExtractRequest(BaseModel):
+    page_numbers: list[int] = Field(..., min_length=1)  # 1-indexed
+    separate: bool = False       # one document per page
+    delete_after: bool = False   # remove them from this document
+    name: Optional[str] = Field(None, max_length=255)
+
+
+class ProtectRequest(BaseModel):
+    open_password: Optional[str] = Field(None, max_length=128)
+    permissions_password: Optional[str] = Field(None, max_length=128)
+    allow_printing: bool = True
+    allow_copying: bool = True
+    allow_editing: bool = True
+    allow_commenting: bool = True
+
+
+class ApplyRedactionsRequest(BaseModel):
+    mark_ids: Optional[list[str]] = None  # None = every redaction mark
+    fill_color: str = Field("#000000", pattern=r"^#[0-9a-fA-F]{6}$")
+    remove_metadata: bool = False
+
+
 # ============================================
 # ANNOTATION SCHEMAS
 # ============================================
@@ -96,11 +132,14 @@ class AnnotationStyle(BaseModel):
     border_color: Optional[str] = None
     border_width: Optional[float] = None
     opacity: Optional[float] = None
+    # Edit Text: the PDF font the replaced words were printed in (its name
+    # as pdf.js reports it); the text is drawn with it where possible
+    pdf_font: Optional[str] = None
 
 
 class Annotation(BaseModel):
     id: str
-    type: str  # text, image, drawing, stamp, sign_field
+    type: str  # text, image, drawing, stamp, shape, sign_field, redact (marked, not yet applied)
     page: int  # 1-indexed, matching the editor and PDF.js
     x: float
     y: float
@@ -113,6 +152,22 @@ class Annotation(BaseModel):
 
 class AnnotationSaveRequest(BaseModel):
     annotations: list[Annotation]
+
+
+class TextCover(BaseModel):
+    """An Edit cover's box, in the same geometry as an Annotation: over
+    words ("text") or over an image picked up to edit ("image")."""
+    id: str
+    x: float
+    y: float
+    width: float
+    height: float
+    rotation: float = 0
+    kind: Literal["text", "image"] = "text"
+
+
+class TextEditPreviewRequest(BaseModel):
+    covers: list[TextCover] = Field(..., max_length=2000)
 
 
 # ============================================

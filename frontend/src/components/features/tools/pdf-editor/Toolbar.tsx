@@ -62,6 +62,8 @@ import {
   MinusSquareOutlined,
   CheckOutlined,
   FormOutlined,
+  ScissorOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius, fontSizes, fontWeights } from '@/styles/theme';
 
@@ -86,6 +88,8 @@ interface ToolbarProps {
   onExport: () => void;
   /** Download the PDF as uploaded, without edits */
   onExportOriginal: () => void;
+  /** Download a password-protected copy */
+  onExportProtected?: () => void;
   isSaving: boolean;
   isDirty: boolean;
   documentName: string;
@@ -119,7 +123,15 @@ const ZOOM_MIN = 25;
 const ZOOM_MAX = 400;
 const ZOOM_STEP = 25;
 
-const TOOL_DEFS: { key: string; label: string; icon: React.ReactNode }[] = [
+/** Redact: a bar struck through a line of text */
+export const RedactIcon: React.FC = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <rect x="1.5" y="5" width="11" height="4" rx="0.5" fill="currentColor" />
+    <path d="M1.5 2.5h11M1.5 11.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+  </svg>
+);
+
+const TOOL_DEFS: { key: string; label: string; tooltip?: string; icon: React.ReactNode }[] = [
   {
     key: 'select',
     label: 'Select',
@@ -143,12 +155,14 @@ const TOOL_DEFS: { key: string; label: string; icon: React.ReactNode }[] = [
       </svg>
     ),
   },
-  { key: 'edit_text',  label: 'Edit Text',  icon: <FormOutlined /> },
+  { key: 'edit_text',  label: 'Edit',       tooltip: 'Edit text & images', icon: <FormOutlined /> },
   { key: 'text',       label: 'Text',       icon: <FontSizeOutlined /> },
   { key: 'image',      label: 'Image',      icon: <PictureOutlined /> },
   { key: 'draw',       label: 'Draw',       icon: <EditOutlined /> },
   { key: 'stamp',      label: 'Stamp',      icon: <AuditOutlined /> },
   { key: 'sign', label: 'Sign', icon: <HighlightOutlined /> },
+  { key: 'crop',       label: 'Crop',       tooltip: 'Crop pages', icon: <ScissorOutlined /> },
+  { key: 'redact',     label: 'Redact',     tooltip: 'Redact a PDF', icon: <RedactIcon /> },
 ];
 
 const SHAPE_ITEMS: { key: string; label: string; icon: React.ReactNode }[] = [
@@ -358,6 +372,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSave,
   onExport,
   onExportOriginal,
+  onExportProtected,
   isSaving,
   isDirty,
   documentName,
@@ -438,6 +453,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       label: 'Download original (no edits)',
       onClick: onExportOriginal,
     },
+    ...(onExportProtected
+      ? [{
+        key: 'protected',
+        icon: <LockOutlined />,
+        label: 'Download protected PDF…',
+        onClick: onExportProtected,
+      }]
+      : []),
   ];
 
   return (
@@ -533,7 +556,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         {/* Tool buttons */}
         <Space size={2} role="group" aria-label="Editing tools">
           {TOOL_DEFS.map((tool) => (
-            <Tooltip key={tool.key} title={tool.label} mouseEnterDelay={0.6}>
+            <Tooltip key={tool.key} title={tool.tooltip ?? tool.label} mouseEnterDelay={0.6}>
               <button
                 type="button"
                 style={{
@@ -542,7 +565,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
                 onClick={() => onToolChange(tool.key)}
                 aria-pressed={activeTool === tool.key}
-                aria-label={tool.label}
+                aria-label={tool.tooltip ?? tool.label}
                 onMouseEnter={(e) => {
                   if (activeTool !== tool.key) {
                     (e.currentTarget as HTMLButtonElement).style.background = colors.bgLight;

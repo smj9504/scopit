@@ -36,11 +36,21 @@ export interface AnnotationStyle {
   borderColor?: string;
   borderWidth?: number;
   opacity?: number;
+  /**
+   * Edit Text: the PDF font (as pdf.js names it) the replaced words were
+   * printed in. The editor and the export draw the text with it where they
+   * can; fontFamily is the fallback.
+   */
+  pdfFont?: string;
 }
 
 export interface Annotation {
   id: string;
-  type: 'text' | 'image' | 'drawing' | 'stamp' | 'sign_field' | 'shape';
+  /**
+   * 'redact' marks an area for redaction: shown in the editor, never
+   * exported, until Apply redactions takes what's under it out of the PDF.
+   */
+  type: 'text' | 'image' | 'drawing' | 'stamp' | 'sign_field' | 'shape' | 'redact';
   page: number;
   x: number;
   y: number;
@@ -216,7 +226,51 @@ export function isMultilineText(field: Pick<FieldDefinition, 'type' | 'height'>)
   return field.type === 'text' && field.height >= TEXT_MULTILINE_HEIGHT;
 }
 
-export type EditorTool = 'select' | 'edit_text' | 'text' | 'image' | 'draw' | 'stamp' | 'sign' | 'sign_field' | 'shape_rect' | 'shape_circle' | 'shape_line';
+export type EditorTool = 'select' | 'edit_text' | 'text' | 'image' | 'draw' | 'stamp' | 'sign' | 'sign_field' | 'shape_rect' | 'shape_circle' | 'shape_line' | 'crop' | 'redact';
+
+/** A box in the editor's page space: center, size and clockwise rotation, like an Annotation */
+export interface PageBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+}
+
+/** An image the page itself draws, which Edit can pick up */
+export interface PageImage extends PageBox {
+  /** Its place in the page's drawing order */
+  index: number;
+  /** Fills most of the page (a scan): not offered for editing */
+  background: boolean;
+}
+
+export interface TextSearchMatch {
+  page: number;
+  text: string;
+  /** One box per line the match spans */
+  boxes: PageBox[];
+}
+
+/** Patterns the redaction search knows besides plain words */
+export type RedactPattern = 'email' | 'phone' | 'ssn' | 'credit_card' | 'date';
+
+/** Points to trim off each side of a page, as it's shown */
+export interface CropMargins {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export interface ProtectOptions {
+  openPassword?: string;
+  permissionsPassword?: string;
+  allowPrinting: boolean;
+  allowCopying: boolean;
+  allowEditing: boolean;
+  allowCommenting: boolean;
+}
 
 export interface EditorState {
   documentId: string | null;
