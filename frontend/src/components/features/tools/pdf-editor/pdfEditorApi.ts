@@ -19,6 +19,7 @@ import type {
   CompanyDocument,
   CompanyDocumentListResponse,
   DeliveryMethod,
+  CropBoxes,
   CropMargins,
   PageBox,
   PageImage,
@@ -337,18 +338,23 @@ export const pdfEditorApi = {
 
   /**
    * Crop pages (1-based; all when `pageNumbers` is omitted): trim `margins`
-   * (points, as the page is shown) off what's visible, or `reset` to show
-   * the whole page again.
+   * (points, as the page is shown) off what's visible, `reset` to show the
+   * whole page again, or put back `boxes` an earlier crop returned (undo).
+   * `previousCropBoxes` is what the changed pages showed before, for undo.
    */
   cropPages: async (
     id: string,
-    options: { pageNumbers?: number[]; margins?: CropMargins; reset?: boolean },
-  ): Promise<PdfDocument> => {
-    const response = await api.post<PdfDocument>(`/tools/pdf-editor/documents/${id}/pages/crop`, {
-      ...(options.pageNumbers ? { page_numbers: options.pageNumbers } : {}),
-      ...(options.margins ? { margins: options.margins } : {}),
-      reset: !!options.reset,
-    });
+    options: { pageNumbers?: number[]; margins?: CropMargins; reset?: boolean; boxes?: CropBoxes },
+  ): Promise<PdfDocument & { previousCropBoxes: CropBoxes }> => {
+    const response = await api.post<PdfDocument & { previousCropBoxes: CropBoxes }>(
+      `/tools/pdf-editor/documents/${id}/pages/crop`,
+      {
+        ...(options.pageNumbers ? { page_numbers: options.pageNumbers } : {}),
+        ...(options.margins ? { margins: options.margins } : {}),
+        ...(options.boxes ? { boxes: options.boxes } : {}),
+        reset: !!options.reset,
+      },
+    );
     return response.data;
   },
 

@@ -41,6 +41,7 @@ import {
   FabricObject,
   ActiveSelection,
   util,
+  type TPointerEvent,
 } from 'fabric';
 import type { Annotation, AnnotationStyle, PageImage } from './types';
 import { findRunAt, runPoint, type PdfFontFace, type PdfTextLayer } from './pdfTextRuns';
@@ -112,6 +113,9 @@ const REDACT_STROKE = '#dc2626';
 const REDACT_FILL = 'rgba(220, 38, 38, 0.14)';
 // A redact drag shorter than this (page units) is a click: it marks the text under it
 const REDACT_CLICK_SLOP = 3;
+// An Edit press on the page's text that moves less than this (page units)
+// is a click, which types into it; further, it drags the text somewhere else
+const EDIT_DRAG_SLOP = 3;
 // fabric IText: a single line is fontSize * 1.13 tall with the baseline at
 // 77.8% of that (see _FABRIC_* in the backend's burn code)
 const FABRIC_BASELINE_RATIO = 1 - 0.222;
@@ -249,6 +253,12 @@ function annotationContains(ann: Box, px: number, py: number): boolean {
   const lx = dx * Math.cos(a) - dy * Math.sin(a);
   const ly = dx * Math.sin(a) + dy * Math.cos(a);
   return Math.abs(lx) <= ann.width / 2 && Math.abs(ly) <= ann.height / 2;
+}
+
+/** Whether two boxes overlap (by their unrotated extents: close enough here). */
+function boxesOverlap(a: Box, b: Box): boolean {
+  return Math.abs(a.x - b.x) <= (a.width + b.width) / 2
+    && Math.abs(a.y - b.y) <= (a.height + b.height) / 2;
 }
 
 /** Corner (top-left, before rotation) of an annotation's box. */
@@ -688,6 +698,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   // Debounce timer + pending batch for object:modified / text:changed updates
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingUpdatesRef = useRef<Map<string, Annotation>>(new Map());
+  const queueUpdatesRef = useRef<(updates: Annotation[]) => void>(() => {});
 
   // Ids whose fabric object is still being built (images load async), so a
   // second annotations change can't add the same object twice
@@ -771,6 +782,19 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   // A redact drag in progress: where it started and the box drawn so far
   const redactDragRef = useRef<{ x: number; y: number; rect: Rect } | null>(null);
 
+  // Edit pressed on the page's text and made it a replacement: released
+  // where it was pressed, it types into it; dragged, it moves it. Where the
+  // press started and where the text was then, page units.
+  const editPressRef = useRef<{
+    obj: IText;
+    ann: Annotation;
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+    moved: boolean;
+  } | null>(null);
+
   // What a click with the edit_text tool would edit (PDF text or image, or a
   // spot already replaced), or the redact tool would mark. Top-left corner,
   // size and clockwise angle, page units.
@@ -834,6 +858,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         if (batch.length) callbacksRef.current.onAnnotationUpdate(batch);
       }, UPDATE_DEBOUNCE_MS);
     };
+    queueUpdatesRef.current = queueUpdates;
 
     // ── object:modified ──────────────────────────────────────────────────
     fc.on('object:modified', (e) => {
@@ -962,16 +987,19 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     if (!fc) return;
 
     const isSelect = activeTool === 'select';
+    const isEdit = activeTool === 'edit_text';
     const isDrawing = activeTool === 'draw';
     const isRedact = activeTool === 'redact';
 
     fc.isDrawingMode = isDrawing;
+    // No marquee in Edit: a press on the page's text drags that text
     fc.selection = isSelect;
-    // The redact tool can still grab its marks to move or resize them
-    fc.skipTargetFind = !isSelect && !isDrawing && !isRedact;
+    // The redact tool can still grab its marks to move or resize them, and
+    // Edit everything (its replacements, picked-up images, other elements)
+    fc.skipTargetFind = !isSelect && !isEdit && !isDrawing && !isRedact;
     fc.defaultCursor = isRedact ? 'crosshair' : 'default';
 
-    // Make existing objects selectable/moveable only in select mode.
+    // Make existing objects selectable/moveable only in select and edit mode.
     // Keep evented=true for all tools so the canvas-level mouse:down event
     // continues to fire reliably (setting evented=false can suppress the
     // canvas event pipeline in fabric v7 when selection is also false).
@@ -981,7 +1009,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       const id = getAnnotationId(obj);
       const cover = isTextCoverId(id);
       const mark = !!id && marks.has(id);
-      obj.set({ selectable: (isSelect || (isRedact && mark)) && !cover, evented: !cover });
+      obj.set({ selectable: (isSelect || isEdit || (isRedact && mark)) && !cover, evented: !cover });
       obj.setCoords();
     });
 
@@ -1049,6 +1077,14 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const fc = fabricRef.current;
     if (!fc) return;
 
+    // A cover whose new text was dragged off it: the spot is just erased
+    // now, with nothing there to edit
+    const movedAway = (cover: Annotation): boolean => {
+      const partnerId = cover.id.slice(0, -TEXT_COVER_SUFFIX.length);
+      const partner = annotationsRef.current.find((a) => a.id === partnerId);
+      return !!partner && !boxesOverlap(partner, cover);
+    };
+
     // An Edit replacement at a page point, over the words it erased (the
     // cover) or its new text -- or a picked-up image where it is now (an
     // image's cover isn't one: words printed where the image used to be
@@ -1059,7 +1095,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         const a = anns[i];
         if (!annotationContains(a, px, py)) continue;
         if (isTextCoverId(a.id)) {
-          if (isImageCover(a, anns)) continue;
+          if (isImageCover(a, anns) || movedAway(a)) continue;
           return { cover: a, hit: a };
         }
         const cover = (a.type === 'text' || a.type === 'image') && a.content
@@ -1135,7 +1171,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
       // For text tool: if an IText is currently in editing mode, exit editing
       // first and skip placing a new text object (user just wants to deselect).
-      if (tool === 'text' || tool === 'edit_text') {
+      // Edit goes straight on to the next text.
+      if (tool === 'text') {
         const active = fc.getActiveObject();
         if (active instanceof IText && active.isEditing) {
           active.exitEditing();
@@ -1266,7 +1303,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             (a) => isTextCoverId(a.id) && !isImageCover(a, annotationsRef.current)
               && annotationContains(a, runCenter.x, runCenter.y),
           );
-          if (cover && reopen(cover)) break;
+          if (cover && (movedAway(cover) || reopen(cover))) break;
           const textId = cover ? cover.id.slice(0, -TEXT_COVER_SUFFIX.length) : generateId();
 
           const sampled = layer.sampleColors(run);
@@ -1326,11 +1363,13 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
           fc.add(textObj);
           fc.setActiveObject(textObj);
-          textObj.enterEditing();
-          textObj.selectAll();
           fc.renderAll();
           added.push(textAnn);
           callbacksRef.current.onTextReplace?.(added);
+          // Typing starts on release, unless the press drags it away first
+          editPressRef.current = {
+            obj: textObj, ann: textAnn, x: cx, y: cy, left: center.x, top: center.y, moved: false,
+          };
           break;
         }
 
@@ -1501,11 +1540,24 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     };
 
     // Edit: highlight the PDF text or image that a click would make
-    // editable, or the replacement it would reopen. Redact: the text a click
-    // would mark (and the box being dragged).
-    const handleMouseMove = (opt: { scenePoint?: { x: number; y: number } }) => {
+    // editable, the replacement it would reopen, or the element a press
+    // would grab; and drag the page's text a press just picked up. Redact:
+    // the text a click would mark (and the box being dragged).
+    const handleMouseMove = (opt: { scenePoint?: { x: number; y: number }; target?: FabricObject }) => {
       const tool = activeToolRef.current;
       const sp = opt.scenePoint;
+      const press = editPressRef.current;
+      if (press && sp) {
+        const dx = sp.x - press.x;
+        const dy = sp.y - press.y;
+        if (!press.moved && Math.hypot(dx, dy) < EDIT_DRAG_SLOP) return;
+        press.moved = true;
+        press.obj.set({ left: press.left + dx, top: press.top + dy });
+        press.obj.setCoords();
+        fc.requestRenderAll();
+        setHoverBox(null);
+        return;
+      }
       const drag = redactDragRef.current;
       if (drag && sp) {
         drag.rect.set({
@@ -1522,7 +1574,16 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       const layer = textLayerRef.current;
       let box: typeof hoverBox = null;
       let cursor = tool === 'redact' ? 'crosshair' : 'default';
-      if (sp) {
+      const target = tool === 'edit_text' ? opt.target : undefined;
+      if (target) {
+        // Over an element, which a press grabs (fabric sets the cursor):
+        // outlined like the page's text, unless it's selected already
+        const ann = annotationsRef.current.find((a) => a.id === getAnnotationId(target));
+        if (ann && target !== fc.getActiveObject()) {
+          const corner = annotationCorner(ann);
+          box = { key: ann.id, ...corner, width: ann.width, height: ann.height, angle: ann.rotation || 0 };
+        }
+      } else if (sp) {
         const replaced = tool === 'edit_text' ? findReplacement(sp.x, sp.y) : null;
         const run = replaced || !layer ? null : findRunAt(layer.runs, sp.x, sp.y);
         const image = tool === 'edit_text' && !replaced && !run ? findImageAt(sp.x, sp.y) : null;
@@ -1551,9 +1612,42 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       setHoverBox((prev) => (prev?.key === box?.key ? prev : box));
     };
 
-    // Redact: finish the mark being dragged -- or, for a click, mark the
-    // text under it
-    const handleMouseUp = (opt: { scenePoint?: { x: number; y: number } }) => {
+    // Edit: the page's text a press picked up types on a click and lands
+    // where a drag left it; and a click on any text types into it right
+    // away (a drag moved it, a corner resized it). Redact: finish the mark
+    // being dragged -- or, for a click, mark the text under it.
+    const handleMouseUp = (opt: {
+      e?: TPointerEvent;
+      target?: FabricObject;
+      isClick?: boolean;
+      transform?: { corner?: string } | null;
+      scenePoint?: { x: number; y: number };
+    }) => {
+      const press = editPressRef.current;
+      if (press) {
+        editPressRef.current = null;
+        if (press.moved) {
+          const existing = annotationsRef.current.find((a) => a.id === press.ann.id) ?? press.ann;
+          queueUpdatesRef.current([fabricToAnnotation(press.obj, existing)]);
+        } else {
+          press.obj.enterEditing();
+          press.obj.selectAll();
+        }
+        fc.requestRenderAll();
+        return;
+      }
+
+      const t = opt.target;
+      if (
+        activeToolRef.current === 'edit_text' && t instanceof IText && t.editable && !t.isEditing
+        && opt.isClick && !opt.transform?.corner && opt.e && fc.getActiveObject() === t
+      ) {
+        t.setCursorByClick(opt.e);
+        t.enterEditing(opt.e);
+        fc.requestRenderAll();
+        return;
+      }
+
       const drag = redactDragRef.current;
       if (!drag) return;
       redactDragRef.current = null;
@@ -1779,7 +1873,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             obj.set({ selectable: false, evented: false, visible: !erasedCoversRef.current.has(ann.id) });
           } else {
             const tool = activeToolRef.current;
-            obj.selectable = tool === 'select' || (tool === 'redact' && ann.type === 'redact');
+            obj.selectable = tool === 'select' || tool === 'edit_text' || (tool === 'redact' && ann.type === 'redact');
             obj.evented = true;
           }
           fc.add(obj);

@@ -36,6 +36,7 @@ from app.domains.tools.modules.pdf_editor.pdf_geometry import (
     local_frame_matrix,
     multiply,
     page_view,
+    page_view_box,
     page_view_size,
 )
 from app.domains.tools.modules.pdf_editor.pdf_page_content import (
@@ -802,6 +803,21 @@ def _cropped_box(view, margins: dict) -> tuple[float, float, float, float]:
         xs.append(a * px + c * py + e)
         ys.append(b * px + d * py + f)
     return min(xs), min(ys), max(xs), max(ys)
+
+
+def _restored_box(page, box: list[float]) -> tuple[float, float, float, float]:
+    """A crop box given in PDF user space (one Undo puts back), clipped to
+    the page's media box."""
+    if len(box) != 4:
+        raise HTTPException(status_code=400, detail="A crop box is four numbers: x0, y0, x1, y1")
+    mx0, mx1 = sorted(float(page.mediabox[i]) for i in (0, 2))
+    my0, my1 = sorted(float(page.mediabox[i]) for i in (1, 3))
+    bx0, bx1 = sorted(float(box[i]) for i in (0, 2))
+    by0, by1 = sorted(float(box[i]) for i in (1, 3))
+    x0, y0, x1, y1 = max(mx0, bx0), max(my0, by0), min(mx1, bx1), min(my1, by1)
+    if x1 - x0 < 1 or y1 - y0 < 1:
+        raise HTTPException(status_code=400, detail="That crop box is outside the page")
+    return x0, y0, x1, y1
 
 
 def _shift_with_view(ann: dict, old_view, new_view) -> dict:
@@ -1585,34 +1601,46 @@ class PdfEditorService:
         page_numbers: Optional[list[int]],
         margins: Optional[dict] = None,
         reset: bool = False,
-    ) -> PdfDocument:
+        boxes: Optional[dict[int, list[float]]] = None,
+    ) -> tuple[PdfDocument, dict[int, list[float]]]:
         """Set the crop box of pages (all when page_numbers is None): trim
         `margins` (points; left/top/right/bottom as the page is shown) off
-        what's visible now, or with `reset` show the whole page again.
+        what's visible now, with `reset` show the whole page again, or with
+        `boxes` ({page number: [x0, y0, x1, y1]}, PDF user space) put back
+        exactly those boxes -- how a crop is undone.
         Content outside the crop stays in the file, hidden -- as in Acrobat.
-        Annotations and fields stay where they were on the page."""
+        Annotations and fields stay where they were on the page.
+        Returns the document and what each changed page showed before, in
+        the form `boxes` takes."""
         from pypdf import PdfReader, PdfWriter
         from pypdf.generic import RectangleObject
 
-        if not reset and not margins:
+        if not reset and not margins and not boxes:
             raise HTTPException(status_code=400, detail="Give margins to crop, or reset")
         doc = self.get_document_or_404(company_id, document_id)
 
         with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             reader = PdfReader(self._local_copy(doc, tmpdir))
             total = len(reader.pages)
-            targets = set(
-                self._check_pages(page_numbers, total) if page_numbers is not None
-                else range(1, total + 1)
-            )
+            if boxes:
+                targets = set(self._check_pages(list(boxes), total))
+            else:
+                targets = set(
+                    self._check_pages(page_numbers, total) if page_numbers is not None
+                    else range(1, total + 1)
+                )
             writer = PdfWriter()
             views: dict[int, tuple] = {}
+            previous: dict[int, list[float]] = {}
             for page_number, source in enumerate(reader.pages, start=1):
                 page = writer.add_page(source)
                 if page_number not in targets:
                     continue
                 old = page_view(page)
-                if reset:
+                previous[page_number] = list(page_view_box(page))
+                if boxes:
+                    box = _restored_box(page, boxes[page_number])
+                elif reset:
                     box = tuple(float(v) for v in page.mediabox)
                 else:
                     box = _cropped_box(old, margins)
@@ -1633,7 +1661,7 @@ class PdfEditorService:
 
         self.db.commit()
         self.db.refresh(doc)
-        return doc
+        return doc, previous
 
     def insert_pages(
         self,

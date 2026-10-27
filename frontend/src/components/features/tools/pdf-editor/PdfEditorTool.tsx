@@ -53,6 +53,7 @@ import type {
   PdfDocument,
   SignRequest,
   Annotation,
+  CropBoxes,
   CropMargins,
   PageImage,
   TextSearchMatch,
@@ -77,6 +78,7 @@ import InsertPagesModal, { type InsertSource } from './InsertPagesModal';
 import ExtractPagesModal from './ExtractPagesModal';
 import ProtectModal from './ProtectModal';
 import RedactBar, { type RedactApplyOptions } from './RedactBar';
+import EditBar from './EditBar';
 import RedactSearchModal from './RedactSearchModal';
 import { CropBar, CropOverlay, type CropRect } from './CropOverlay';
 import { usePdfPassword, apiErrorMessage } from './pdfPassword';
@@ -983,6 +985,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const [protectOpen, setProtectOpen] = useState(false);
   const [redactSearchOpen, setRedactSearchOpen] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  // What the pages showed before the last crop (or Remove crop), until
+  // another page operation: Undo puts it back once the edits made since
+  // are undone
+  const [cropUndo, setCropUndo] = useState<CropBoxes | null>(null);
+  const cropUndoRef = React.useRef<() => void>(() => {});
   const withPdfPassword = usePdfPassword();
 
   // The crop area belongs to the page it was drawn on (pages differ in size)
@@ -1030,7 +1037,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
   }, []);
 
   const handleUndo = useCallback(() => {
-    if (undoStack.length === 0) return;
+    if (undoStack.length === 0) {
+      cropUndoRef.current();
+      return;
+    }
     const previous = undoStack[undoStack.length - 1];
     const current = annotationsRef.current;
     setUndoStack(undoStack.slice(0, -1));
@@ -1059,10 +1069,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
     if (ann.type !== 'drawing' && ann.type !== 'redact') setActiveTool('select');
   }, [commitAnnotations]);
 
-  // Edit Text: the cover box and its replacement text are one undo step
+  // Edit Text: the cover box and its replacement text are one undo step.
+  // Edit stays on for the next text until it's turned off.
   const handleTextReplace = useCallback((added: Annotation[]) => {
     if (added.length) commitAnnotations([...annotationsRef.current, ...added]);
-    setActiveTool('select');
   }, [commitAnnotations]);
 
   // Edit: one of the page's own images, picked up to move, resize, replace
@@ -1102,7 +1112,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
         style: { opacity: 1 },
       };
       commitAnnotations([...annotationsRef.current, cover, img]);
-      setActiveTool('select');
       setSelectedAnnotationId(id);
     } catch (err) {
       message.error(apiErrorMessage(err, 'This image can’t be edited'));
@@ -1402,6 +1411,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     try {
       const updated = await operation();
       if (!updated) return false;
+      setCropUndo(null);
       queryClient.setQueryData(['pdf-document', documentId], updated);
       const fresh = updated.annotations ?? [];
       annotationsRef.current = fresh;
@@ -1529,22 +1539,71 @@ export const EditorView: React.FC<EditorViewProps> = ({
     return ok;
   }, [documentId, runPageOperation, currentPage, isDirty, isSaving, handleSave, message, queryClient, openDocumentLink]);
 
-  // Crop: the same margins on each chosen page, as the pages are shown
-  const handleCropApply = useCallback(async (margins: CropMargins, pages: number[] | undefined) => {
-    const ok = await runPageOperation(
-      'Crop',
-      () => pdfEditorApi.cropPages(documentId, { pageNumbers: pages, margins }),
-    );
-    if (ok) setActiveTool('select');
+  // Crop: the same margins on each chosen page, as the pages are shown.
+  // A crop, or removing one, can be undone: from the toast it shows, or
+  // with Undo (Ctrl+Z) once the edits made after it are undone.
+  const offerCropUndo = useCallback((previous: CropBoxes, done: string) => {
+    const pages = Object.keys(previous);
+    if (!pages.length) return;
+    setCropUndo(previous);
+    message.success({
+      key: 'crop-undo',
+      content: (
+        <span>
+          {done} {pages.length === 1 ? `page ${pages[0]}` : `${pages.length} pages`}.{' '}
+          <Button
+            type="link"
+            size="small"
+            style={{ padding: 0, height: 'auto' }}
+            onClick={() => {
+              message.destroy('crop-undo');
+              cropUndoRef.current();
+            }}
+          >
+            Undo
+          </Button>
+        </span>
+      ),
+      duration: 8,
+    });
+  }, [message]);
+
+  const runCrop = useCallback(async (
+    label: string,
+    options: Parameters<typeof pdfEditorApi.cropPages>[1],
+  ): Promise<CropBoxes | null> => {
+    let previous: CropBoxes = {};
+    const ok = await runPageOperation(label, async () => {
+      const result = await pdfEditorApi.cropPages(documentId, options);
+      previous = result.previousCropBoxes;
+      return result;
+    });
+    return ok ? previous : null;
   }, [runPageOperation, documentId]);
 
+  const handleCropApply = useCallback(async (margins: CropMargins, pages: number[] | undefined) => {
+    const previous = await runCrop('Crop', { pageNumbers: pages, margins });
+    if (!previous) return;
+    setActiveTool('select');
+    offerCropUndo(previous, 'Cropped');
+  }, [runCrop, offerCropUndo]);
+
   const handleCropReset = useCallback(async (pages: number[] | undefined) => {
-    const ok = await runPageOperation(
-      'Remove crop',
-      () => pdfEditorApi.cropPages(documentId, { pageNumbers: pages, reset: true }),
-    );
-    if (ok) setCropRect(null);
-  }, [runPageOperation, documentId]);
+    const previous = await runCrop('Remove crop', { pageNumbers: pages, reset: true });
+    if (!previous) return;
+    setCropRect(null);
+    offerCropUndo(previous, 'Removed the crop on');
+  }, [runCrop, offerCropUndo]);
+
+  // Put back what the pages showed before the last crop
+  const handleCropUndo = useCallback(async () => {
+    if (!cropUndo || pageOpRef.current) return;
+    if (await runCrop('Undo crop', { boxes: cropUndo })) {
+      setCropRect(null);
+      message.success('Crop undone');
+    }
+  }, [cropUndo, runCrop, message]);
+  cropUndoRef.current = handleCropUndo;
 
   // Combine files: a new document, opened right away when possible
   const combineMutation = useMutation({
@@ -1705,7 +1764,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
         currentPage={currentPage}
         pageCount={pageCount}
         onPageChange={setCurrentPage}
-        canUndo={undoStack.length > 0}
+        canUndo={undoStack.length > 0 || !!cropUndo}
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
@@ -1779,7 +1838,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
         </Space>
       </div>
 
-      {/* Mode bars: crop / redact */}
+      {/* Mode bars: edit / crop / redact */}
+      {activeTool === 'edit_text' && !organizeOpen && (
+        <EditBar onDone={() => setActiveTool('select')} />
+      )}
       {activeTool === 'crop' && !organizeOpen && (
         <CropBar
           pageWidth={pageSize.width}

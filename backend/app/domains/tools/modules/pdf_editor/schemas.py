@@ -83,6 +83,9 @@ class PageCropRequest(BaseModel):
     page_numbers: Optional[list[int]] = None  # 1-indexed; None = every page
     margins: Optional[CropMargins] = None
     reset: bool = False  # show the whole page again
+    # Undo: {page number: [x0, y0, x1, y1]} in PDF user space, as a crop
+    # returned them in previousCropBoxes; page_numbers is ignored
+    boxes: Optional[dict[int, list[float]]] = None
 
 
 class PageExtractRequest(BaseModel):

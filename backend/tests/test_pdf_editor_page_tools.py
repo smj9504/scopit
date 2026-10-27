@@ -583,6 +583,31 @@ def test_crop_reset_and_too_small_crop():
         service.crop_pages(doc.company_id, doc.id, None, {"left": 140, "right": 140})
 
 
+def test_crop_undo_puts_back_exactly_what_pages_showed():
+    from fastapi import HTTPException
+
+    doc = stored(make_pdf(numbered, pages=2), [note(1), note(2)])
+    service = service_with(doc)
+    service.crop_pages(doc.company_id, doc.id, [1], {"left": 50})
+    # A second crop on top of the first: undo returns to the first, not the whole page
+    _, before = service.crop_pages(doc.company_id, doc.id, None, {"top": 40})
+    assert before == {1: [50, 0, 300, 400], 2: [0, 0, 300, 400]}
+    assert (doc.annotations[0]["x"], doc.annotations[0]["y"]) == (pytest.approx(50), pytest.approx(60))
+
+    _, undone = service.crop_pages(doc.company_id, doc.id, None, boxes=before)
+    assert undone == {1: [50, 0, 300, 360], 2: [0, 0, 300, 360]}
+    reader = PdfReader(BytesIO(service.storage.read(doc.file_path)))
+    assert [float(v) for v in reader.pages[0].cropbox] == [50, 0, 300, 400]
+    assert [float(v) for v in reader.pages[1].cropbox] == [0, 0, 300, 400]
+    assert (doc.annotations[0]["x"], doc.annotations[0]["y"]) == (pytest.approx(50), pytest.approx(100))
+    assert (doc.annotations[1]["x"], doc.annotations[1]["y"]) == (pytest.approx(100), pytest.approx(100))
+
+    with pytest.raises(HTTPException):
+        service.crop_pages(doc.company_id, doc.id, None, boxes={1: [400, 500, 600, 700]})
+    with pytest.raises(HTTPException):
+        service.crop_pages(doc.company_id, doc.id, None, boxes={3: [0, 0, 300, 400]})
+
+
 def test_insert_blank_pages_shifts_later_annotations():
     doc = stored(make_pdf(numbered, pages=2), [note(1), note(2)])
     service = service_with(doc)

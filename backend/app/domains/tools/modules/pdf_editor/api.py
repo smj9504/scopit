@@ -522,17 +522,22 @@ async def crop_pages(
     current_user: User = Depends(_gate),
 ):
     """Crop pages (all when page_numbers is omitted): trim the margins
-    (points, as the page is shown) off what's visible, or reset to show the
-    whole page."""
+    (points, as the page is shown) off what's visible, reset to show the
+    whole page, or put back the boxes an earlier crop returned (undo).
+    previousCropBoxes is what the changed pages showed before."""
     service = PdfEditorService(db)
-    doc = service.crop_pages(
+    doc, previous = service.crop_pages(
         company_id=current_user.company_id,
         document_id=document_id,
         page_numbers=body.page_numbers,
         margins=body.margins.model_dump() if body.margins else None,
         reset=body.reset,
+        boxes=body.boxes,
     )
-    return _to_response(doc)
+    return {
+        **_to_response(doc),
+        "previousCropBoxes": {str(page): box for page, box in previous.items()},
+    }
 
 
 @router.post("/documents/{document_id}/pages/insert")

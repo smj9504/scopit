@@ -263,6 +263,9 @@ export interface CropMargins {
   bottom: number;
 }
 
+/** Page number -> crop box [x0, y0, x1, y1] in PDF user space, for undoing a crop */
+export type CropBoxes = Record<string, [number, number, number, number]>;
+
 export interface ProtectOptions {
   openPassword?: string;
   permissionsPassword?: string;
