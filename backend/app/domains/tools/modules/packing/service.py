@@ -1253,10 +1253,19 @@ class EstimateCalculator:
         )
         contamination_mult = CONTAMINATION_MULTIPLIERS.get(contamination_str, 1.0)
 
-        # Specialty content (fragile, artwork, instruments, valuables, wine)
-        # slows packing from 4-5 boxes/hr to 2-3. Take max() across hints, not
-        # a product — the dominant content type drives the rate. A 0.0 hint
-        # (plants/chemicals) marks non-packable items, not zero labour.
+        return (
+            density_mult * floor_mult * contamination_mult
+            * self._hint_labor_mult(room, preset)
+        )
+
+    def _hint_labor_mult(self, room: RoomInput, preset) -> float:
+        """Labour multiplier from the room's specialty content.
+
+        Specialty content (fragile, artwork, instruments, valuables, wine)
+        slows packing from 4-5 boxes/hr to 2-3. Take max() across hints, not
+        a product — the dominant content type drives the rate. A 0.0 hint
+        (plants/chemicals) marks non-packable items, not zero labour.
+        """
         hints = room.hints or preset.default_hints or []
         hint_labor_mult = 1.0
         for hint in hints:
@@ -1265,8 +1274,7 @@ class EstimateCalculator:
             if mult == 0.0:
                 continue
             hint_labor_mult = max(hint_labor_mult, mult)
-
-        return density_mult * floor_mult * contamination_mult * hint_labor_mult
+        return hint_labor_mult
 
     def calculate_room_person_hours(self, room: RoomInput) -> float:
         """Person-hours of packing labour for one room.
@@ -1725,9 +1733,16 @@ class EstimateCalculator:
         # rounding fell rather than on the money. calculate_estimate_from_content()
         # has always applied it to the rate; this now matches.
         labor_rate = self.get_price("2825") * region_mult  # Content manipulation
-        person_hours_total = sum(
-            self.calculate_room_person_hours(room) for room in request.rooms
-        )
+        person_hours_total = 0.0
+        # The part of those hours that exists only because of specialty
+        # content: what each room's hint multiplier added on top.
+        specialty_person_hours = 0.0
+        for room in request.rooms:
+            room_ph = self.calculate_room_person_hours(room)
+            person_hours_total += room_ph
+            preset = self.presets.get(room.preset)
+            if preset:
+                specialty_person_hours += room_ph * (1 - 1 / self._hint_labor_mult(room, preset))
         # total_hours = ELAPSED time (what the client actually experiences on-site)
         total_hours = person_hours_total / request.crew_size if request.crew_size > 0 else person_hours_total
 
@@ -1743,9 +1758,11 @@ class EstimateCalculator:
         # The displayed total is the sum of the displayed parts.
         total_hours = round(pack_out_hours + pack_back_hours, 2)
 
-        # Supervision hours (1 person, not full crew)
-        supervisor_hours = max(1.0, rh(total_hours * 0.1))
-        supervisor_rate = self.get_price("2911")
+        # Supervision hours (1 person, not full crew). Sized on pack-out hours
+        # only: pack-back carries its own supervisor line for its share, so
+        # sizing this one on the total supervised the pack-back hours twice.
+        supervisor_hours = max(1.0, rh(pack_out_hours * 0.1))
+        supervisor_rate = self.get_price("2911") * region_mult
 
         crew = request.crew_size
 
@@ -1875,20 +1892,29 @@ class EstimateCalculator:
         # five separate rh() calls then drifted further. Round the specialised
         # slice and give the crew line the exact remainder, so the sub-lines
         # always add back to the section total.
-        _po_specialized_elapsed = rh(pack_out_hours * 0.23)  # fragile + specialty
+        #
+        # The specialised slice is the time the rooms' specialty content
+        # added, so a job with none shows no such line. It used to be a flat
+        # 23% of every job billed at the specialty-handler rate (2912), on top
+        # of hours the hint multiplier had already raised for the same
+        # content — the extra care was charged twice, and charged even for
+        # rooms that had no specialty content at all. The premium now lives
+        # in the hours only, and the slice bills at the crew rate.
+        _specialty_share = (
+            specialty_person_hours / person_hours_total if person_hours_total > 0 else 0.0
+        )
+        _po_specialized_elapsed = rh(pack_out_hours * _specialty_share)
         _po_crew_elapsed = max(0.5, round(pack_out_hours - _po_specialized_elapsed, 2))
         _po_inventory_hours = max(1.0, rh(total_hours * 0.06))  # 1 person, not crew
 
         crew_labor_rate = round(labor_rate * crew, 2)
-        _specialty_rate = self.get_price("2912") or 125.00
-        _specialty_crew_rate = round(_specialty_rate * crew, 2)
 
         _po_crew_amt = round(_po_crew_elapsed * crew_labor_rate, 2)
         _sv_amt = round(supervisor_hours * supervisor_rate, 2)
         po_detail_lines = [
             {"name": "Pack-Out Crew Labor", "qty": _po_crew_elapsed, "unit": "HR",
              "rate": crew_labor_rate,
-             "detail": _crew_detail("wrap, box, label, load", _po_crew_elapsed, crew, labor_rate, _po_crew_amt),
+             "detail": _crew_detail("wrap, box, label, stage", _po_crew_elapsed, crew, labor_rate, _po_crew_amt),
              "amount": _po_crew_amt},
             {"name": "Supervisor/Foreman", "qty": supervisor_hours, "unit": "HR",
              "rate": round(supervisor_rate, 2),
@@ -1896,13 +1922,13 @@ class EstimateCalculator:
              "amount": _sv_amt},
         ]
         if _po_specialized_elapsed > 0:
-            _spec_amt = round(_po_specialized_elapsed * _specialty_crew_rate, 2)
+            _spec_amt = round(_po_specialized_elapsed * crew_labor_rate, 2)
             po_detail_lines.append(
                 {"name": "Specialized Handling", "qty": _po_specialized_elapsed, "unit": "HR",
-                 "rate": _specialty_crew_rate,
+                 "rate": crew_labor_rate,
                  "detail": _crew_detail(
-                     "electronics, fragile items, artwork — extra care",
-                     _po_specialized_elapsed, crew, _specialty_rate, _spec_amt,
+                     "fragile items, artwork, specialty content — extra care time",
+                     _po_specialized_elapsed, crew, labor_rate, _spec_amt,
                  ),
                  "amount": _spec_amt},
             )
@@ -2268,6 +2294,10 @@ class EstimateCalculator:
                   "materials": ["moving_blanket", "stretch_wrap"],
                   "method": "Disconnect; wrap in blanket; secure with stretch wrap."},
     }
+    # Override keywords that name a screen. They apply to Electronics only,
+    # so furniture named after one ("TV stand", "monitor riser") keeps its
+    # furniture packing.
+    _SCREEN_KEYWORDS = {"tv", "monitor"}
 
     # ── Size/Weight inference ─────────────────────────────────────
     # Category defaults cover ~80% of items correctly.
@@ -2507,20 +2537,42 @@ class EstimateCalculator:
             materials = list(rule["materials"])
             method = rule["method"]
 
-            # Apply name-based overrides (most specific match wins)
-            for keyword, override in self.ITEM_NAME_OVERRIDES.items():
-                if keyword in name_lower:
-                    if "base" in override:
-                        base_h = override["base"]
-                    if "per_unit" in override:
-                        per_unit_h = override["per_unit"]
-                    if "disassembly" in override:
-                        disassembly = override["disassembly"]
-                    if "materials" in override:
-                        materials = list(override["materials"])
-                    if "method" in override:
-                        method = override["method"]
-                    break  # first match
+            # Apply name-based overrides. The longest matching keyword wins, so
+            # "armchair" is not read as a plain "chair". Screen keywords only
+            # describe a screen: a "TV stand" is furniture and must not be
+            # boxed and bubble-wrapped like a television.
+            matches = [
+                kw for kw in self.ITEM_NAME_OVERRIDES
+                if kw in name_lower
+                and (kw not in self._SCREEN_KEYWORDS or cat == "Electronics")
+            ]
+            override = self.ITEM_NAME_OVERRIDES[max(matches, key=len)] if matches else {}
+            if "base" in override:
+                base_h = override["base"]
+            if "per_unit" in override:
+                per_unit_h = override["per_unit"]
+            if "disassembly" in override:
+                disassembly = override["disassembly"]
+            if "materials" in override:
+                materials = list(override["materials"])
+            if "method" in override:
+                method = override["method"]
+
+            # The category defaults wrap a piece in two blankets, which suits a
+            # refrigerator or a dresser but not a toaster or a nightstand. A
+            # small appliance is boxed like any other countertop item, and a
+            # small furniture piece takes one blanket -- the same
+            # one-padding-article-per-piece rule UNIT_HINT_MATERIAL_MAP follows.
+            if "materials" not in override:
+                size = getattr(item, 'size', None)
+                if cat == "Appliances" and size in ("XS", "S", "M"):
+                    materials = [
+                        "large_box" if size == "M" else "medium_box",
+                        "packing_paper",
+                    ]
+                    method = "Wrap in packing paper; box with padding; secure cord to the unit."
+                elif cat == "Furniture" and size in ("XS", "S", "M"):
+                    materials = ["moving_blanket", "stretch_wrap"]
 
             # High-value items get extra care
             if getattr(item, 'is_high_value', False):
@@ -3048,10 +3100,14 @@ class EstimateCalculator:
         keys in the required_materials list (e.g. two "moving_blanket" entries
         = 2 blankets for that item).
         Packing paper is accumulated as a raw item count across ALL items,
-        then converted to 50-lb bundles once at the end.
+        then converted to 50-lb bundles once at the end. Roll- and box-issued
+        materials (stretch wrap, bubble wrap, corner protectors) are pooled
+        the same way: one roll covers several pieces, so an item line must not
+        open a roll of its own.
         """
         materials: Dict[str, int] = {}
         packing_paper_raw = 0  # accumulate raw item count across all items
+        roll_units: Dict[str, float] = {}  # fractional rolls across all items
 
         # Keywords that identify actual TVs/large monitors (32"+) vs other electronics
         _TV_KEYWORDS = {"tv", "television", "flat screen", "flatscreen", "oled", "qled"}
@@ -3099,6 +3155,15 @@ class EstimateCalculator:
                     if norm == "packing_paper":
                         # Accumulate raw item count; convert to bundles after loop.
                         packing_paper_raw += item.quantity
+                    elif norm in MATERIAL_UNIT_COVERAGE:
+                        # Share of a roll/box; rounded once after the loop.
+                        # Rounding per line billed a stretch-wrap roll for
+                        # every furniture line -- 16 rolls on a job that
+                        # uses 3.
+                        roll_units[norm] = (
+                            roll_units.get(norm, 0.0)
+                            + item.quantity / self.ITEMS_PER_BOX[norm]
+                        )
                     elif norm in self.WRAP_MATERIALS:
                         # Wrap materials: each occurrence = 1 unit per item.
                         # AI uses duplicate keys to represent quantity
@@ -3125,6 +3190,9 @@ class EstimateCalculator:
                 # Merge item-level counts into global totals
                 for norm, cnt in item_mat_counts.items():
                     materials[norm] = materials.get(norm, 0) + cnt
+
+        for norm, units in roll_units.items():
+            materials[norm] = materials.get(norm, 0) + math.ceil(units)
 
         # Ensure base box materials per room.
         # AI assigns wrapping materials (blankets, covers) to specific items but
@@ -3425,9 +3493,15 @@ class EstimateCalculator:
 
             room_ph = max(item_total_ph, min_ph)
 
-            # Apply floor and contamination multipliers (stairs slow you down,
-            # contamination requires extra PPE/procedures)
-            room_ph *= floor_mult * contamination_mult
+            # Contamination slows the packing itself (extra PPE/procedures).
+            # Stairs do not: they slow the carry, which
+            # _calculate_relocation_hours already weights by floor from these
+            # same items, so applying the floor here too charged the stairs
+            # twice. A room with no item data gives the carry nothing to
+            # weight, so it keeps the floor factor here.
+            room_ph *= contamination_mult
+            if item_total_ph <= 0:
+                room_ph *= floor_mult
 
             # Distribute into tiers proportionally based on item-level breakdown
             if item_total_ph > 0:
@@ -3576,16 +3650,21 @@ class EstimateCalculator:
         labor_hours = {k: round(v / crew, 1) for k, v in person_hours.items()}
         total_labor_hours = sum(labor_hours.values())
 
-        labor_rate = self.get_price("2825") or 57.31      # Standard (per person/hr)
-        fragile_rate = self.get_price("2911") or 87.14     # Fragile / Supervisor
-        specialty_rate = self.get_price("2912") or 124.02  # Specialty (fallback)
-
-        # Regional labor premium (Northeast +30%, West +20%, etc.)
+        # Every crew tier bills at the standard content-manipulation rate. The
+        # extra care fragile, high-value and electronic items need is already
+        # in their HOURS (per-item rules, the fragile/high-value multipliers in
+        # enrich_items_for_estimate, the high-value surcharge in
+        # classify_labor_hours); billing those hours at the supervisor (2911)
+        # or specialty-handler (2912) rate as well charged the same care twice.
+        #
+        # The regional premium is folded into the rates themselves. The lines
+        # below are priced from these rates and the section totals are rebuilt
+        # from the lines, so an adjustment kept in a separate *_adj variable
+        # never reached the estimate.
         region_str = request.region.value if hasattr(request.region, 'value') else str(getattr(request, 'region', 'midwest'))
         region_mult = REGION_MULTIPLIERS.get(region_str, 1.0)
-        labor_rate_adj = labor_rate * region_mult
-        fragile_rate_adj = fragile_rate * region_mult
-        specialty_rate_adj = specialty_rate * region_mult
+        labor_rate = (self.get_price("2825") or 57.31) * region_mult       # Standard (per person/hr)
+        supervisor_rate = (self.get_price("2911") or 87.14) * region_mult  # Supervisor (1 person)
 
         # Cost multiplier: elapsed hours × crew members × rate = person-hours × rate
         crew_cost = crew  # each elapsed hour costs crew × rate
@@ -3627,8 +3706,10 @@ class EstimateCalculator:
 
         # Inventory & documentation: 1 person does this, not full crew
         inventory_hours = rh(total_labor_hours * 0.05) if total_labor_hours > 2 else 0.5
-        # Supervisor: 1 person, not full crew
-        supervisor_hours = rh(total_labor_hours * 0.10) if total_labor_hours > 2 else 0.5
+        # Supervisor: 1 person, not full crew. Sized on the pack-out share of
+        # the hours only; pack-back adds its own supervisor for its share, so
+        # sizing this one on the total supervised the pack-back hours twice.
+        supervisor_hours = max(0.5, rh(total_labor_hours * packout_fraction * 0.10))
 
         # Pack-out elapsed hours — no artificial minimums that inflate small jobs
         po_standard_hrs = max(0.5, rh(po_standard))
@@ -3639,15 +3720,14 @@ class EstimateCalculator:
 
         # Cost = elapsed hours × crew × rate (for crew tasks)
         # Inventory & supervisor are single-person tasks (× 1, not × crew)
-        # Region multiplier applied via adjusted rates
+        po_crew_hrs = (
+            po_standard_hrs + po_fragile_hrs + po_specialty_hrs
+            + po_furniture_hrs + po_appliance_hrs
+        )
         pack_out_labor = (
-            po_standard_hrs * crew_cost * labor_rate_adj
-            + po_fragile_hrs * crew_cost * fragile_rate_adj
-            + po_specialty_hrs * crew_cost * specialty_rate_adj
-            + po_furniture_hrs * crew_cost * labor_rate_adj
-            + po_appliance_hrs * crew_cost * labor_rate_adj
-            + inventory_hours * labor_rate_adj          # 1 person
-            + supervisor_hours * fragile_rate_adj       # 1 person
+            po_crew_hrs * crew_cost * labor_rate
+            + inventory_hours * labor_rate              # 1 person
+            + supervisor_hours * supervisor_rate        # 1 person
         )
 
         # Materials calc: both modes price the same materials from the same
@@ -3693,14 +3773,14 @@ class EstimateCalculator:
         )
         # Total person-hours for the full relocation operation
         loading_person_hours = carry_person_hours + truck_load_person_hours
-        loading_cost = loading_person_hours * labor_rate_adj  # region-adjusted rate
+        loading_cost = loading_person_hours * labor_rate  # region-adjusted rate
         # Pack-back transport: carry-in + truck unloading (same truck load hours)
         unloading_person_hours = carry_in_person_hours + truck_load_person_hours
-        unloading_cost = unloading_person_hours * labor_rate_adj
+        unloading_cost = unloading_person_hours * labor_rate
 
         # On-site staging: same carry labor (no truck loading overhead)
         on_site_person_hours = carry_person_hours
-        on_site_moving_fee = on_site_person_hours * labor_rate_adj
+        on_site_moving_fee = on_site_person_hours * labor_rate
 
         # Storage (per SF based on content volume — storage_sf computed above)
         storage_cost = 0
@@ -3733,7 +3813,7 @@ class EstimateCalculator:
         # Boxes dominate volume; each packing paper bundle ≈ 3 boxes of debris volume
         debris_unit_equiv = disposable_box_qty + packing_paper_qty * 3 + packing_tape_qty
         debris_hours = max(0.5, round(debris_unit_equiv / 75 * 2) / 2)  # round to 0.5
-        debris_cost = debris_hours * labor_rate_adj
+        debris_cost = debris_hours * labor_rate
         # Build description — always show exact supply box count for consistency
         _debris_desc_parts = []
         if disposable_box_qty:
@@ -3794,17 +3874,17 @@ class EstimateCalculator:
             # Furniture assembly is separate from standard pack-back
             pb_furniture_hrs = rh(pb_furniture) if labor_hours["furniture_disassembly"] > 0 else 0
 
+            pb_crew_hrs = (
+                pb_standard_hrs + pb_fragile_hrs + pb_specialty_hrs + pb_appliance_hrs
+            )
             pack_back_labor = (
-                pb_standard_hrs * crew_cost * labor_rate_adj
-                + pb_fragile_hrs * crew_cost * fragile_rate_adj
-                + pb_specialty_hrs * crew_cost * specialty_rate_adj
-                + pb_appliance_hrs * crew_cost * labor_rate_adj
-                + pb_inventory * labor_rate_adj             # 1 person
-                + pb_supervisor * fragile_rate_adj          # 1 person
+                pb_crew_hrs * crew_cost * labor_rate
+                + pb_inventory * labor_rate                 # 1 person
+                + pb_supervisor * supervisor_rate           # 1 person
                 # Note: debris/waste removal is covered by the dedicated Debris Hauling section
             )
             # Furniture assembly as separate cost (crew task)
-            furniture_assembly_cost = pb_furniture_hrs * crew_cost * labor_rate_adj
+            furniture_assembly_cost = pb_furniture_hrs * crew_cost * labor_rate
 
             if is_on_site:
                 sections["On-Site Pack-Back Move"] = round(on_site_moving_fee, 2)
@@ -3848,9 +3928,9 @@ class EstimateCalculator:
 
         # Line items show ELAPSED hours (wall-clock time on site).
         # Rate = per-person rate × crew size, so amount = elapsed × crew_rate.
+        # The fragile and specialty tiers stay separate lines so the reason for
+        # their extra hours is visible, at the same crew rate as the rest.
         crew_labor_rate = round(labor_rate * crew, 2)
-        crew_fragile_rate = round(fragile_rate * crew, 2)
-        crew_specialty_rate = round(specialty_rate * crew, 2)
 
         po_lines = []
         if po_standard_hrs > 0:
@@ -3862,19 +3942,19 @@ class EstimateCalculator:
                 "amount": _amt,
             })
         if po_fragile_hrs > 0:
-            _amt = round(po_fragile_hrs * crew_fragile_rate, 2)
+            _amt = round(po_fragile_hrs * crew_labor_rate, 2)
             po_lines.append({
                 "name": "Fragile / High-Care Items", "qty": po_fragile_hrs, "unit": "HR",
-                "rate": crew_fragile_rate,
-                "detail": _crew_detail("individual wrap, double-box, condition photo", po_fragile_hrs, crew, fragile_rate, _amt),
+                "rate": crew_labor_rate,
+                "detail": _crew_detail("individual wrap, double-box, condition photo", po_fragile_hrs, crew, labor_rate, _amt),
                 "amount": _amt,
             })
         if po_specialty_hrs > 0:
-            _amt = round(po_specialty_hrs * crew_specialty_rate, 2)
+            _amt = round(po_specialty_hrs * crew_labor_rate, 2)
             po_lines.append({
                 "name": "Specialty / High-Value Items", "qty": po_specialty_hrs, "unit": "HR",
-                "rate": crew_specialty_rate,
-                "detail": _crew_detail("serial# record, custom pack, high-value documentation", po_specialty_hrs, crew, specialty_rate, _amt),
+                "rate": crew_labor_rate,
+                "detail": _crew_detail("serial# record, custom pack, high-value documentation", po_specialty_hrs, crew, labor_rate, _amt),
                 "amount": _amt,
             })
         if po_furniture_hrs > 0:
@@ -3902,11 +3982,11 @@ class EstimateCalculator:
                 "amount": _amt,
             })
         if supervisor_hours > 0:
-            _amt = round(supervisor_hours * fragile_rate, 2)
+            _amt = round(supervisor_hours * supervisor_rate, 2)
             po_lines.append({
                 "name": "Supervision", "qty": float(supervisor_hours), "unit": "HR",
-                "rate": round(fragile_rate, 2),
-                "detail": f"1 supervisor (quality control, crew coordination) · {supervisor_hours} hr × {_fmt_money(fragile_rate)}/hr = {_fmt_money(_amt)}",
+                "rate": round(supervisor_rate, 2),
+                "detail": f"1 supervisor (quality control, crew coordination) · {supervisor_hours} hr × {_fmt_money(supervisor_rate)}/hr = {_fmt_money(_amt)}",
                 "amount": _amt,
             })
         if po_lines:
@@ -3998,19 +4078,19 @@ class EstimateCalculator:
                     "amount": _amt,
                 })
             if pb_fragile_hrs > 0:
-                _amt = round(pb_fragile_hrs * crew_fragile_rate, 2)
+                _amt = round(pb_fragile_hrs * crew_labor_rate, 2)
                 pb_lines.append({
                     "name": "Fragile / High-Care Unpacking", "qty": pb_fragile_hrs, "unit": "HR",
-                    "rate": crew_fragile_rate,
-                    "detail": _crew_detail("careful unwrap, condition check, placement", pb_fragile_hrs, crew, fragile_rate, _amt),
+                    "rate": crew_labor_rate,
+                    "detail": _crew_detail("careful unwrap, condition check, placement", pb_fragile_hrs, crew, labor_rate, _amt),
                     "amount": _amt,
                 })
             if pb_specialty_hrs > 0:
-                _amt = round(pb_specialty_hrs * crew_specialty_rate, 2)
+                _amt = round(pb_specialty_hrs * crew_labor_rate, 2)
                 pb_lines.append({
                     "name": "Specialty / High-Value Unpacking", "qty": pb_specialty_hrs, "unit": "HR",
-                    "rate": crew_specialty_rate,
-                    "detail": _crew_detail("unwrap, verify serial#, place per owner instruction", pb_specialty_hrs, crew, specialty_rate, _amt),
+                    "rate": crew_labor_rate,
+                    "detail": _crew_detail("unwrap, verify serial#, place per owner instruction", pb_specialty_hrs, crew, labor_rate, _amt),
                     "amount": _amt,
                 })
             if pb_appliance_hrs > 0:
@@ -4030,11 +4110,11 @@ class EstimateCalculator:
                     "amount": _amt,
                 })
             if pb_supervisor > 0:
-                _amt = round(pb_supervisor * fragile_rate, 2)
+                _amt = round(pb_supervisor * supervisor_rate, 2)
                 pb_lines.append({
                     "name": "Supervision", "qty": float(pb_supervisor), "unit": "HR",
-                    "rate": round(fragile_rate, 2),
-                    "detail": f"1 supervisor (placement verification, damage check) · {pb_supervisor} hr × {_fmt_money(fragile_rate)}/hr = {_fmt_money(_amt)}",
+                    "rate": round(supervisor_rate, 2),
+                    "detail": f"1 supervisor (placement verification, damage check) · {pb_supervisor} hr × {_fmt_money(supervisor_rate)}/hr = {_fmt_money(_amt)}",
                     "amount": _amt,
                 })
             if pb_lines:
@@ -4051,7 +4131,7 @@ class EstimateCalculator:
         # Debris Hauling section_details — show exactly what drove the charge
         section_details["Debris Hauling"] = {"lines": [
             {"name": "Debris Hauling", "qty": debris_hours, "unit": "HR",
-             "rate": round(labor_rate_adj, 2),
+             "rate": round(labor_rate, 2),
              "detail": _debris_desc,
              "amount": round(debris_cost, 2)},
         ]}
