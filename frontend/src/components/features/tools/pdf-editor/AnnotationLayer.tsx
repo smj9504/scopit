@@ -44,7 +44,7 @@ import {
   type TPointerEvent,
 } from 'fabric';
 import type { Annotation, AnnotationStyle, PageImage } from './types';
-import { findRunAt, runPoint, type PdfFontFace, type PdfTextLayer } from './pdfTextRuns';
+import { findRunAt, runPoint, type PdfFontFace, type PdfTextLayer, type PdfTextRun } from './pdfTextRuns';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -119,6 +119,10 @@ const EDIT_DRAG_SLOP = 3;
 // fabric IText: a single line is fontSize * 1.13 tall with the baseline at
 // 77.8% of that (see _FABRIC_* in the backend's burn code)
 const FABRIC_BASELINE_RATIO = 1 - 0.222;
+// The box dragged to select several elements (dark: the default light blue
+// is hard to see)
+const MARQUEE_FILL = 'rgba(17, 24, 39, 0.08)';
+const MARQUEE_STROKE = '#111827';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -154,8 +158,19 @@ export interface AnnotationLayerProps {
   onTextReplace?: (added: Annotation[]) => void;
   /** The page's own images, for the edit_text tool to pick up (null while loading) */
   pageImages?: PageImage[] | null;
-  /** The edit_text tool clicked one of the page's images: make it editable */
-  onImagePick?: (image: PageImage) => void;
+  /**
+   * The edit_text tool clicked one of the page's images, or dragged a box
+   * over some: make each editable as an image annotation with the given id,
+   * which joins the selection once it's on the canvas. `withText`: the box
+   * also took some of the page's text, just reported to onTextReplace --
+   * the images belong in the same undo step.
+   */
+  onImagePick?: (picks: ImagePick[], withText: boolean) => void;
+}
+
+export interface ImagePick {
+  image: PageImage;
+  id: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -259,6 +274,26 @@ function annotationContains(ann: Box, px: number, py: number): boolean {
 function boxesOverlap(a: Box, b: Box): boolean {
   return Math.abs(a.x - b.x) <= (a.width + b.width) / 2
     && Math.abs(a.y - b.y) <= (a.height + b.height) / 2;
+}
+
+/** The upright box around a (rotated) box. */
+function uprightBounds(box: Box): Box {
+  const a = ((box.rotation || 0) * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(a));
+  const sin = Math.abs(Math.sin(a));
+  return {
+    x: box.x,
+    y: box.y,
+    width: box.width * cos + box.height * sin,
+    height: box.width * sin + box.height * cos,
+    rotation: 0,
+  };
+}
+
+/** A run of the page's text as a box: center, size and clockwise angle. */
+function runBox(run: PdfTextRun): Box {
+  const center = runPoint(run, run.width / 2, (run.descent - run.ascent) / 2);
+  return { ...center, width: run.width, height: run.ascent + run.descent, rotation: run.angle };
 }
 
 /** Corner (top-left, before rotation) of an annotation's box. */
@@ -779,8 +814,29 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const pageImagesRef = useRef<PageImage[]>(pageImages ?? []);
   useEffect(() => { pageImagesRef.current = pageImages ?? []; }, [pageImages]);
 
-  // A redact drag in progress: where it started and the box drawn so far
-  const redactDragRef = useRef<{ x: number; y: number; rect: Rect } | null>(null);
+  // A box being dragged out -- a redaction mark, or Edit's box selecting
+  // what it touches: where it started and the box drawn so far
+  const boxDragRef = useRef<{ purpose: 'redact' | 'select'; x: number; y: number; rect: Rect } | null>(null);
+
+  // Images Edit is picking up, which join the selection they were picked up
+  // with once they're on the canvas -- if it's still the selection then
+  const joinRef = useRef<{ ids: Set<string>; selection: FabricObject | undefined } | null>(null);
+  const joinSelection = (fc: Canvas, obj: FabricObject) => {
+    const join = joinRef.current;
+    if (!join) return;
+    const active = fc.getActiveObject();
+    if (active !== join.selection) {
+      joinRef.current = null;
+      return;
+    }
+    const objects = active instanceof ActiveSelection
+      ? [...active.getObjects(), obj]
+      : active ? [active, obj] : [obj];
+    if (active) fc.discardActiveObject();
+    const next = objects.length > 1 ? new ActiveSelection(objects, { canvas: fc }) : obj;
+    fc.setActiveObject(next);
+    join.selection = next;
+  };
 
   // Edit pressed on the page's text and made it a replacement: released
   // where it was pressed, it types into it; dragged, it moves it. Where the
@@ -816,9 +872,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       selection: true,
       backgroundColor: undefined, // transparent
       preserveObjectStacking: true,
-      // Dark selection style (default light blue is hard to see)
-      selectionColor: 'rgba(17, 24, 39, 0.08)',
-      selectionBorderColor: '#111827',
+      selectionColor: MARQUEE_FILL,
+      selectionBorderColor: MARQUEE_STROKE,
       selectionLineWidth: 1,
       selectionFullyContained: false,
       skipTargetFind: false,
@@ -861,16 +916,26 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     queueUpdatesRef.current = queueUpdates;
 
     // ── object:modified ──────────────────────────────────────────────────
+    // fabric fires this before it ends the transform; dissolving a
+    // selection ends it, which fires this again -- ignored
+    let dissolving = false;
     fc.on('object:modified', (e) => {
       const target = e.target;
-      if (!target) return;
+      if (!target || dissolving) return;
 
       // A moved/scaled multi-selection reports only the selection itself.
       // Dissolve it so its children get their absolute geometry back, save
       // each one, then restore the same selection.
       const isGroup = target instanceof ActiveSelection;
       const objects = isGroup ? target.getObjects() : [target];
-      if (isGroup) fc.discardActiveObject();
+      if (isGroup) {
+        dissolving = true;
+        try {
+          fc.discardActiveObject();
+        } finally {
+          dissolving = false;
+        }
+      }
 
       const updates: Annotation[] = [];
       for (const obj of objects) {
@@ -992,8 +1057,14 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const isRedact = activeTool === 'redact';
 
     fc.isDrawingMode = isDrawing;
-    // No marquee in Edit: a press on the page's text drags that text
+    // Edit drags its own selection box, from empty spots only (fabric's
+    // would start on the page's text too, where a press drags that text)
     fc.selection = isSelect;
+    // A box being dragged belongs to the tool that started it
+    if (boxDragRef.current) {
+      fc.remove(boxDragRef.current.rect);
+      boxDragRef.current = null;
+    }
     // The redact tool can still grab its marks to move or resize them, and
     // Edit everything (its replacements, picked-up images, other elements)
     fc.skipTargetFind = !isSelect && !isEdit && !isDrawing && !isRedact;
@@ -1107,20 +1178,159 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     };
     const replacementAt = (px: number, py: number) => findReplacement(px, py)?.cover ?? null;
 
+    // Whether one of the page's own images has been picked up already
+    const imageTaken = (img: PageImage): boolean => {
+      const anns = annotationsRef.current;
+      return anns.some(
+        (c) => isTextCoverId(c.id) && isImageCover(c, anns) && annotationContains(c, img.x, img.y),
+      );
+    };
+
     // One of the page's own images under a page point that Edit can pick
     // up: not its background (a scan), and not one already picked up
     const findImageAt = (px: number, py: number): PageImage | null => {
-      const anns = annotationsRef.current;
       const images = pageImagesRef.current;
       for (let i = images.length - 1; i >= 0; i--) {
         const img = images[i];
         if (img.background || !annotationContains(img, px, py)) continue;
-        const taken = anns.some(
-          (c) => isTextCoverId(c.id) && isImageCover(c, anns) && annotationContains(c, img.x, img.y),
-        );
-        if (!taken) return img;
+        if (!imageTaken(img)) return img;
       }
       return null;
+    };
+
+    // The cover over a spot of the page's words, if they're replaced already
+    const textCoverAt = (anns: Annotation[], px: number, py: number): Annotation | undefined =>
+      anns.find((a) => isTextCoverId(a.id) && !isImageCover(a, anns) && annotationContains(a, px, py));
+
+    // Make a run of the page's text editable: a cover over its words
+    // (unless `cover` is one already) and new text in their place, in the
+    // same PDF font if pdf.js can draw it, both put on the canvas. The
+    // caller reports `added`.
+    const replaceRun = (layer: PdfTextLayer, run: PdfTextRun, cover?: Annotation) => {
+      const pg = pageNumberRef.current;
+      const textId = cover ? cover.id.slice(0, -TEXT_COVER_SUFFIX.length) : generateId();
+      const sampled = layer.sampleColors(run);
+      const rotation = ((run.angle % 360) + 360) % 360;
+      const added: Annotation[] = [];
+
+      if (!cover) {
+        const box = runBox(run);
+        const pad = Math.max(1, run.fontSize * 0.08);
+        const fill = sampled?.background ?? '#ffffff';
+        const coverAnn: Annotation = {
+          id: textId + TEXT_COVER_SUFFIX,
+          type: 'shape',
+          page: pg,
+          x: box.x,
+          y: box.y,
+          width: run.width + pad * 2,
+          height: run.ascent + run.descent + pad * 2,
+          rotation,
+          content: 'rect',
+          style: { backgroundColor: fill, color: fill, borderWidth: 0 },
+        };
+        const coverObj = buildShapeRectObject(coverAnn);
+        coverObj.set({ selectable: false, evented: false });
+        fc.add(coverObj);
+        added.push(coverAnn);
+      }
+
+      const pdfFont = run.pdfFont && layer.fonts.has(run.pdfFont) ? run.pdfFont : undefined;
+      const text: Annotation = {
+        id: textId,
+        type: 'text',
+        page: pg,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        rotation,
+        content: run.text,
+        style: {
+          fontSize: Math.round(run.fontSize * 10) / 10,
+          fontFamily: run.fontFamily,
+          fontWeight: run.bold ? 'bold' : 'normal',
+          fontStyle: run.italic ? 'italic' : 'normal',
+          color: sampled?.text ?? DEFAULT_TEXT_COLOR,
+          ...(pdfFont ? { pdfFont } : {}),
+        },
+      };
+      const obj = buildTextObject(text, { fonts: layer.fonts, replacement: true });
+      // Put the new text's baseline-left where the original's was
+      const tw = obj.width ?? 0;
+      const th = obj.height ?? 0;
+      const center = runPoint(run, tw / 2, th / 2 - th * FABRIC_BASELINE_RATIO);
+      obj.set({ left: center.x, top: center.y });
+      obj.setCoords();
+      Object.assign(text, { x: center.x, y: center.y, width: tw, height: th });
+      fc.add(obj);
+      added.push(text);
+      return { added, text, obj };
+    };
+
+    // Pick up some of the page's images (see onImagePick): each joins the
+    // selection there is now once it's on the canvas
+    const pickImages = (images: PageImage[], withText: boolean) => {
+      const picks = images.map((image) => ({ image, id: generateId() }));
+      joinRef.current = { ids: new Set(picks.map((p) => p.id)), selection: fc.getActiveObject() };
+      callbacksRef.current.onImagePick?.(picks, withText);
+    };
+
+    // Edit: select everything a dragged box touches -- the elements on the
+    // canvas, and the page's own text and images, which it picks up
+    const selectArea = (area: Box) => {
+      const objects = fc.collectObjects({
+        left: area.x - area.width / 2,
+        top: area.y - area.height / 2,
+        width: area.width,
+        height: area.height,
+      }).reverse() as FabricObject[];
+
+      const layer = textLayerRef.current;
+      const anns = [...annotationsRef.current];
+      const covers: Annotation[] = [];
+      const texts: Annotation[] = [];
+      if (layer) {
+        for (const run of layer.runs) {
+          const box = runBox(run);
+          // Already replaced (its erased page isn't on screen yet): its new
+          // text is an element, collected above if it's in the box
+          if (!boxesOverlap(uprightBounds(box), area) || textCoverAt(anns, box.x, box.y)) continue;
+          const { added: pair, text, obj } = replaceRun(layer, run);
+          anns.push(...pair);
+          covers.push(...pair.filter((a) => a !== text));
+          texts.push(text);
+          objects.push(obj);
+        }
+      }
+      // Every cover under all the new text, so none hides a line moved onto it
+      const added = [...covers, ...texts];
+
+      if (objects.length > 1) fc.setActiveObject(new ActiveSelection(objects, { canvas: fc }));
+      else if (objects.length === 1) fc.setActiveObject(objects[0]);
+      fc.requestRenderAll();
+      if (added.length) callbacksRef.current.onTextReplace?.(added);
+
+      const images = pageImagesRef.current.filter(
+        (img) => !img.background && boxesOverlap(uprightBounds(img), area) && !imageTaken(img),
+      );
+      if (images.length) pickImages(images, added.length > 0);
+    };
+
+    // Start dragging out a box: a redaction mark, or Edit's selection box
+    const startBoxDrag = (purpose: 'redact' | 'select', x: number, y: number) => {
+      const rect = purpose === 'redact'
+        ? buildRedactObject({
+          id: '', type: 'redact', page: pageNumberRef.current,
+          x, y, width: 1, height: 1, rotation: 0, content: '', style: {},
+        })
+        : new Rect({
+          left: x, top: y, width: 1, height: 1,
+          fill: MARQUEE_FILL, stroke: MARQUEE_STROKE, strokeWidth: 1 / (fc.getZoom() || 1),
+        });
+      rect.set({ selectable: false, evented: false });
+      fc.add(rect);
+      boxDragRef.current = { purpose, x, y, rect };
     };
 
     // A redaction mark over a run of the page's text
@@ -1144,6 +1354,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     };
 
     const handleMouseDown = (opt: Record<string, unknown>) => {
+      // A new press moves on from images still being picked up
+      joinRef.current = null;
       const tool = activeToolRef.current;
       // Only handle placement tools
       if (tool === 'select' || tool === 'draw') return;
@@ -1254,10 +1466,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           const run = layer ? findRunAt(layer.runs, cx, cy) : null;
           if (!run && !replaced) {
             const image = findImageAt(cx, cy);
-            if (image) {
-              callbacksRef.current.onImagePick?.(image);
-              break;
-            }
+            if (image) pickImages([image], false);
+            // Nothing here to edit: a drag selects what its box touches
+            else startBoxDrag('select', cx, cy);
+            break;
           }
           if (!layer || !run) {
             // A cover whose text is gone (saved before replacements were
@@ -1295,80 +1507,19 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             }
             break;
           }
-          const runCenter = runPoint(run, run.width / 2, (run.descent - run.ascent) / 2);
-
           // The run is still on screen but already covered (its erased page
           // isn't back yet)
-          const cover = annotationsRef.current.find(
-            (a) => isTextCoverId(a.id) && !isImageCover(a, annotationsRef.current)
-              && annotationContains(a, runCenter.x, runCenter.y),
-          );
+          const box = runBox(run);
+          const cover = textCoverAt(annotationsRef.current, box.x, box.y);
           if (cover && (movedAway(cover) || reopen(cover))) break;
-          const textId = cover ? cover.id.slice(0, -TEXT_COVER_SUFFIX.length) : generateId();
 
-          const sampled = layer.sampleColors(run);
-          const rotation = ((run.angle % 360) + 360) % 360;
-          const added: Annotation[] = [];
-
-          if (!cover) {
-            const pad = Math.max(1, run.fontSize * 0.08);
-            const fill = sampled?.background ?? '#ffffff';
-            const coverAnn: Annotation = {
-              id: textId + TEXT_COVER_SUFFIX,
-              type: 'shape',
-              page: pg,
-              x: runCenter.x,
-              y: runCenter.y,
-              width: run.width + pad * 2,
-              height: run.ascent + run.descent + pad * 2,
-              rotation,
-              content: 'rect',
-              style: { backgroundColor: fill, color: fill, borderWidth: 0 },
-            };
-            const coverObj = buildShapeRectObject(coverAnn);
-            coverObj.set({ selectable: false, evented: false });
-            fc.add(coverObj);
-            added.push(coverAnn);
-          }
-
-          // Same PDF font as the words it replaces, if pdf.js can draw it
-          const pdfFont = run.pdfFont && layer.fonts.has(run.pdfFont) ? run.pdfFont : undefined;
-          const textAnn: Annotation = {
-            id: textId,
-            type: 'text',
-            page: pg,
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-            rotation,
-            content: run.text,
-            style: {
-              fontSize: Math.round(run.fontSize * 10) / 10,
-              fontFamily: run.fontFamily,
-              fontWeight: run.bold ? 'bold' : 'normal',
-              fontStyle: run.italic ? 'italic' : 'normal',
-              color: sampled?.text ?? DEFAULT_TEXT_COLOR,
-              ...(pdfFont ? { pdfFont } : {}),
-            },
-          };
-          const textObj = buildTextObject(textAnn, { fonts: layer.fonts, replacement: true });
-          // Put the new text's baseline-left where the original's was
-          const tw = textObj.width ?? 0;
-          const th = textObj.height ?? 0;
-          const center = runPoint(run, tw / 2, th / 2 - th * FABRIC_BASELINE_RATIO);
-          textObj.set({ left: center.x, top: center.y });
-          textObj.setCoords();
-          Object.assign(textAnn, { x: center.x, y: center.y, width: tw, height: th });
-
-          fc.add(textObj);
-          fc.setActiveObject(textObj);
+          const { added, text, obj } = replaceRun(layer, run, cover);
+          fc.setActiveObject(obj);
           fc.renderAll();
-          added.push(textAnn);
           callbacksRef.current.onTextReplace?.(added);
           // Typing starts on release, unless the press drags it away first
           editPressRef.current = {
-            obj: textObj, ann: textAnn, x: cx, y: cy, left: center.x, top: center.y, moved: false,
+            obj, ann: text, x: cx, y: cy, left: text.x, top: text.y, moved: false,
           };
           break;
         }
@@ -1381,13 +1532,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
         case 'redact': {
           // A drag marks an area; a click (see handleMouseUp) the text under it
-          const rect = buildRedactObject({
-            id: '', type: 'redact', page: pageNumberRef.current,
-            x: cx, y: cy, width: 1, height: 1, rotation: 0, content: '', style: {},
-          });
-          rect.set({ selectable: false, evented: false });
-          fc.add(rect);
-          redactDragRef.current = { x: cx, y: cy, rect };
+          startBoxDrag('redact', cx, cy);
           break;
         }
 
@@ -1541,8 +1686,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
     // Edit: highlight the PDF text or image that a click would make
     // editable, the replacement it would reopen, or the element a press
-    // would grab; and drag the page's text a press just picked up. Redact:
-    // the text a click would mark (and the box being dragged).
+    // would grab; and drag the page's text a press just picked up, or the
+    // selection box. Redact: the text a click would mark (and the box being
+    // dragged).
     const handleMouseMove = (opt: { scenePoint?: { x: number; y: number }; target?: FabricObject }) => {
       const tool = activeToolRef.current;
       const sp = opt.scenePoint;
@@ -1558,7 +1704,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         setHoverBox(null);
         return;
       }
-      const drag = redactDragRef.current;
+      const drag = boxDragRef.current;
       if (drag && sp) {
         drag.rect.set({
           left: (drag.x + sp.x) / 2,
@@ -1613,9 +1759,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     };
 
     // Edit: the page's text a press picked up types on a click and lands
-    // where a drag left it; and a click on any text types into it right
-    // away (a drag moved it, a corner resized it). Redact: finish the mark
-    // being dragged -- or, for a click, mark the text under it.
+    // where a drag left it; a click on any text types into it right away
+    // (a drag moved it, a corner resized it); and a box dragged from an
+    // empty spot selects what it touches. Redact: finish the mark being
+    // dragged -- or, for a click, mark the text under it.
     const handleMouseUp = (opt: {
       e?: TPointerEvent;
       target?: FabricObject;
@@ -1648,13 +1795,21 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         return;
       }
 
-      const drag = redactDragRef.current;
+      const drag = boxDragRef.current;
       if (!drag) return;
-      redactDragRef.current = null;
+      boxDragRef.current = null;
       const end = opt.scenePoint ?? { x: drag.x, y: drag.y };
       const width = Math.abs(end.x - drag.x);
       const height = Math.abs(end.y - drag.y);
       fc.remove(drag.rect);
+      if (drag.purpose === 'select') {
+        // A click on an empty spot just clears the selection
+        if (width >= EDIT_DRAG_SLOP || height >= EDIT_DRAG_SLOP) {
+          selectArea({ x: (drag.x + end.x) / 2, y: (drag.y + end.y) / 2, width, height, rotation: 0 });
+        }
+        fc.requestRenderAll();
+        return;
+      }
       let mark: Annotation | null;
       if (width < REDACT_CLICK_SLOP && height < REDACT_CLICK_SLOP) {
         const layer = textLayerRef.current;
@@ -1877,10 +2032,12 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             obj.evented = true;
           }
           fc.add(obj);
-          // Selected before it existed (a picked-up image), or rebuilt while
-          // selected (a replaced picture)
+          // Selected before it existed, or rebuilt while selected (a
+          // replaced picture); or a picked-up image joining its selection
           if (reselectRef.current.delete(ann.id) || selectedIdRef.current === ann.id) {
             fc.setActiveObject(obj);
+          } else if (joinRef.current?.ids.delete(ann.id)) {
+            joinSelection(fc, obj);
           }
         });
         addPromises.push(p);

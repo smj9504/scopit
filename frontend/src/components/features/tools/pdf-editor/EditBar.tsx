@@ -38,7 +38,7 @@ const EditBar: React.FC<EditBarProps> = ({ onDone }) => (
       <FormOutlined /> Edit text &amp; images
     </span>
     <Text style={{ fontSize: fontSizes.xs, color: colors.textSecondary }}>
-      Click text to type. Drag text or an image to move it, or a corner to resize. Click an image to pick it up.
+      Click text to type. Drag text or an image to move it, or a corner to resize. Click an image to pick it up. Drag from an empty spot to select several at once.
     </Text>
     <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
       <Button size="small" type="primary" onClick={onDone}>

@@ -72,6 +72,7 @@ import AnnotationLayer, {
   TEXT_COVER_SUFFIX,
   isImageCover,
   isTextCoverId,
+  type ImagePick,
 } from './AnnotationLayer';
 import Toolbar, { headerButtonStyle } from './Toolbar';
 import PropertyPanel from './PropertyPanel';
@@ -1123,46 +1124,62 @@ export const EditorView: React.FC<EditorViewProps> = ({
     if (added.length) commitAnnotations([...annotationsRef.current, ...added]);
   }, [commitAnnotations]);
 
-  // Edit: one of the page's own images, picked up to move, resize, replace
-  // or delete. A cover takes the original off the page (the export removes
-  // it from the page's content) and an image annotation of it takes its
-  // place -- one undo step, like an Edit Text pair.
+  // Edit: some of the page's own images -- one clicked, or those a dragged
+  // box touched -- picked up to move, resize, replace or delete. A cover
+  // takes each original off the page (the export removes it from the
+  // page's content) and an image annotation of it, with the id the layer
+  // gave it, takes its place: one undo step, like an Edit Text pair -- the
+  // same one as the text the box took, if it took some (`withText`). The
+  // layer selects them once they're on the canvas.
   const pickingImageRef = React.useRef(false);
-  const handleImagePick = useCallback(async (image: PageImage) => {
+  const handleImagePick = useCallback(async (picks: ImagePick[], withText: boolean) => {
     if (pickingImageRef.current) return;
     pickingImageRef.current = true;
     const page = currentPage;
-    const hide = message.loading('Picking up image…', 0);
+    const hide = message.loading(picks.length > 1 ? 'Picking up images…' : 'Picking up image…', 0);
     try {
-      const picked = await pdfEditorApi.getEmbeddedImage(documentId, page, image.index);
-      const id = crypto.randomUUID();
-      const box = {
-        x: picked.x,
-        y: picked.y,
-        width: picked.width,
-        height: picked.height,
-        rotation: picked.rotation,
-      };
-      const cover: Annotation = {
-        id: id + TEXT_COVER_SUFFIX,
-        type: 'shape',
-        page,
-        ...box,
-        content: 'rect',
-        style: { backgroundColor: '#ffffff', color: '#ffffff', borderWidth: 0 },
-      };
-      const img: Annotation = {
-        id,
-        type: 'image',
-        page,
-        ...box,
-        content: picked.dataUrl,
-        style: { opacity: 1 },
-      };
-      commitAnnotations([...annotationsRef.current, cover, img]);
-      setSelectedAnnotationId(id);
-    } catch (err) {
-      message.error(apiErrorMessage(err, 'This image can’t be edited'));
+      const results = await Promise.allSettled(
+        picks.map((p) => pdfEditorApi.getEmbeddedImage(documentId, page, p.image.index)),
+      );
+      const added: Annotation[] = [];
+      results.forEach((result, i) => {
+        if (result.status !== 'fulfilled') return;
+        const picked = result.value;
+        const { id } = picks[i];
+        const box = {
+          x: picked.x,
+          y: picked.y,
+          width: picked.width,
+          height: picked.height,
+          rotation: picked.rotation,
+        };
+        added.push(
+          {
+            id: id + TEXT_COVER_SUFFIX,
+            type: 'shape',
+            page,
+            ...box,
+            content: 'rect',
+            style: { backgroundColor: '#ffffff', color: '#ffffff', borderWidth: 0 },
+          },
+          {
+            id,
+            type: 'image',
+            page,
+            ...box,
+            content: picked.dataUrl,
+            style: { opacity: 1 },
+          },
+        );
+      });
+      if (added.length) commitAnnotations([...annotationsRef.current, ...added], !withText);
+
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed.length === 1 && picks.length === 1) {
+        message.error(apiErrorMessage(failed[0].reason, 'This image can’t be edited'));
+      } else if (failed.length) {
+        message.error(`${failed.length} of ${picks.length} images can’t be edited`);
+      }
     } finally {
       hide();
       pickingImageRef.current = false;
@@ -1803,6 +1820,24 @@ export const EditorView: React.FC<EditorViewProps> = ({
     && annotations.some((a) => a.id === selectedAnnotationId + TEXT_COVER_SUFFIX);
   // The page in page units, for crop
   const pageSize = { width: canvasSize.width / zoom, height: canvasSize.height / zoom };
+  // Until the first page is drawn the canvas is a blank 300×150, not a page,
+  // so there's no page card to show yet
+  const pageDrawn = canvasSize.width > 0;
+  // Shown only if the page takes a while: a page turn is quicker
+  const pageSpinner = (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      <Spin delay={400} />
+    </div>
+  );
 
   // ── Layout ────────────────────────────────────────────────────────────────
   return (
@@ -2052,19 +2087,20 @@ export const EditorView: React.FC<EditorViewProps> = ({
             justifyContent: 'center',
             padding: isMobile ? '12px 4px' : '24px 16px',
             WebkitOverflowScrolling: 'touch',
+            position: 'relative',
           }}
         >
           <div
             style={{
               position: 'relative',
               display: 'inline-block',
-              boxShadow: '0 4px 24px rgba(0,0,0,0.12)',
+              boxShadow: pageDrawn ? '0 4px 24px rgba(0,0,0,0.12)' : 'none',
               borderRadius: 4,
-              background: '#fff',
+              background: pageDrawn ? '#fff' : 'transparent',
               maxWidth: isMobile ? '100%' : undefined,
               // A page loading into a fresh canvas (back from Organize
               // pages) holds the last page's size instead of a blank canvas's
-              ...(!isPdfPageReady && canvasSize.width > 0
+              ...(!isPdfPageReady && pageDrawn
                 ? { minWidth: canvasSize.width, minHeight: canvasSize.height }
                 : {}),
             }}
@@ -2083,7 +2119,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               textCovers={pageCovers}
               onCoversErased={setErasedCoverIds}
             />
-            {canvasSize.width > 0 && canvasSize.height > 0 && (
+            {pageDrawn && canvasSize.height > 0 && (
               <div
                 style={{
                   position: 'absolute',
@@ -2120,7 +2156,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 />
               </div>
             )}
-            {activeTool === 'crop' && isPdfPageReady && canvasSize.width > 0 && (
+            {activeTool === 'crop' && isPdfPageReady && pageDrawn && (
               <CropOverlay
                 pageWidth={pageSize.width}
                 pageHeight={pageSize.height}
@@ -2129,22 +2165,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 onChange={setCropRect}
               />
             )}
-            {/* Shown only if the page takes a while: a page turn is quicker */}
-            {!isPdfPageReady && (
-              <div
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  pointerEvents: 'none',
-                }}
-              >
-                <Spin delay={400} />
-              </div>
-            )}
+            {!isPdfPageReady && pageDrawn && pageSpinner}
           </div>
+          {/* The first page: no card yet, so the spinner centers in the viewer */}
+          {!isPdfPageReady && !pageDrawn && pageSpinner}
         </div>
 
         {/* Property panel – hidden on mobile */}
