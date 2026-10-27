@@ -19,6 +19,7 @@ import pytest
 from app.domains.tools.modules.packing.seed import DEFAULT_MOVING_PRICES
 from app.domains.tools.modules.packing.service import (
     DEFAULT_PRICES,
+    STORAGE_STACK_FT,
     EstimateCalculator,
     rh,
 )
@@ -153,15 +154,15 @@ class TestLoadWeightMultiplier:
         assert load["light"] > 0.6
 
 
-class TestItemSizeSfIsShared:
-    """Both the storage-SF estimate and the load multiplier must read one map."""
+class TestItemVolumeIsShared:
+    """Both the storage-SF estimate and the load multiplier must read one volume."""
 
-    def test_size_sf_map_is_a_class_attribute(self):
-        assert EstimateCalculator.ITEM_SIZE_SF["XXL"] > EstimateCalculator.ITEM_SIZE_SF["XS"]
+    def test_size_volume_map_is_a_class_attribute(self):
+        assert EstimateCalculator.ITEM_SIZE_CUFT["XXL"] > EstimateCalculator.ITEM_SIZE_CUFT["XS"]
 
-    def test_storage_sf_uses_the_shared_map(self):
+    def test_storage_sf_uses_the_shared_volume(self):
         calc = _calc()
         rooms = [_Room([_Item("Sofa", "Furniture", 2, "XL", "heavy")])]
-        expected = EstimateCalculator.ITEM_SIZE_SF["XL"] * 2
+        expected = EstimateCalculator.ITEM_SIZE_CUFT["XL"] * 2 / STORAGE_STACK_FT
         # snap_to_storage_unit rounds up to a standard unit, so assert the floor.
         assert calc.estimate_storage_sf_from_items(rooms) >= expected

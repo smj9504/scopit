@@ -127,8 +127,45 @@ function isTransportSection(name: string): boolean {
  * category lines rather than one "Crew Labor" line. */
 function sumCrewElapsedHours(lines: SectionDetailLine[]): number {
   return lines
-    .filter((l) => l.unit === 'HR' && /crew/i.test(l.detail || ''))
+    .filter(isCrewLaborLine)
     .reduce((s, l) => s + l.qty, 0);
+}
+
+const WORKDAY_HOURS = 8;
+
+function workDaysFor(hours: number): number {
+  return Math.max(1, Math.ceil(hours / WORKDAY_HOURS));
+}
+
+/** Elapsed crew hours and workdays of each site visit. Pack-out and pack-back
+ * are separate visits (pack-back follows the repairs, often weeks later), so
+ * each is scheduled on its own hours — never their sum, and never
+ * person-hours: a 4-person crew on site for 6 hrs is one 6-hr day. Mirrors the
+ * backend's site_visit_hours() / visit_work_days(). */
+function visitSchedule(
+  sectionDetails: Record<string, { lines: SectionDetailLine[] }> | undefined,
+) {
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const poHours = round1(sumCrewElapsedHours(sectionDetails?.['Pack-Out Labor']?.lines ?? []));
+  const pbHours = round1(sumCrewElapsedHours(sectionDetails?.['Pack-Back Labor']?.lines ?? []));
+  const poDays = workDaysFor(poHours);
+  const pbDays = pbHours > 0 ? workDaysFor(pbHours) : 0;
+  return { poHours, pbHours, poDays, pbDays, multiDay: poDays > 1 || pbDays > 1 };
+}
+
+/** The van-days a per-work-day van line bills: the van on the pack-back trip
+ * is there for the pack-back days, every other van for the pack-out days. */
+function vanWorkDays(
+  sectionDetails: Record<string, { lines: SectionDetailLine[] }> | undefined,
+): (section: string) => number {
+  const { poDays, pbDays } = visitSchedule(sectionDetails);
+  return (section) => (section === 'Transport Back' ? Math.max(1, pbDays) : poDays);
+}
+
+/** Scheduling notes are regenerated from the lines; every other note
+ * (exclusions, material markup) is carried over untouched. */
+function isSchedulingNote(note: string): boolean {
+  return note.startsWith('Scheduling:') || /scheduled over \d+ days/i.test(note);
 }
 
 /** Check if material_details are individual items (not already category-grouped). */
@@ -176,38 +213,33 @@ function generateSchedulingNotes(
 ): string[] {
   const notes: string[] = [];
   const crewN = Math.max(1, crewSize);
-  const packOutLines = sectionDetails?.['Pack-Out Labor']?.lines ?? [];
-  const packBackLines = sectionDetails?.['Pack-Back Labor']?.lines ?? [];
-  const poElapsed = Math.round(sumCrewElapsedHours(packOutLines) * 10) / 10;
-  const pbElapsed = Math.round(sumCrewElapsedHours(packBackLines) * 10) / 10;
-  const totalElapsed = Math.round((poElapsed + pbElapsed) * 10) / 10;
+  const { poHours, pbHours } = visitSchedule(sectionDetails);
+  const totalElapsed = Math.round((poHours + pbHours) * 10) / 10;
 
   if (totalElapsed <= 0) return notes;
 
   const parts: string[] = [];
-  if (poElapsed > 0) parts.push(`pack-out ${poElapsed} hrs`);
-  if (pbElapsed > 0) parts.push(`pack-back ${pbElapsed} hrs`);
+  if (poHours > 0) parts.push(`pack-out ${poHours} hrs`);
+  if (pbHours > 0) parts.push(`pack-back ${pbHours} hrs`);
   const totalManHrs = Math.round(totalElapsed * crewN * 10) / 10;
   notes.push(
     `Scheduling: ${parts.join(' + ')} = ${totalElapsed} elapsed hrs` +
       ` · crew of ${crewN} · ${totalManHrs} man-hrs total`,
   );
 
-  // A multi-day job is already priced for that schedule (labor hours are the
-  // job's real total and the van is billed per day), so state the resulting
-  // schedule as a fact rather than warning about an overrun and recommending
-  // a fix that has already been applied. Mirrors the backend's schedule_note().
-  if (totalElapsed > 8) {
-    const workDays = Math.ceil(totalElapsed / 8);
-    const perDay = Math.round((totalElapsed / workDays) * 10) / 10;
-    // toFixed(1) so the text is byte-identical to the backend's, which
-    // formats with Python's round(x, 1) — otherwise regenerating the note on
-    // an edit would visibly reformat "13.0 hrs" to "13 hrs".
+  // One note per visit that runs past a workday, stated as a fact. Mirrors
+  // the backend's schedule_notes(); toFixed(1) keeps the text byte-identical
+  // to Python's round(x, 1), so regenerating it on an edit doesn't reformat
+  // "13.0 hrs" to "13 hrs".
+  const visits: [string, number][] = [['Pack-out', poHours], ['Pack-back', pbHours]];
+  for (const [visit, hours] of visits) {
+    if (hours <= WORKDAY_HOURS) continue;
+    const days = workDaysFor(hours);
+    const perDay = Math.round((hours / days) * 10) / 10;
     notes.push(
-      `Scheduled over ${workDays} days — estimated on-site time is ` +
-        `${totalElapsed.toFixed(1)} hrs (${crewN}-person crew), which exceeds a ` +
-        `standard 8-hr workday. Approx. ${perDay.toFixed(1)} hrs/day; pricing ` +
-        `reflects the ${workDays}-day schedule.`,
+      `${visit} scheduled over ${days} days — ${hours.toFixed(1)} hrs on site ` +
+        `(${crewN}-person crew) exceeds a standard ${WORKDAY_HOURS}-hr workday. ` +
+        `Approx. ${perDay.toFixed(1)} hrs/day.`,
     );
   }
 
@@ -238,14 +270,23 @@ function recalcFromDetails(
     op_amount: opAmount,
     contingency_amount: contingencyAmount,
     grand_total: subtotal + opAmount + contingencyAmount + (prev.supplements_total || 0),
-    notes: generateSchedulingNotes(details, prev.crew_size),
+    notes: [
+      ...generateSchedulingNotes(details, prev.crew_size),
+      ...(prev.notes ?? []).filter((n) => !isSchedulingNote(n)),
+    ],
   };
 }
 
 /** True for a crew-priced labor line: qty is elapsed hours and rate is
- * per-person-rate × crew. Mirrors the backend's _crew_detail() marker. */
+ * per-person-rate × crew. Mirrors the backend's _crew_detail() marker. The
+ * supervisor works alongside the crew as one person, so its line is never a
+ * crew line, even where its detail mentions "crew coordination". */
 function isCrewLaborLine(line: SectionDetailLine): boolean {
-  return line.unit === 'HR' && /crew/i.test(line.detail || '');
+  return (
+    line.unit === 'HR' &&
+    /crew/i.test(line.detail || '') &&
+    !/^supervis/i.test(line.name)
+  );
 }
 
 /** Rebuild a crew-labor line's detail text so every number in it matches the
@@ -276,20 +317,23 @@ function isTruckLine(line: SectionDetailLine): boolean {
   return /moving van/i.test(line.name) && (line.unit || '').toUpperCase() === 'DY';
 }
 
-/** Rewrite every moving-van line to a new van-day quantity.
+/** Rewrite every moving-van line to a new van-day quantity — one figure for
+ * all, or per section (see vanWorkDays).
  * Rate is held; amount follows qty, matching how the backend builds the line.
  * `detail` describes why the quantity is what it is: pass a baseline to restore
  * the calculated wording, otherwise the line is labelled as van-days. */
 function applyTruckQty(
   prev: EstimateResponse,
-  trips: number,
+  trips: number | ((section: string) => number),
   restore?: TruckBaseline,
 ): EstimateResponse {
-  const qty = Math.max(0, Math.round(restore ? restore.qty : trips));
+  const qtyFor = (section: string) =>
+    Math.max(0, Math.round(restore ? restore.qty : typeof trips === 'function' ? trips(section) : trips));
   const details = { ...(prev.section_details ?? {}) };
   let touched = false;
   for (const [name, sd] of Object.entries(details)) {
     if (!sd.lines.some(isTruckLine)) continue;
+    const qty = qtyFor(name);
     details[name] = {
       lines: sd.lines.map((l) =>
         isTruckLine(l)
@@ -306,8 +350,9 @@ function applyTruckQty(
     };
     touched = true;
   }
-  if (!touched) return { ...prev, truck_trips: qty };
-  return { ...recalcFromDetails(prev, details), truck_trips: qty };
+  const truckTrips = qtyFor('Transport Out');
+  if (!touched) return { ...prev, truck_trips: truckTrips };
+  return { ...recalcFromDetails(prev, details), truck_trips: truckTrips };
 }
 
 /** Rebuild a single-person HR line's detail so its numbers match the line.
@@ -428,8 +473,8 @@ function applyCrewSize(prev: EstimateResponse, crewSize: number): EstimateRespon
     };
   }
 
-  const next = recalcFromDetails({ ...prev, crew_size: newCrew }, details);
-  return { ...next, notes: generateSchedulingNotes(next.section_details, newCrew) };
+  // recalcFromDetails regenerates the scheduling notes for the new crew size.
+  return recalcFromDetails({ ...prev, crew_size: newCrew }, details);
 }
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -1175,24 +1220,29 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     return result?.truck_trips ?? 0;
   }, [result?.section_details, result?.truck_trips]);
 
-  const currentLaborHours = useMemo(() => {
-    const details = result?.section_details ?? {};
-    return (
-      Math.round(
-        (sumCrewElapsedHours(details['Pack-Out Labor']?.lines ?? []) +
-          sumCrewElapsedHours(details['Pack-Back Labor']?.lines ?? [])) * 10,
-      ) / 10
+  const schedule = useMemo(
+    () => visitSchedule(result?.section_details),
+    [result?.section_details],
+  );
+  const currentLaborHours = Math.round((schedule.poHours + schedule.pbHours) * 10) / 10;
+  const plural = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
+  const workDaysLabel =
+    schedule.pbHours > 0
+      ? `${plural(schedule.poDays)} out · ${plural(schedule.pbDays)} back`
+      : plural(schedule.poDays);
+
+  // Derived, not stored: the van is being billed per work day exactly when a
+  // visit runs past one day and every van line's quantity equals its own
+  // visit's day count. Deriving it means undo/redo — which restore `result`
+  // and nothing else — can never show a switch that contradicts the estimate.
+  const vanPerWorkDay = useMemo(() => {
+    if (!schedule.multiDay) return false;
+    const daysFor = vanWorkDays(result?.section_details);
+    const vans = Object.entries(result?.section_details ?? {}).flatMap(([name, sd]) =>
+      sd.lines.filter(isTruckLine).map((l) => l.qty === daysFor(name)),
     );
-  }, [result?.section_details]);
-
-  const currentWorkDays = Math.max(1, Math.ceil(currentLaborHours / 8));
-
-  // Derived, not stored: the van is being billed per work day exactly when its
-  // quantity equals the work-day count and that count is more than the load
-  // needs. Deriving it means undo/redo — which restore `result` and nothing
-  // else — can never show a switch that contradicts the estimate.
-  const vanPerWorkDay =
-    currentWorkDays > 1 && currentTruckQty === currentWorkDays;
+    return vans.length > 0 && vans.every(Boolean);
+  }, [schedule.multiDay, result?.section_details]);
 
   const handleTruckQtyChange = useCallback((val: number | null) => {
     if (val == null || val < 0) return;
@@ -1210,7 +1260,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     markDirty();
     setResult((prev) => {
       if (!prev) return prev;
-      if (checked) return applyTruckQty(prev, currentWorkDays);
+      if (checked) return applyTruckQty(prev, vanWorkDays(prev.section_details));
       // Switching off rebuilds the calculated line from the capacity figure the
       // backend reported, so it restores correctly no matter what happened in
       // between (undo, redo, a session reload).
@@ -1219,7 +1269,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         ? applyTruckQty(prev, original.qty, original)
         : applyTruckQty(prev, 1);
     });
-  }, [pushHistory, markDirty, setResult, currentWorkDays]);
+  }, [pushHistory, markDirty, setResult]);
 
   const handleLaborHoursChange = useCallback((val: number | null) => {
     if (val == null || val <= 0) return;
@@ -1234,8 +1284,9 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       // van in step with it. Without this a drop below 8 hrs hides the switch
       // (it only shows for multi-day jobs) while leaving the inflated quantity
       // stranded on the estimate with no visible control to undo it.
-      const days = Math.max(1, Math.ceil(val / 8));
-      if (days > 1) return applyTruckQty(next, days);
+      if (visitSchedule(next.section_details).multiDay) {
+        return applyTruckQty(next, vanWorkDays(next.section_details));
+      }
       const original = calculatedTruckLine(next);
       return original ? applyTruckQty(next, original.qty, original) : next;
     });
@@ -2305,7 +2356,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
               <Col>
                 <Space size={8}>
                   <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                    {currentWorkDays} day{currentWorkDays > 1 ? 's' : ''}
+                    {workDaysLabel}
                   </Text>
                   <InputNumber
                     size="small"
@@ -2371,7 +2422,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                     switching back restores the calculated quantity and its
                     original description. Only meaningful once the job actually
                     spans more than one day. */}
-                {currentWorkDays > 1 && (
+                {schedule.multiDay && (
                   <Row justify="space-between" align="middle">
                     <Col flex="1" style={{ minWidth: 0 }}>
                       <Space size={6}>
@@ -2381,7 +2432,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                           onChange={handleVanPerWorkDayToggle}
                         />
                         <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                          Bill per work day ({currentWorkDays} days)
+                          Bill per work day ({workDaysLabel})
                         </Text>
                       </Space>
                     </Col>
@@ -2408,7 +2459,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                       note
                     )
                   }
-                  type={note.startsWith('Scheduled over') ? 'info' : 'warning'}
+                  type={isSchedulingNote(note) ? 'info' : 'warning'}
                   showIcon
                   style={{ marginBottom: i < visibleNotes.length - 1 ? 8 : 0 }}
                 />

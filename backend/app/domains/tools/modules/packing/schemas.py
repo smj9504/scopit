@@ -148,7 +148,7 @@ class QuickEstimateRequest(BaseModel):
     include_packback: bool = Field(default=True)
     include_op: bool = Field(default=True)
     op_rate: int = Field(default=20, ge=0, le=30)
-    material_rate: int = Field(default=20, ge=0, le=40,
+    material_rate: int = Field(default=10, ge=0, le=40,
         description="Handling & markup added on top of catalog material cost, %")
     include_contingency: bool = Field(default=False)
     contingency_rate: int = Field(default=0, ge=0, le=20)
@@ -203,8 +203,10 @@ class EstimateResponse(BaseModel):
     total_hours: float
     crew_size: int
     # Scheduling / logistics quantities the editor can adjust by hand.
-    # work_days = ceil(total_hours / 8-hr workday) — reported so the editor can
-    # offer per-work-day van billing, which is an opt-in and NOT applied here.
+    # work_days = workdays the longest site visit spans: pack-out and pack-back
+    # are separate visits, each ceil(its elapsed crew hours / 8-hr workday).
+    # Reported so the editor can offer per-work-day van billing, which is an
+    # opt-in and NOT applied here.
     # truck_trips is the moving-van DY quantity, driven by load capacity alone
     # (0 for on-site jobs). truck_capacity_trips records that same calculated
     # figure permanently: the editor overwrites truck_trips when the user opts
@@ -355,7 +357,7 @@ class RoomsEstimateRequest(BaseModel):
     include_packback: bool = Field(default=True)
     include_op: bool = Field(default=True)
     op_rate: int = Field(default=20, ge=0, le=30)
-    material_rate: int = Field(default=20, ge=0, le=40,
+    material_rate: int = Field(default=10, ge=0, le=40,
         description="Handling & markup added on top of catalog material cost, %")
     materials_mode: Literal["pct_of_labor", "itemized"] = Field(
         default="pct_of_labor",

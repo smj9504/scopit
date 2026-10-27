@@ -26,8 +26,10 @@ from app.domains.tools.modules.packing.schemas import (
 from app.domains.tools.modules.packing.service import (
     WORKDAY_HOURS,
     EstimateCalculator,
-    schedule_note,
+    schedule_notes,
+    site_visit_hours,
     truck_qty_note,
+    visit_work_days,
     work_days_for,
 )
 
@@ -105,7 +107,7 @@ def test_quick_estimate_van_qty_ignores_work_days(calc):
 
     assert result.total_hours > WORKDAY_HOURS, "fixture must span >1 workday"
     # work_days is still reported, so the editor can offer the opt-in.
-    assert result.work_days == work_days_for(result.total_hours)
+    assert result.work_days == visit_work_days(*site_visit_hours(result.section_details))
     assert result.work_days > 1
     # ...but the van quantity does not follow it.
     assert result.truck_trips < result.work_days
@@ -177,7 +179,7 @@ def test_content_estimate_van_qty_ignores_work_days(calc):
     result = calc.calculate_estimate_from_content(req)
 
     assert result.total_hours > WORKDAY_HOURS, "fixture must span >1 workday"
-    assert result.work_days == work_days_for(result.total_hours)
+    assert result.work_days == visit_work_days(*site_visit_hours(result.section_details))
     assert result.work_days > 1
     assert result.truck_trips < result.work_days
 
@@ -212,13 +214,13 @@ def test_section_total_matches_van_line_amount(calc):
         assert result.sections[section] == pytest.approx(expected, abs=0.01)
 
 
-# ── schedule_note ────────────────────────────────────────────────────────────
+# ── schedule_notes ───────────────────────────────────────────────────────────
 
 def test_schedule_note_states_the_schedule_without_promising_pricing():
     """States the schedule as a fact, but must not claim the van is billed for
     those days — that is an opt-in the estimator has not necessarily made."""
-    note = schedule_note(13.0, 4, 2)
-    assert note.startswith("Scheduled over 2 days")
+    [note] = schedule_notes(13.0, 4.0, 4)
+    assert note.startswith("Pack-out scheduled over 2 days")
     assert "13.0 hrs" in note
     assert "4-person crew" in note
     assert "6.5 hrs/day" in note
@@ -229,10 +231,41 @@ def test_schedule_note_states_the_schedule_without_promising_pricing():
 
 
 def test_schedule_note_per_day_divides_total():
-    note = schedule_note(80.6, 4, 11)
-    assert "Scheduled over 11 days" in note
+    [note] = schedule_notes(80.6, 0, 4)
+    assert "scheduled over 11 days" in note
     assert "80.6 hrs" in note
     assert f"{round(80.6 / 11, 1)} hrs/day" in note
+
+
+def test_each_visit_is_scheduled_on_its_own_hours():
+    """Pack-out and pack-back are separate visits. A 6-hr pack-out and a 4-hr
+    pack-back are two one-day visits, not one 10-hr job running into a second
+    day."""
+    assert schedule_notes(6.0, 4.0, 4) == []
+    assert visit_work_days(6.0, 4.0) == 1
+    notes = schedule_notes(10.0, 9.0, 4)
+    assert [n.split(" scheduled")[0] for n in notes] == ["Pack-out", "Pack-back"]
+    assert visit_work_days(10.0, 4.0) == 2
+
+
+def test_visit_hours_are_elapsed_crew_hours_not_person_hours(calc):
+    """A 4-person crew on site for N hours is N hours of schedule, and the
+    supervisor working alongside adds none."""
+    result = calc.calculate_estimate(QuickEstimateRequest(
+        rooms=[RoomInput(preset=p) for p in (
+            "bedroom_master", "living_standard", "kitchen_standard",
+        )],
+        crew_size=4, include_packback=True,
+        staging_type=StagingType.OFF_SITE, storage_months=1,
+    ))
+    po_hours, pb_hours = site_visit_hours(result.section_details)
+    crew_lines = [
+        ln for ln in result.section_details["Pack-Out Labor"]["lines"]
+        if "-person crew" in ln["detail"]
+    ]
+    assert po_hours == pytest.approx(sum(ln["qty"] for ln in crew_lines))
+    assert po_hours + pb_hours == pytest.approx(result.total_hours)
+    assert result.work_days == 1
 
 
 def test_calculated_note_uses_new_phrasing(calc):
@@ -251,7 +284,7 @@ def test_calculated_note_uses_new_phrasing(calc):
     assert result.notes, "multi-day job must carry a scheduling note"
     joined = " ".join(result.notes)
     assert "Recommend scheduling" not in joined
-    assert f"Scheduled over {result.work_days} days" in joined
+    assert f"scheduled over {result.work_days} days" in joined
 
 
 def test_single_day_job_has_no_schedule_note(calc):
@@ -294,8 +327,9 @@ def test_capacity_anchor_on_content_path(calc):
         ])
         for i in range(10)
     ]
+    # A 2-person crew, so the pack-out visit alone runs past one workday.
     result = calc.calculate_estimate_from_content(RoomsEstimateRequest(
-        rooms=rooms, crew_size=4, include_packback=True,
+        rooms=rooms, crew_size=2, include_packback=True,
         staging_type=StagingType.OFF_SITE, storage_months=1,
     ))
     assert result.truck_capacity_trips == result.truck_trips

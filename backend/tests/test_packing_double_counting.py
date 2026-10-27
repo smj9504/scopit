@@ -223,3 +223,76 @@ def test_photo_ai_pack_out_labor_follows_region(calc):
     }
     assert labor["southeast"] < labor["mid_atlantic"] < labor["northeast"]
     assert math.isclose(labor["southeast"] / labor["mid_atlantic"], 0.80, rel_tol=0.01)
+
+
+# ── Storage: contents by volume, the same basis as the room presets ──────────
+
+
+def _three_rooms(use_presets):
+    living = [
+        _item("Sofa", "Furniture"), _item("Loveseat", "Furniture"),
+        _item("Coffee table", "Furniture"), _item("End table", "Furniture", 2),
+        _item("Bookcase", "Furniture"), _item("65in TV", "Electronics"),
+        _item("Books", "Books", 40), _item("Decor items", "Other", 6),
+    ]
+    kitchen = [
+        _item("Plates", "Kitchenware", 12), _item("Bowls", "Kitchenware", 8),
+        _item("Glasses", "Kitchenware", 12), _item("Dining table", "Furniture"),
+        _item("Dining chair", "Furniture", 4), _item("Toaster", "Appliances"),
+    ]
+    bedroom = [
+        _item("Queen bed frame", "Furniture"), _item("Queen mattress", "Furniture"),
+        _item("Dresser", "Furniture"), _item("Nightstand", "Furniture", 2),
+        _item("Hanging clothes", "Clothing", 40), _item("Folded clothes", "Clothing", 30),
+    ]
+    rooms = [
+        RoomContentInput(room_name=name, preset_id=preset if use_presets else None, items=items)
+        for name, preset, items in (
+            ("Living Room", "living_standard", living),
+            ("Kitchen", "kitchen_standard", kitchen),
+            ("Master Bedroom", "bedroom_master", bedroom),
+        )
+    ]
+    return rooms
+
+
+def test_custom_named_rooms_size_storage_like_preset_rooms(calc):
+    """The same three rooms needed a 10x40 when entered by name and a 5x15
+    when picked from presets, because every book and garment took 1 SF."""
+    custom = _three_rooms(use_presets=False)
+    for room in custom:
+        calc.enrich_items_for_estimate(room.items)
+    preset_sf = calc.estimate_storage_sf_from_items(_three_rooms(use_presets=True))
+    custom_sf = calc.estimate_storage_sf_from_items(custom)
+    assert custom_sf <= preset_sf * 1.5
+
+
+def test_boxed_contents_take_the_boxes_volume(calc):
+    books = _enriched(calc, "Books", "Books")
+    books.quantity = 40
+    # 40 books at 20 per book box = 2 boxes of 1.5 cu ft
+    assert calc._item_storage_cuft(books) == pytest.approx(3.0)
+
+
+def test_dining_chair_is_not_sized_like_a_sofa(calc):
+    assert _enriched(calc, "Dining chair", "Furniture").size == "M"
+    assert _enriched(calc, "Armchair", "Furniture").size == "L"
+
+
+# ── Materials: general boxes pooled per room ─────────────────────────
+
+
+def test_dish_packs_are_pooled_within_a_room(calc):
+    """Plates, bowls, glasses and mugs share dish packs: 38 pieces at 12 per
+    pack is 4 packs, not one per line plus rounding."""
+    room = _room([
+        _item("Plates", "Kitchenware", 12), _item("Bowls", "Kitchenware", 8),
+        _item("Glasses", "Kitchenware", 12), _item("Mugs", "Kitchenware", 6),
+        _item("Serving dish", "Kitchenware", 1), _item("Teapot", "Kitchenware", 1),
+    ], preset_id="kitchen_standard")
+    calc.enrich_items_for_estimate(room.items)
+    assert calc.aggregate_item_materials([room])["box_dish"] == math.ceil(40 / 12)
+
+
+def test_bagged_mattress_takes_no_blanket(calc):
+    assert "moving_blanket" not in _enriched(calc, "Queen mattress", "Furniture").required_materials

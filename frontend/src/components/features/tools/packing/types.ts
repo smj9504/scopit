@@ -140,7 +140,8 @@ export interface EstimateResponse {
   total_items: number;
   total_hours: number;
   crew_size: number;
-  /** ceil(total_hours / 8-hr workday). Drives the moving-van DY quantity. */
+  /** Workdays the longest site visit spans: pack-out and pack-back are
+   * separate visits, each ceil(its elapsed crew hours / 8-hr workday). */
   work_days?: number;
   /** Moving-van DY quantity as calculated (load capacity only). 0 for on-site
    * jobs. The editor overwrites this when the user opts into per-work-day

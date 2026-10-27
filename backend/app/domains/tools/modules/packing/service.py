@@ -60,22 +60,58 @@ def work_days_for(total_hours: float) -> int:
     return max(1, math.ceil(total_hours / WORKDAY_HOURS))
 
 
-def schedule_note(total_hours: float, crew_size: int, work_days: int) -> str:
-    """Scheduling note for a job that spans more than one workday.
+def site_visit_hours(section_details: Dict[str, Any]) -> Tuple[float, float]:
+    """Elapsed crew hours of the pack-out visit and of the pack-back visit.
 
-    Labor hours are the job's real total either way, so this states the
-    resulting schedule as a fact. It deliberately does NOT claim the van is
-    billed for those days: the moving van defaults to its capacity-driven
-    quantity, and billing it per work day is an explicit opt-in the estimator
-    makes in the editor.
+    Read off the crew lines (built by _crew_detail, so their detail carries
+    "-person crew") -- the same lines the editor sums -- so the backend's day
+    count and the editor's agree. Single-person lines (supervisor, inventory)
+    work alongside the crew and add no time on site.
     """
-    hrs = round(total_hours, 1)
-    per_day = round(hrs / work_days, 1) if work_days else hrs
-    return (
-        f"Scheduled over {work_days} days — estimated on-site time is {hrs} hrs "
-        f"({crew_size}-person crew), which exceeds a standard {WORKDAY_HOURS}-hr "
-        f"workday. Approx. {per_day} hrs/day."
-    )
+    def crew_hours(section: str) -> float:
+        lines = (section_details.get(section) or {}).get("lines", [])
+        return round(sum(
+            ln.get("qty", 0) for ln in lines
+            if "-person crew" in (ln.get("detail") or "")
+        ), 1)
+    return crew_hours("Pack-Out Labor"), crew_hours("Pack-Back Labor")
+
+
+def visit_work_days(pack_out_hours: float, pack_back_hours: float) -> int:
+    """Workdays the longest single site visit spans.
+
+    Pack-out and pack-back are separate visits -- pack-back follows the
+    repairs, often weeks later -- so each is scheduled on its own hours.
+    Adding them together made a 6-hr pack-out and a 4-hr pack-back read as
+    one job running into a second day.
+    """
+    return max(work_days_for(pack_out_hours), work_days_for(pack_back_hours))
+
+
+def schedule_notes(
+    pack_out_hours: float, pack_back_hours: float, crew_size: int,
+) -> List[str]:
+    """Scheduling note for each site visit that runs past one workday.
+
+    Hours are elapsed crew time, never person-hours: a 4-person crew on site
+    for 6 hours is a 6-hour day, not 24 hours of schedule. Each visit is
+    scheduled on its own (see visit_work_days). The notes deliberately do NOT
+    claim the van is billed for those days: the moving van defaults to its
+    capacity-driven quantity, and billing it per work day is an explicit
+    opt-in the estimator makes in the editor.
+    """
+    notes = []
+    for visit, hours in (("Pack-out", pack_out_hours), ("Pack-back", pack_back_hours)):
+        if hours <= WORKDAY_HOURS:
+            continue
+        days = work_days_for(hours)
+        hrs = round(hours, 1)
+        notes.append(
+            f"{visit} scheduled over {days} days — {hrs} hrs on site "
+            f"({crew_size}-person crew) exceeds a standard {WORKDAY_HOURS}-hr "
+            f"workday. Approx. {round(hrs / days, 1)} hrs/day."
+        )
+    return notes
 
 
 def truck_qty_note(capacity_trips: int) -> str:
@@ -253,6 +289,11 @@ SF_PER_ROOM_SIZE = {
     "large": 19,    # standard bedroom, kitchen
     "xlarge": 34,   # master, basement, garage
 }
+
+# Height storage units are filled to when converting a content volume to the
+# floor area rented: a 10x20 at 8 ft is the ~1,600 cu ft a 3-bedroom house
+# needs, the same basis SF_PER_ROOM_SIZE is calibrated on.
+STORAGE_STACK_FT = 8.0
 
 # Room-size-based material volume scale (replaces item count for material calculations).
 # Represents relative content volume per room size — density multiplier is applied on top.
@@ -1129,18 +1170,17 @@ class EstimateCalculator:
         """Estimate required storage SF from AI-detected rooms.
 
         Priority: preset_id → SF_PER_ROOM_SIZE (most accurate).
-        Fallback: item count, with conservative thresholds and smaller SF values
-        to avoid over-sizing the storage unit.
+        Fallback: the volume of the room's items (see _item_storage_cuft),
+        stacked to the unit's ceiling -- the same basis SF_PER_ROOM_SIZE is
+        calibrated on, so a room scores alike whichever way it was entered.
 
-        AI detects items as grouped objects (e.g. "Plates" qty=20 = 1 dish-pack),
-        so the raw item count inflates easily. Thresholds are raised accordingly.
+        The fallback used to charge floor area per piece: every book, plate
+        and garment took at least 1 SF, so a custom-named living room, kitchen
+        and bedroom needed a 10x40 where the same rooms picked from presets
+        fit a 5x15.
 
         Returns a standard storage unit size (25, 50, 100, etc.).
         """
-        # Conservative SF per room for item-based fallback
-        # (smaller than quick-estimate values — AI grouping inflates item counts)
-        ITEM_SF_MAP = {"small": 7, "large": 20, "xlarge": 35}
-
         total_sf = 0.0
         for room in rooms:
             # Prefer preset-based SF (most reliable)
@@ -1153,22 +1193,9 @@ class EstimateCalculator:
                 base_sf = SF_PER_ROOM_SIZE.get(preset.size, 30)
                 total_sf += base_sf * density_mult
             else:
-                # Size-based SF: use item size class for more accurate volume
-                # Each item contributes SF based on its physical size
-                room_sf = 0.0
-                for item in room.items:
-                    item_size = getattr(item, 'size', None)
-                    if item_size and item_size in self.ITEM_SIZE_SF:
-                        room_sf += self.ITEM_SIZE_SF[item_size] * (item.quantity or 1)
-                    else:
-                        # Fallback: category-based estimate
-                        cat = getattr(item, 'category', 'Other')
-                        cat_sf = {"Furniture": 8.0, "Appliances": 8.0,
-                                  "Sports": 5.0, "Artwork": 3.0}.get(cat, 1.0)
-                        room_sf += cat_sf * (item.quantity or 1)
+                room_cuft = sum(self._item_storage_cuft(item) for item in room.items)
                 # Apply minimum per room
-                room_sf = max(room_sf, ITEM_SF_MAP.get("small", 7))
-                total_sf += room_sf
+                total_sf += max(room_cuft / STORAGE_STACK_FT, 7.0)
 
         return snap_to_storage_unit(total_sf)
 
@@ -1811,9 +1838,9 @@ class EstimateCalculator:
         quick_capacity_trips = max(
             1, math.ceil(storage_sf / 500)
         ) if storage_sf > 0 else 1
-        # Quantity is capacity-driven only. work_days is still reported so the
-        # editor can offer per-work-day billing as a one-click opt-in.
-        quick_work_days = work_days_for(total_hours)
+        # Quantity is capacity-driven only. work_days is still reported (below,
+        # once the labor lines exist) so the editor can offer per-work-day
+        # billing as a one-click opt-in.
         quick_truck_trips = quick_capacity_trips
         quick_truck_note = truck_qty_note(quick_capacity_trips)
 
@@ -2046,12 +2073,12 @@ class EstimateCalculator:
         contingency_amount = round(subtotal * (request.contingency_rate / 100), 2) if request.include_contingency else 0
         grand_total = round(subtotal + op_amount + supplements_total + contingency_amount, 2)
 
-        # Workday scheduling notes
-        quick_notes: list[str] = []
-        if total_hours > WORKDAY_HOURS:
-            quick_notes.append(
-                schedule_note(total_hours, request.crew_size, quick_work_days)
-            )
+        # Workday scheduling: each site visit on its own elapsed crew hours
+        po_visit_hours, pb_visit_hours = site_visit_hours(section_details)
+        quick_work_days = visit_work_days(po_visit_hours, pb_visit_hours)
+        quick_notes: list[str] = schedule_notes(
+            po_visit_hours, pb_visit_hours, request.crew_size,
+        )
         # Non-transportable content the customer selected produces no line at
         # all, so say so rather than letting it vanish off the estimate.
         quick_notes.extend(exclusion_notes_for(request.rooms, self.presets))
@@ -2370,6 +2397,9 @@ class EstimateCalculator:
         ("drape",       "L", "light"),
 
         # ── M furniture (smaller than default L) ──
+        ("armchair",    "L", "heavy"),   # before "chair": upholstered
+        ("recliner",    "L", "heavy"),
+        ("chair",       "M", "medium"),  # dining, office, accent chairs
         ("nightstand",  "M", "medium"),
         ("end table",   "M", "medium"),
         ("side table",  "M", "medium"),
@@ -2606,8 +2636,9 @@ class EstimateCalculator:
             physical_mult = max(size_mult, weight_mult)
             per_unit_h *= physical_mult
 
-            # Extra blankets for XL/XXL items
-            if item_size in ("XL", "XXL"):
+            # Extra blankets for XL/XXL items. Not for a mattress: it travels
+            # sealed in its bag, so a blanket over it is never used.
+            if item_size in ("XL", "XXL") and "mattress_bag" not in materials:
                 extra_blankets = 1 if item_size == "XL" else 2
                 for _ in range(extra_blankets):
                     if "moving_blanket" not in materials or materials.count("moving_blanket") < 3:
@@ -2921,13 +2952,56 @@ class EstimateCalculator:
         if current_blankets < needed:
             mat_counts["blanket"] = needed
 
-    # Storage volume (SF) contributed by one unit of each item size class.
-    # Shared by the storage-SF estimate and the load-weight multiplier so the
-    # two cannot drift apart.
-    ITEM_SIZE_SF = {
-        "XS": 0.5, "S": 1.0, "M": 3.0,
-        "L": 8.0, "XL": 15.0, "XXL": 25.0,
+    # Cubic feet one piece of each size class takes in storage, for pieces
+    # that go in as themselves (furniture, appliances, anything wrapped rather
+    # than boxed). Moving-industry averages: a nightstand or end table ~10, a
+    # dresser, sofa or refrigerator ~30, a bed or wardrobe ~55, a piano ~90.
+    ITEM_SIZE_CUFT = {
+        "XS": 0.5, "S": 2.0, "M": 10.0,
+        "L": 30.0, "XL": 55.0, "XXL": 90.0,
     }
+    # Cubic feet of each box, for contents that go into storage boxed. The
+    # four general sizes are the catalog's own (3025-3028).
+    BOX_CUFT = {
+        "box_small": 1.5, "box_medium": 3.0, "box_large": 4.5, "box_xlarge": 6.0,
+        "box_book": 1.5, "box_dish": 5.2,
+        "box_wardrobe": 13.0, "box_wardrobe_small": 10.0, "box_wardrobe_large": 16.0,
+        "box_mirror": 3.0, "box_tv": 8.0, "box_lamp": 3.0,
+    }
+    _SINGLE_ITEM_BOXES = {"box_tv", "box_mirror", "box_lamp"}
+
+    def _item_storage_cuft(self, item: Any) -> float:
+        """Cubic feet one item line occupies in storage.
+
+        Contents packed into boxes take the boxes' volume, at the same
+        items-per-box ratios the materials are counted with -- 40 books fill
+        two book boxes, not 40 pieces of floor. Pieces that go in as
+        themselves take their own volume by size class. One-item boxes (TV,
+        mirror, lamp) hold their piece whatever its size; a general box
+        cannot hold an L or bigger piece, so those count as themselves.
+
+        Shared by the storage estimate and the load-weight multiplier, so the
+        two cannot drift apart.
+        """
+        qty = getattr(item, 'quantity', 1) or 1
+        size = getattr(item, 'size', None) or self.CATEGORY_SIZE_WEIGHT.get(
+            getattr(item, 'category', 'Other'), ("M", "medium")
+        )[0]
+        boxes = []
+        for mat in getattr(item, 'required_materials', None) or []:
+            norm = self._normalize_material_key(mat)
+            if norm in self.BOX_CUFT and norm not in boxes:
+                boxes.append(norm)
+        single = [b for b in boxes if b in self._SINGLE_ITEM_BOXES]
+        general = [b for b in boxes if b not in self._SINGLE_ITEM_BOXES]
+        if single:
+            return sum(qty * self.BOX_CUFT[b] for b in single)
+        if general and size not in ("L", "XL", "XXL"):
+            # Several box types split the item's quantity between them, as
+            # aggregate_item_materials counts them.
+            share = qty / len(general)
+            return sum(share / self.ITEMS_PER_BOX[b] * self.BOX_CUFT[b] for b in general)
+        return qty * self.ITEM_SIZE_CUFT.get(size, 10.0)
 
     # Weight scaling for truck loading/securing. Milder than WEIGHT_CARRY_MULT
     # (0.6-2.0x): loading is part volume-fitting, which heavy items do not slow
@@ -2945,21 +3019,19 @@ class EstimateCalculator:
         the volume-based hour figure it scales is itself built.
         Returns 1.0 when there is no usable volume, leaving hours unchanged.
         """
-        total_sf = 0.0
-        weighted_sf = 0.0
+        total_cuft = 0.0
+        weighted_cuft = 0.0
         for room in rooms:
             for item in getattr(room, 'items', None) or []:
-                qty = getattr(item, 'quantity', 1) or 1
-                size = getattr(item, 'size', None)
-                sf = self.ITEM_SIZE_SF.get(size, 3.0) * qty
+                cuft = self._item_storage_cuft(item)
                 mult = self.LOAD_WEIGHT_MULT.get(
                     getattr(item, 'weight', None) or 'medium', 1.0
                 )
-                total_sf += sf
-                weighted_sf += sf * mult
-        if total_sf <= 0:
+                total_cuft += cuft
+                weighted_cuft += cuft * mult
+        if total_cuft <= 0:
             return 1.0
-        return weighted_sf / total_sf
+        return weighted_cuft / total_cuft
 
     def _calculate_relocation_hours(
         self, rooms: List[Any]
@@ -3103,7 +3175,9 @@ class EstimateCalculator:
         then converted to 50-lb bundles once at the end. Roll- and box-issued
         materials (stretch wrap, bubble wrap, corner protectors) are pooled
         the same way: one roll covers several pieces, so an item line must not
-        open a roll of its own.
+        open a roll of its own. General-purpose boxes are pooled per room --
+        the crew packs a room's plates, bowls and mugs into the same dish
+        packs, so each line does not start a box of its own.
         """
         materials: Dict[str, int] = {}
         packing_paper_raw = 0  # accumulate raw item count across all items
@@ -3113,6 +3187,7 @@ class EstimateCalculator:
         _TV_KEYWORDS = {"tv", "television", "flat screen", "flatscreen", "oled", "qled"}
 
         for room in rooms:
+            room_box_units: Dict[str, float] = {}  # fractional boxes in this room
             for item in room.items:
                 item_mats = []
                 if item.required_materials:
@@ -3170,15 +3245,21 @@ class EstimateCalculator:
                         # (e.g., 2× "moving_blanket" = 2 blankets per unit).
                         # Multiply occurrence count by item.quantity (number of units).
                         item_mat_counts[norm] = item_mat_counts.get(norm, 0) + item.quantity
+                    elif norm.startswith("box_") and norm in self.ITEMS_PER_BOX and norm not in self._SINGLE_ITEM_BOXES:
+                        # General box: this item's share of the room's boxes,
+                        # rounded once per room below. Uses the split qty when
+                        # several box types are listed for the item (avoids Nx
+                        # inflation). Rounding per line started a box for
+                        # every line, however few pieces it held.
+                        room_box_units[norm] = (
+                            room_box_units.get(norm, 0.0)
+                            + qty_per_box_type / self.ITEMS_PER_BOX[norm]
+                        )
                     elif norm in self.ITEMS_PER_BOX:
-                        # Boxes: ceil(effective_qty / items_per_box) per occurrence.
-                        # For regular box types, use split qty when multiple box types are
-                        # listed for the same item (avoids Nx inflation).
-                        # Specialty single-item boxes (tv/mirror/lamp) always use full qty.
+                        # Single-item boxes (tv/mirror/lamp) take the full qty;
+                        # furniture pads are counted per line.
                         per_box = self.ITEMS_PER_BOX[norm]
-                        is_specialty = norm in ("box_tv", "box_mirror", "box_lamp")
-                        eff_qty = item.quantity if is_specialty else qty_per_box_type
-                        boxes = math.ceil(eff_qty / per_box)
+                        boxes = math.ceil(item.quantity / per_box)
                         item_mat_counts[norm] = item_mat_counts.get(norm, 0) + max(1, boxes)
                     else:
                         # Unknown material: 1 per occurrence
@@ -3190,6 +3271,9 @@ class EstimateCalculator:
                 # Merge item-level counts into global totals
                 for norm, cnt in item_mat_counts.items():
                     materials[norm] = materials.get(norm, 0) + cnt
+
+            for norm, units in room_box_units.items():
+                materials[norm] = materials.get(norm, 0) + math.ceil(units)
 
         for norm, units in roll_units.items():
             materials[norm] = materials.get(norm, 0) + math.ceil(units)
@@ -3836,7 +3920,6 @@ class EstimateCalculator:
         # capacity-driven only; per-work-day billing is an editor opt-in.
         capacity_trips = max(1, math.ceil(storage_sf / 500)) if storage_sf > 0 else 1
         total_hours_calc = total_labor_hours + debris_hours
-        work_days = work_days_for(total_hours_calc)
         truck_trips = capacity_trips
         truck_note = truck_qty_note(capacity_trips)
 
@@ -4147,12 +4230,10 @@ class EstimateCalculator:
         contingency_amount = round(subtotal * (request.contingency_rate / 100), 2) if request.include_contingency else 0
         grand_total = round(subtotal + op_amount + supplements_total + contingency_amount, 2)
 
-        # Workday scheduling notes
-        notes: list[str] = []
-        if total_hours_calc > WORKDAY_HOURS:
-            notes.append(
-                schedule_note(total_hours_calc, crew, work_days)
-            )
+        # Workday scheduling: each site visit on its own elapsed crew hours
+        po_visit_hours, pb_visit_hours = site_visit_hours(section_details)
+        work_days = visit_work_days(po_visit_hours, pb_visit_hours)
+        notes: list[str] = schedule_notes(po_visit_hours, pb_visit_hours, crew)
         # Non-transportable content the customer selected produces no line at
         # all, so say so rather than letting it vanish off the estimate.
         notes.extend(exclusion_notes_for(request.rooms, self.presets))
