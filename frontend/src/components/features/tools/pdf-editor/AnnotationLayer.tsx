@@ -46,6 +46,7 @@ import {
 import type { Annotation, AnnotationStyle, PageImage } from './types';
 import { findRunAt, runPoint, type PdfFontFace, type PdfTextLayer, type PdfTextRun } from './pdfTextRuns';
 import { canvasPixelRatio } from './canvasPixelRatio';
+import { stampSize, type SavedStamp } from './stampLibrary';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -155,6 +156,11 @@ export interface AnnotationLayerProps {
   checkSize?: number;
   /** Called when user clicks canvas with sign tool – provides click position */
   onSignRequest?: (pos: { x: number; y: number }) => void;
+  /** Picture stamps saved for reuse, offered by the stamp picker */
+  savedStamps?: SavedStamp[];
+  /** The stamp picker's "Upload a picture": make a picture stamp for this spot */
+  onStampUpload?: (pos: { x: number; y: number }) => void;
+  onStampDelete?: (id: string) => void;
   /** The page's existing text, for the edit_text tool */
   textLayer?: PdfTextLayer | null;
   /** Edit Text covers whose words the page on screen has already erased */
@@ -615,10 +621,53 @@ interface StampPickerProps {
   x: number;
   y: number;
   onSelect: (stamp: (typeof STAMPS)[number]) => void;
+  /** Picture stamps saved for reuse */
+  savedStamps: SavedStamp[];
+  onSelectSaved: (stamp: SavedStamp) => void;
+  onDeleteSaved?: (id: string) => void;
+  /** Make a new picture stamp (absent: the picker offers none) */
+  onUpload?: () => void;
   onDismiss: () => void;
 }
 
-const StampPicker: React.FC<StampPickerProps> = ({ x, y, onSelect, onDismiss }) => {
+const pickerSectionTitle: React.CSSProperties = {
+  padding: '4px 12px 8px',
+  fontSize: 11,
+  color: '#6b7280',
+  fontWeight: 600,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  borderBottom: '1px solid #f3f4f6',
+  marginBottom: 4,
+};
+
+const pickerItem: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  width: '100%',
+  padding: '7px 14px',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  textAlign: 'left',
+  fontSize: 13,
+  color: '#111827',
+};
+
+const hoverOn = (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = '#f9fafb'; };
+const hoverOff = (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'none'; };
+
+const StampPicker: React.FC<StampPickerProps> = ({
+  x,
+  y,
+  onSelect,
+  savedStamps,
+  onSelectSaved,
+  onDeleteSaved,
+  onUpload,
+  onDismiss,
+}) => {
   const ref = useRef<HTMLDivElement>(null);
 
   // Kept on screen: a tap near the edge would put it partly off
@@ -663,48 +712,22 @@ const StampPicker: React.FC<StampPickerProps> = ({ x, y, onSelect, onDismiss }) 
         borderRadius: 8,
         boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
         padding: '6px 0',
-        minWidth: 160,
+        minWidth: 200,
+        maxWidth: 260,
+        maxHeight: 'calc(100vh - 16px)',
+        overflowY: 'auto',
         fontFamily: "'Inter', sans-serif",
       }}
     >
-      <div
-        style={{
-          padding: '4px 12px 8px',
-          fontSize: 11,
-          color: '#9ca3af',
-          fontWeight: 600,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-          borderBottom: '1px solid #f3f4f6',
-          marginBottom: 4,
-        }}
-      >
-        Choose Stamp
-      </div>
+      <div style={pickerSectionTitle}>Choose Stamp</div>
       {STAMPS.map((stamp) => (
         <button
           key={stamp.label}
           role="menuitem"
           onClick={() => onSelect(stamp)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            width: '100%',
-            padding: '7px 14px',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            textAlign: 'left',
-            fontSize: 13,
-            color: '#111827',
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = '#f9fafb';
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'none';
-          }}
+          style={pickerItem}
+          onMouseEnter={hoverOn}
+          onMouseLeave={hoverOff}
         >
           <span
             style={{
@@ -719,6 +742,68 @@ const StampPicker: React.FC<StampPickerProps> = ({ x, y, onSelect, onDismiss }) 
           {stamp.label}
         </button>
       ))}
+
+      {(savedStamps.length > 0 || onUpload) && (
+        <div style={{ ...pickerSectionTitle, borderTop: '1px solid #f3f4f6', paddingTop: 10, marginTop: 4 }}>
+          My stamps
+        </div>
+      )}
+      {savedStamps.map((stamp) => (
+        <div
+          key={stamp.id}
+          style={{ display: 'flex', alignItems: 'center' }}
+          onMouseEnter={hoverOn}
+          onMouseLeave={hoverOff}
+        >
+          <button
+            role="menuitem"
+            onClick={() => onSelectSaved(stamp)}
+            style={{ ...pickerItem, flex: 1, minWidth: 0, paddingRight: 4 }}
+          >
+            <img
+              src={stamp.dataUrl}
+              alt=""
+              style={{ width: 40, height: 28, objectFit: 'contain', flexShrink: 0 }}
+            />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stamp.name}</span>
+          </button>
+          {onDeleteSaved && (
+            <button
+              type="button"
+              aria-label={`Delete stamp ${stamp.name}`}
+              title="Delete from My stamps"
+              onClick={() => onDeleteSaved(stamp.id)}
+              style={{
+                flexShrink: 0,
+                width: 28,
+                height: 28,
+                marginRight: 6,
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                color: '#6b7280',
+                fontSize: 16,
+                lineHeight: 1,
+                borderRadius: 4,
+              }}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      ))}
+      {onUpload && (
+        <button
+          role="menuitem"
+          onClick={onUpload}
+          style={{ ...pickerItem, color: '#4b5563' }}
+          onMouseEnter={hoverOn}
+          onMouseLeave={hoverOff}
+        >
+          <span aria-hidden="true" style={{ width: 40, textAlign: 'center', fontSize: 16, flexShrink: 0 }}>+</span>
+          Upload a picture…
+        </button>
+      )}
     </div>,
     document.body,
   );
@@ -742,6 +827,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   drawWidth,
   checkSize,
   onSignRequest,
+  savedStamps = [],
+  onStampUpload,
+  onStampDelete,
   textLayer,
   erasedCoverIds,
   onTextReplace,
@@ -781,6 +869,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     onAnnotationAdd,
     onAnnotationDelete,
     onSignRequest,
+    onStampUpload,
     onTextReplace,
     onImagePick,
   });
@@ -791,6 +880,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       onAnnotationAdd,
       onAnnotationDelete,
       onSignRequest,
+      onStampUpload,
       onTextReplace,
       onImagePick,
     };
@@ -2018,6 +2108,38 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     [stampPicker, pageNumber],
   );
 
+  // A saved picture stamp: an image, centered where the page was clicked
+  const handleSavedStampSelect = useCallback((stamp: SavedStamp) => {
+    if (!stampPicker) return;
+    const { canvasX: cx, canvasY: cy } = stampPicker;
+    const page = pageNumberRef.current;
+    setStampPicker(null);
+    const img = new Image();
+    img.onload = () => {
+      const id = generateId();
+      callbacksRef.current.onAnnotationAdd({
+        id,
+        type: 'image',
+        page,
+        x: cx,
+        y: cy,
+        ...stampSize(img.naturalWidth, img.naturalHeight),
+        rotation: 0,
+        content: stamp.dataUrl,
+        style: { opacity: 1 },
+      });
+      // Selected once it's on the canvas, to size or move right away
+      callbacksRef.current.onAnnotationSelect(id);
+    };
+    img.src = stamp.dataUrl;
+  }, [stampPicker]);
+
+  const handleStampUpload = useCallback(() => {
+    if (!stampPicker) return;
+    setStampPicker(null);
+    callbacksRef.current.onStampUpload?.({ x: stampPicker.canvasX, y: stampPicker.canvasY });
+  }, [stampPicker]);
+
   // ── Handle image file selection ───────────────────────────────────────────
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2419,6 +2541,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           x={stampPicker.screenX}
           y={stampPicker.screenY}
           onSelect={handleStampSelect}
+          savedStamps={savedStamps}
+          onSelectSaved={handleSavedStampSelect}
+          onDeleteSaved={onStampDelete}
+          onUpload={onStampUpload ? handleStampUpload : undefined}
           onDismiss={() => setStampPicker(null)}
         />
       )}

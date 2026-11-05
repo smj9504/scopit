@@ -12,7 +12,7 @@
  *     onAnnotationDelete={handleDelete}
  *   />
  */
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   Button,
   InputNumber,
@@ -34,9 +34,11 @@ import {
   VerticalAlignBottomOutlined,
   UndoOutlined,
   SwapOutlined,
+  ScissorOutlined,
 } from '@ant-design/icons';
 import type { Annotation, AnnotationStyle } from './types';
 import { useHoverTip } from './useHoverTip';
+import ImageBackgroundModal from './ImageBackgroundModal';
 import { colors, fonts, borderRadius, fontSizes, fontWeights } from '@/styles/theme';
 
 const { Text } = Typography;
@@ -401,6 +403,7 @@ const ImageSection: React.FC<{
   onStyleChange: (patch: Partial<AnnotationStyle>) => void;
 }> = ({ annotation, onChange, onStyleChange }) => {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [cutOpen, setCutOpen] = useState(false);
 
   // A new picture in the same spot, fitted inside the current box
   const replacePicture = (file: File | undefined) => {
@@ -440,6 +443,32 @@ const ImageSection: React.FC<{
     >
       Replace image
     </Button>
+    <Button
+      size="small"
+      block
+      icon={<ScissorOutlined />}
+      onClick={() => setCutOpen(true)}
+      disabled={!annotation.content}
+      style={{
+        height: 28,
+        marginBottom: 8,
+        fontSize: fontSizes.xs,
+        color: colors.textSecondary,
+        borderColor: colors.border,
+      }}
+    >
+      Remove background
+    </Button>
+    <ImageBackgroundModal
+      open={cutOpen}
+      mode="image"
+      source={annotation.content}
+      onCancel={() => setCutOpen(false)}
+      onApply={({ dataUrl }) => {
+        setCutOpen(false);
+        onChange({ content: dataUrl });
+      }}
+    />
     <input
       ref={fileRef}
       type="file"

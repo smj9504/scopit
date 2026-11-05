@@ -97,6 +97,16 @@ import SignRequestDetail from './SignRequestDetail';
 import ImageUploadPreview from './ImageUploadPreview';
 import SignatureModal from './SignatureModal';
 import CustomerCopiesModal from './CustomerCopiesModal';
+import ImageBackgroundModal, { type ImageBackgroundResult } from './ImageBackgroundModal';
+import {
+  loadStamps,
+  newStampId,
+  saveStamps,
+  stampSize,
+  stampStorageKey,
+  type SavedStamp,
+} from './stampLibrary';
+import { useAuthStore } from '@/stores/authStore';
 
 const { Text, Title } = Typography;
 const { Dragger } = Upload;
@@ -1419,6 +1429,52 @@ export const EditorView: React.FC<EditorViewProps> = ({
     img.src = dataUrl;
   }, [currentPage, handleAnnotationAdd]);
 
+  // ── Picture stamps (My stamps) ────────────────────────────────────────────
+  const userId = useAuthStore((s) => s.user?.id);
+  const stampKey = stampStorageKey(userId);
+  const [savedStamps, setSavedStamps] = useState<SavedStamp[]>([]);
+  useEffect(() => {
+    setSavedStamps(loadStamps(stampKey));
+  }, [stampKey]);
+  // Where "Upload a picture" was asked for, while its dialog is open
+  const [stampUploadPos, setStampUploadPos] = useState<{ x: number; y: number } | null>(null);
+
+  const handleStampUploaded = useCallback(({ dataUrl, save, name }: ImageBackgroundResult) => {
+    const pos = stampUploadPos ?? { x: 100, y: 100 };
+    setStampUploadPos(null);
+    const page = currentPage;
+    const img = new Image();
+    img.onload = () => {
+      const id = crypto.randomUUID();
+      handleAnnotationAdd({
+        id,
+        type: 'image',
+        page,
+        x: pos.x,
+        y: pos.y,
+        ...stampSize(img.naturalWidth, img.naturalHeight),
+        rotation: 0,
+        content: dataUrl,
+        style: { opacity: 1 },
+      });
+      // Selected once it's on the canvas, to size or move right away
+      setSelectedAnnotationId(id);
+    };
+    img.src = dataUrl;
+    if (!save) return;
+    const next = [...loadStamps(stampKey), { id: newStampId(), name, dataUrl, createdAt: Date.now() }];
+    setSavedStamps(next);
+    if (!saveStamps(stampKey, next)) {
+      message.warning('Stamp placed, but it couldn’t be saved to My stamps (browser storage is full or blocked).');
+    }
+  }, [stampUploadPos, currentPage, handleAnnotationAdd, stampKey, message]);
+
+  const handleStampDelete = useCallback((id: string) => {
+    const next = loadStamps(stampKey).filter((s) => s.id !== id);
+    setSavedStamps(next);
+    if (!saveStamps(stampKey, next)) message.warning('Couldn’t update My stamps in browser storage.');
+  }, [stampKey, message]);
+
   // ── Export ────────────────────────────────────────────────────────────────
   const downloadBlob = useCallback((blob: Blob, suffix = '') => {
     const base = (doc?.name ?? 'document').replace(/\.pdf$/i, '');
@@ -2219,6 +2275,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
                   drawWidth={drawWidth}
                   checkSize={checkSize}
                   onSignRequest={handleSignRequest}
+                  savedStamps={savedStamps}
+                  onStampUpload={setStampUploadPos}
+                  onStampDelete={handleStampDelete}
                   textLayer={textLayer}
                   erasedCoverIds={erasedCoverIds}
                   onTextReplace={handleTextReplace}
@@ -2349,6 +2408,14 @@ export const EditorView: React.FC<EditorViewProps> = ({
         open={signModalOpen}
         onClose={() => setSignModalOpen(false)}
         onInsert={handleSignInsert}
+      />
+
+      {/* Stamp: a picture, background taken out */}
+      <ImageBackgroundModal
+        open={stampUploadPos !== null}
+        mode="stamp"
+        onCancel={() => setStampUploadPos(null)}
+        onApply={handleStampUploaded}
       />
 
       {/* Page tools */}
