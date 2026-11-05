@@ -1,14 +1,18 @@
 """
 Scopit - FastAPI Application Entry Point
 """
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import DataError
 from starlette.middleware.sessions import SessionMiddleware
 
+import app.core.images  # noqa: F401  (sets Pillow's decompression-bomb ceiling)
 import app.domains.tools.modules.packing.converter  # noqa: F401
 
 # Import tool converters (registers them in the converter registry)
@@ -77,8 +81,102 @@ app = FastAPI(
 app.state.limiter = packing_lead_limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Session middleware (required for OAuth)
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+
+@app.exception_handler(DataError)
+async def _invalid_data_handler(request, exc: DataError):
+    """Postgres refused a value the client sent (an id that isn't a UUID, text
+    longer than its column, an out-of-range number). That's a bad request,
+    not a server failure."""
+    logging.getLogger("scopit").warning(
+        "Rejected invalid data on %s %s: %s", request.method, request.url.path,
+        type(getattr(exc, "orig", exc)).__name__,
+    )
+    return JSONResponse(status_code=400, content={"detail": "Invalid identifier or value."})
+
+
+class BodySizeLimitMiddleware:
+    """Refuse request bodies over a hard ceiling before they are read.
+
+    JSON bodies (e.g. photo batches as base64) are parsed fully into memory,
+    so without a ceiling one request can exhaust the container. Endpoints
+    still apply their own tighter limits; this only stops absurd sizes.
+    Added before CORS so a 413 still carries CORS headers to the browser.
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    too_big = int(value) > self.max_bytes
+                except ValueError:
+                    too_big = False
+                if too_big:
+                    response = JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request is too large."},
+                    )
+                    return await response(scope, receive, send)
+                break
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    # Bodies sent without Content-Length (chunked)
+                    raise HTTPException(status_code=413, detail="Request is too large.")
+            return message
+
+        return await self.app(scope, limited_receive, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.MAX_REQUEST_BODY_MB * 1024 * 1024)
+
+# Session middleware (required for OAuth). Only holds the OAuth state for
+# the few seconds of the Google round trip.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY,
+    max_age=15 * 60,
+    same_site="lax",
+    https_only=settings.ENV == "production",
+)
+
+
+# Security headers on every API response. The API returns JSON, PDFs and
+# images that the frontend fetches or shows in <img>; it is never framed.
+# (No default-src CSP: it would stop Chrome's viewer if a PDF URL were ever
+# opened directly.)
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+}
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if settings.ENV == "production":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
 
 # CORS middleware
 app.add_middleware(

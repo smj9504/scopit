@@ -350,6 +350,23 @@ def generate_estimate_html(
     return template.render(**data)
 
 
+def _data_url_only_fetcher(url: str, *args, **kwargs):
+    """WeasyPrint resource fetcher that only resolves inline data: URLs.
+
+    Templates embed everything they need (CSS inline, logos and item photos as
+    data: URLs). The default fetcher would also follow http(s):// and file://
+    URLs taken from user fields such as the company logo or an item photo,
+    letting a user make the server fetch internal addresses or read local
+    files into a PDF. Anything else is refused; WeasyPrint logs it and renders
+    the document without that image.
+    """
+    if not url.startswith("data:"):
+        raise ValueError("Only inline data: URLs are allowed in generated PDFs")
+    from weasyprint import default_url_fetcher
+
+    return default_url_fetcher(url, *args, **kwargs)
+
+
 def generate_pdf(html_content: str) -> BytesIO:
     """Generate PDF from HTML content"""
     import logging
@@ -360,7 +377,7 @@ def generate_pdf(html_content: str) -> BytesIO:
     # Lazy import to avoid GTK initialization issues on Windows
     from weasyprint import HTML
 
-    html = HTML(string=html_content)
+    html = HTML(string=html_content, url_fetcher=_data_url_only_fetcher)
     pdf_bytes = BytesIO()
 
     # Write PDF

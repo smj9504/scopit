@@ -42,10 +42,21 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app.core.images import MAX_UPLOAD_PIXELS, ImageRejected
+from app.core.safe_text import excel_cell, rl_text
+from app.domains.tools.modules.packing.photo_checks import check_photo
 from app.domains.tools.modules.packing.service import (
     MATERIAL_CATEGORY_ORDER,
     material_category_for_code,
 )
+
+# Largest photo file _compress_image_bytes will open (stored originals,
+# inline report photos). Matches the biggest upload any packing path accepts.
+MAX_COMPRESS_INPUT_BYTES = 25 * 1024 * 1024
+# Header-level pixel ceiling for _compress_image_bytes. JPEGs are decoded at
+# a reduced scale via draft(), so a large camera original only has to fit
+# MAX_UPLOAD_PIXELS *after* draft; this caps what may be opened at all.
+MAX_COMPRESS_HEADER_PIXELS = 100_000_000
 
 # ============================================
 # SCOPIT COMPANY INFO HELPER
@@ -908,15 +919,15 @@ def generate_estimate_pdf(
     company_phone = company_info.get('phone', '') if company_info else ''
     company_email = company_info.get('email', '') if company_info else ''
 
-    # Build company info
-    company_lines = [f"<b>{company_name}</b>"]
+    # Build company info (user-entered text is escaped: Paragraph parses markup)
+    company_lines = [f"<b>{rl_text(company_name)}</b>"]
     if company_addr:
         for line in company_addr.split('\n'):
-            company_lines.append(line)
+            company_lines.append(rl_text(line))
     if company_phone:
-        company_lines.append(company_phone)
+        company_lines.append(rl_text(company_phone))
     if company_email:
-        company_lines.append(company_email)
+        company_lines.append(rl_text(company_email))
 
     estimate_date = datetime.now().strftime("%B %d, %Y")
 
@@ -924,7 +935,7 @@ def generate_estimate_pdf(
     header_left = Paragraph('<br/>'.join(company_lines), style_normal)
     header_right = Paragraph(
         f"""<font size="18"><b>Estimate</b></font><br/><br/>
-<font size="9">Estimate number: {estimate_number}<br/>
+<font size="9">Estimate number: {rl_text(estimate_number)}<br/>
 Estimate date: {estimate_date}</font>""",
         style_right
     )
@@ -941,14 +952,14 @@ Estimate date: {estimate_date}</font>""",
     # ========== PREPARED FOR ==========
     story.append(Paragraph("<b>Prepared for</b>", style_bold))
     if client_name:
-        story.append(Paragraph(client_name, style_normal))
+        story.append(Paragraph(rl_text(client_name), style_normal))
     if client_phone:
-        story.append(Paragraph(client_phone, style_normal))
+        story.append(Paragraph(rl_text(client_phone), style_normal))
     if client_email:
-        story.append(Paragraph(client_email, style_normal))
+        story.append(Paragraph(rl_text(client_email), style_normal))
     if property_address:
         for line in property_address.split('\n'):
-            story.append(Paragraph(line, style_normal))
+            story.append(Paragraph(rl_text(line), style_normal))
     else:
         story.append(Paragraph("—", style_normal))
     story.append(Spacer(1, 0.2*inch))
@@ -986,7 +997,7 @@ Estimate date: {estimate_date}</font>""",
             name = r.get('room_name') or r.get('name', 'Room')
             size = _SIZE_LABEL.get(r.get('room_size') or r.get('roomSize') or 'large', 'Large')
             density = _DENSITY_LABEL.get(r.get('density') or 'normal', 'Normal')
-            by_floor.setdefault(fl, []).append(f"{name} ({size} / {density})")
+            by_floor.setdefault(fl, []).append(f"{rl_text(name)} ({size} / {density})")
         if by_floor:
             story.append(Spacer(1, 0.1*inch))
             story.append(Paragraph("<b>Room Breakdown by Floor</b>", style_bold))
@@ -995,14 +1006,14 @@ Estimate date: {estimate_date}</font>""",
                     continue
                 label = _FLOOR_LABEL.get(fl, fl.title())
                 names = ',  '.join(by_floor[fl])
-                story.append(Paragraph(f"<b>{label}:</b>  {names}", style_small))
+                story.append(Paragraph(f"<b>{rl_text(label)}:</b>  {names}", style_small))
             story.append(Spacer(1, 0.05*inch))
     elif area_breakdown:
         # Quick-estimate fallback: no AI rooms, show free-text breakdown
         story.append(Spacer(1, 0.1*inch))
         story.append(Paragraph("<b>Area Breakdown</b>", style_bold))
         story.append(Paragraph(
-            area_breakdown.replace('\n\n', '<br/><br/>').replace('\n', '<br/>'),
+            rl_text(area_breakdown).replace('\n\n', '<br/><br/>').replace('\n', '<br/>'),
             style_small,
         ))
 
@@ -1013,7 +1024,7 @@ Estimate date: {estimate_date}</font>""",
 
     for section in sections:
         # Section header
-        story.append(Paragraph(f"<b>{section['title']}</b>", style_section))
+        story.append(Paragraph(f"<b>{rl_text(section['title'])}</b>", style_section))
 
         # Table header row — reuse pre-created styles
         table_data = [[
@@ -1033,17 +1044,17 @@ Estimate date: {estimate_date}</font>""",
                 detail_text = _strip_breakdown(detail_text)
             if detail_text:
                 item_cell = Paragraph(
-                    f"<b>{item_number}. {item['name']}</b><br/><font color='#666666'>{detail_text}</font>",
+                    f"<b>{item_number}. {rl_text(item['name'])}</b><br/><font color='#666666'>{rl_text(detail_text)}</font>",
                     style_normal
                 )
             else:
-                item_cell = Paragraph(f"<b>{item_number}. {item['name']}</b>", style_normal)
+                item_cell = Paragraph(f"<b>{item_number}. {rl_text(item['name'])}</b>", style_normal)
 
             qty_str = str(int(item['qty'])) if item['qty'] == int(item['qty']) else f"{item['qty']:.1f}"
             table_data.append([
                 item_cell,
                 Paragraph(qty_str, style_right),
-                Paragraph(item['unit'], style_center),
+                Paragraph(rl_text(item['unit']), style_center),
                 Paragraph(f"${item['price']:,.2f}", style_right),
                 Paragraph(f"${total:,.2f}", style_right),
             ])
@@ -1086,20 +1097,20 @@ Estimate date: {estimate_date}</font>""",
         [Paragraph('Items Subtotal', style_right), Paragraph(f"${subtotal:,.2f}", style_right)],
     ]
     if include_op and op_amount > 0:
-        totals_data.append([Paragraph(f'Overhead & Profit ({op_rate}%)', style_right), Paragraph(f"${op_amount:,.2f}", style_right)])
+        totals_data.append([Paragraph(f'Overhead &amp; Profit ({rl_text(op_rate)}%)', style_right), Paragraph(f"${op_amount:,.2f}", style_right)])
     if include_contingency:
         totals_data.append([
             Paragraph(
-                f'Contingency ({contingency_rate}%)', style_right,
+                f'Contingency ({rl_text(contingency_rate)}%)', style_right,
             ),
             Paragraph(f"${contingency_amount:,.2f}", style_right),
         ])
     for supp in supplements:
         if supp.get('enabled', True) and supp.get('amount', 0) > 0:
-            supp_label = supp['name']
+            supp_label = rl_text(supp['name'])
             supp_reason = supp.get('reason', '').strip()
             if supp_reason:
-                supp_label += f"<br/><font size=7 color='#666666'>{supp_reason}</font>"
+                supp_label += f"<br/><font size=7 color='#666666'>{rl_text(supp_reason)}</font>"
             totals_data.append([
                 Paragraph(supp_label, style_right),
                 Paragraph(f"${supp['amount']:,.2f}", style_right),
@@ -1144,7 +1155,7 @@ Estimate date: {estimate_date}</font>""",
         story.append(Paragraph("Notes", style_note_hdr))
         for line in notes.split("\n"):
             if line.strip():
-                story.append(Paragraph(line.strip(), style_note_body))
+                story.append(Paragraph(rl_text(line.strip()), style_note_body))
 
     # ========== TERMS & CONDITIONS ==========
     story.append(Spacer(1, 0.3*inch))
@@ -1155,7 +1166,7 @@ Estimate date: {estimate_date}</font>""",
         spaceAfter=6, fontName='Helvetica-Bold')
     story.append(Paragraph("Terms &amp; Conditions", style_tc_hdr))
     sm_val = estimate_data.get('storage_months', 1)
-    sm_lbl = f"{sm_val} month{'s' if sm_val != 1 else ''}"
+    sm_lbl = f"{rl_text(sm_val)} month{'s' if sm_val != 1 else ''}"
     tc_staging = estimate_data.get('staging_type', 'off_site')
     if tc_staging == 'on_site':
         storage_term = (
@@ -1262,20 +1273,21 @@ def generate_estimate_excel(
 
     row = 1
 
-    # Company info
+    # Company info (user-entered text goes through excel_cell so a value
+    # starting with "=" is never stored as a formula)
     if company_info:
-        ws[f'A{row}'] = company_info.get('name', 'Moving Company')
+        ws[f'A{row}'] = excel_cell(company_info.get('name', 'Moving Company'))
         ws[f'A{row}'].font = Font(bold=True, size=12)
         row += 1
         if company_info.get('address'):
             for line in company_info.get('address', '').split('\n'):
-                ws[f'A{row}'] = line
+                ws[f'A{row}'] = excel_cell(line)
                 row += 1
         if company_info.get('phone'):
-            ws[f'A{row}'] = company_info.get('phone')
+            ws[f'A{row}'] = excel_cell(company_info.get('phone'))
             row += 1
         if company_info.get('email'):
-            ws[f'A{row}'] = company_info.get('email')
+            ws[f'A{row}'] = excel_cell(company_info.get('email'))
             row += 1
         row += 1
 
@@ -1293,17 +1305,17 @@ def generate_estimate_excel(
         ws[f'A{row}'] = 'Prepared for'
         ws[f'A{row}'].font = Font(bold=True, size=9)
         row += 1
-        ws[f'A{row}'] = client_name
+        ws[f'A{row}'] = excel_cell(client_name)
         row += 1
     if client_phone:
-        ws[f'A{row}'] = client_phone
+        ws[f'A{row}'] = excel_cell(client_phone)
         row += 1
     if client_email:
-        ws[f'A{row}'] = client_email
+        ws[f'A{row}'] = excel_cell(client_email)
         row += 1
     if property_address:
         for line in property_address.split('\n'):
-            ws[f'A{row}'] = line
+            ws[f'A{row}'] = excel_cell(line)
             row += 1
     row += 1
 
@@ -1376,7 +1388,7 @@ def generate_estimate_excel(
     item_number = 1
 
     for section in sections:
-        ws[f'A{row}'] = section['title']
+        ws[f'A{row}'] = excel_cell(section['title'])
         ws[f'A{row}'].font = section_font
         row += 1
 
@@ -1391,12 +1403,12 @@ def generate_estimate_excel(
         section_start = row
         detail_font = Font(size=8, italic=True, color='666666')
         for item in section['items']:
-            ws.cell(row=row, column=1, value=f"{item_number}. {item['name']}").font = normal_font
-            ws.cell(row=row, column=2, value=item['qty']).font = normal_font
+            ws.cell(row=row, column=1, value=excel_cell(f"{item_number}. {item['name']}")).font = normal_font
+            ws.cell(row=row, column=2, value=excel_cell(item['qty'])).font = normal_font
             ws.cell(row=row, column=2).alignment = Alignment(horizontal='right')
-            ws.cell(row=row, column=3, value=item['unit']).font = normal_font
+            ws.cell(row=row, column=3, value=excel_cell(item['unit'])).font = normal_font
             ws.cell(row=row, column=3).alignment = Alignment(horizontal='center')
-            ws.cell(row=row, column=4, value=item['price']).font = normal_font
+            ws.cell(row=row, column=4, value=excel_cell(item['price'])).font = normal_font
             ws.cell(row=row, column=4).number_format = '$#,##0.00'
             ws.cell(row=row, column=5, value=f'=B{row}*D{row}').font = normal_font
             ws.cell(row=row, column=5).number_format = '$#,##0.00'
@@ -1410,12 +1422,12 @@ def generate_estimate_excel(
             # Show detail/breakdown as a sub-row when enabled
             raw_detail = item.get('detail') or ''
             if raw_detail and show_breakdown:
-                ws.cell(row=row, column=1, value=f"    {raw_detail}").font = detail_font
+                ws.cell(row=row, column=1, value=excel_cell(f"    {raw_detail}")).font = detail_font
                 row += 1
             elif raw_detail and not show_breakdown:
                 stripped = _strip_breakdown(raw_detail)
                 if stripped:
-                    ws.cell(row=row, column=1, value=f"    {stripped}").font = detail_font
+                    ws.cell(row=row, column=1, value=excel_cell(f"    {stripped}")).font = detail_font
                     row += 1
 
         # Section subtotal
@@ -1428,14 +1440,14 @@ def generate_estimate_excel(
     # Grand totals
     ws.cell(row=row, column=4, value='Items Subtotal').font = normal_font
     ws.cell(row=row, column=4).alignment = Alignment(horizontal='right')
-    ws.cell(row=row, column=5, value=subtotal).font = normal_font
+    ws.cell(row=row, column=5, value=excel_cell(subtotal)).font = normal_font
     ws.cell(row=row, column=5).number_format = '$#,##0.00'
     row += 1
 
     if include_op and op_amount > 0:
         ws.cell(row=row, column=4, value=f'Overhead & Profit ({op_rate}%)').font = normal_font
         ws.cell(row=row, column=4).alignment = Alignment(horizontal='right')
-        ws.cell(row=row, column=5, value=op_amount).font = normal_font
+        ws.cell(row=row, column=5, value=excel_cell(op_amount)).font = normal_font
         ws.cell(row=row, column=5).number_format = '$#,##0.00'
         row += 1
 
@@ -1445,7 +1457,7 @@ def generate_estimate_excel(
             value=f'Contingency ({contingency_rate}%)',
         ).font = normal_font
         ws.cell(row=row, column=4).alignment = Alignment(horizontal='right')
-        ws.cell(row=row, column=5, value=contingency_amount).font = normal_font
+        ws.cell(row=row, column=5, value=excel_cell(contingency_amount)).font = normal_font
         ws.cell(row=row, column=5).number_format = '$#,##0.00'
         row += 1
 
@@ -1456,13 +1468,13 @@ def generate_estimate_excel(
             if supp_reason:
                 supp_label += f" ({supp_reason})"
             ws.cell(
-                row=row, column=4, value=supp_label,
+                row=row, column=4, value=excel_cell(supp_label),
             ).font = normal_font
             ws.cell(row=row, column=4).alignment = Alignment(
                 horizontal='right',
             )
             ws.cell(
-                row=row, column=5, value=supp['amount'],
+                row=row, column=5, value=excel_cell(supp['amount']),
             ).font = normal_font
             ws.cell(row=row, column=5).number_format = '$#,##0.00'
             row += 1
@@ -1556,7 +1568,7 @@ def generate_estimate_excel(
         row += 1
         for line in notes.split("\n"):
             if line.strip():
-                cell = ws.cell(row=row, column=1, value=line.strip())
+                cell = ws.cell(row=row, column=1, value=excel_cell(line.strip()))
                 cell.font = Font(size=9, color="444444")
                 cell.alignment = Alignment(wrap_text=True)
                 ws.merge_cells(start_row=row, start_column=1,
@@ -1696,7 +1708,7 @@ def generate_inventory_excel(
             start_row=row, start_column=1,
             end_row=row, end_column=12,
         )
-        rc = ws.cell(row=row, column=1, value=room_name)
+        rc = ws.cell(row=row, column=1, value=excel_cell(room_name))
         rc.font = room_font
         rc.fill = room_fill
         rc.border = thin_border
@@ -1750,7 +1762,7 @@ def generate_inventory_excel(
             ]
 
             for ci, val in enumerate(values, 1):
-                cell = ws.cell(row=row, column=ci, value=val)
+                cell = ws.cell(row=row, column=ci, value=excel_cell(val))
                 cell.font = data_font
                 cell.alignment = wrap_align
                 cell.border = thin_border
@@ -1887,11 +1899,23 @@ def _compress_image_bytes(
     a 512MB instance even though the final output is tiny.
     """
     from PIL import Image, ImageOps
+
+    # Refuse non-photo formats and pixel bombs from the header, before any
+    # pixel data is decoded (raises ImageRejected).
+    check_photo(
+        img_data,
+        max_bytes=MAX_COMPRESS_INPUT_BYTES,
+        max_pixels=MAX_COMPRESS_HEADER_PIXELS,
+    )
     img = Image.open(io.BytesIO(img_data))
     try:
         img.draft("RGB", (max_width, max_height))
     except Exception:
         pass  # Not all formats support draft (e.g. PNG) — decode at full res
+    # draft() shrinks a JPEG's decode size; anything still above the upload
+    # pixel limit (e.g. a huge PNG) would need too much memory to decode.
+    if img.width * img.height > MAX_UPLOAD_PIXELS:
+        raise ImageRejected("The image has too many pixels.")
 
     # Fix EXIF orientation (iPhone photos are often rotated in EXIF metadata)
     try:
@@ -1928,11 +1952,13 @@ def _b64_to_compressed_image(
     quality: int = 60,
 ) -> bytes:
     """Decode base64 image and compress it."""
-    import base64
+    from app.core.images import decode_data_url
+
     # Strip data URI prefix if present
     if "," in b64_str:
         b64_str = b64_str.split(",", 1)[1]
-    raw = base64.b64decode(b64_str)
+    # Length is checked before decoding (raises ImageRejected if too large).
+    raw = decode_data_url(b64_str, max_bytes=MAX_COMPRESS_INPUT_BYTES)
     return _compress_image_bytes(
         raw, max_width=max_width, max_height=max_height,
         quality=quality,
@@ -2123,14 +2149,14 @@ def _generate_report_pdf_inner(
     co_phone = company_info.get("phone", "") if company_info else ""
     co_email = company_info.get("email", "") if company_info else ""
 
-    co_lines = [f"<b>{co_name}</b>"]
+    co_lines = [f"<b>{rl_text(co_name)}</b>"]
     if co_addr:
         for line in co_addr.split("\n"):
-            co_lines.append(line)
+            co_lines.append(rl_text(line))
     if co_phone:
-        co_lines.append(co_phone)
+        co_lines.append(rl_text(co_phone))
     if co_email:
-        co_lines.append(co_email)
+        co_lines.append(rl_text(co_email))
 
     include_packback = estimate_data.get("include_packback", False)
     report_title = (
@@ -2161,14 +2187,14 @@ def _generate_report_pdf_inner(
     # ========== CLIENT INFO ==========
     story.append(Paragraph("<b>Prepared for</b>", style_bold))
     if client_name:
-        story.append(Paragraph(client_name, style_normal))
+        story.append(Paragraph(rl_text(client_name), style_normal))
     if client_phone:
-        story.append(Paragraph(client_phone, style_normal))
+        story.append(Paragraph(rl_text(client_phone), style_normal))
     if client_email:
-        story.append(Paragraph(client_email, style_normal))
+        story.append(Paragraph(rl_text(client_email), style_normal))
     if property_address:
         for line in property_address.split("\n"):
-            story.append(Paragraph(line, style_normal))
+            story.append(Paragraph(rl_text(line), style_normal))
     story.append(Spacer(1, 0.15 * inch))
 
     # Divider
@@ -2190,7 +2216,7 @@ def _generate_report_pdf_inner(
         story.append(Paragraph("Estimate Summary", style_section))
         if estimate_id:
             story.append(Paragraph(
-                f'<font size="8" color="#666666">Ref: Estimate #{estimate_id}  |  Report #{report_number}</font>',
+                f'<font size="8" color="#666666">Ref: Estimate #{rl_text(estimate_id)}  |  Report #{report_number}</font>',
                 style_small,
             ))
             story.append(Spacer(1, 4))
@@ -2230,7 +2256,7 @@ def _generate_report_pdf_inner(
         for room_idx, room in enumerate(rooms_data):
             room_name = room.get("room_name", f"Room {room_idx + 1}")
 
-            story.append(Paragraph(room_name, style_room_header))
+            story.append(Paragraph(rl_text(room_name), style_room_header))
             story.append(HRFlowable(
                 width="100%", thickness=0.3,
                 color=colors.Color(0.85, 0.85, 0.85),
@@ -2253,10 +2279,10 @@ def _generate_report_pdf_inner(
                     notes_str = ", ".join(flags) if flags else ""
                     inv_rows.append([
                         str(i),
-                        Paragraph(item.get("name", ""), style_normal),
+                        Paragraph(rl_text(item.get("name", "")), style_normal),
                         item.get("category", ""),
                         str(item.get("quantity", 1)),
-                        Paragraph(notes_str, style_small),
+                        Paragraph(rl_text(notes_str), style_small),
                     ])
 
                 inv_table = Table(
@@ -2292,7 +2318,7 @@ def _generate_report_pdf_inner(
                         ["Labor Hours", "Notes"],
                         [
                             f"{labor_hours:.1f} hrs",
-                            Paragraph(labor_notes, style_small),
+                            Paragraph(rl_text(labor_notes), style_small),
                         ],
                     ]
                     labor_table = Table(
@@ -2349,9 +2375,9 @@ def _generate_report_pdf_inner(
             if include_field_notes:
                 field_notes = room.get("field_notes") or []
                 if field_notes:
-                    notes_text = " | ".join(field_notes)
+                    notes_text = " | ".join(str(n) for n in field_notes)
                     story.append(Paragraph(
-                        f"<i>Notes: {notes_text}</i>", style_small,
+                        f"<i>Notes: {rl_text(notes_text)}</i>", style_small,
                     ))
                     story.append(Spacer(1, 6))
 
@@ -2455,7 +2481,7 @@ def _generate_report_pdf_inner(
         story.append(Spacer(1, 6))
         story.append(Paragraph("<b>Additional Notes</b>", style_bold))
         story.append(Spacer(1, 3))
-        story.append(Paragraph(notes, style_normal))
+        story.append(Paragraph(rl_text(notes), style_normal))
 
     # ========== SIGNATURE PAGE ==========
     if include_signature_page:
@@ -2542,11 +2568,11 @@ def _generate_report_pdf_inner(
         if client_name:
             story.append(Spacer(1, 0.3 * inch))
             story.append(Paragraph(
-                f"<b>Customer:</b> {client_name}", style_normal,
+                f"<b>Customer:</b> {rl_text(client_name)}", style_normal,
             ))
         if property_address:
             story.append(Paragraph(
-                f"<b>Property:</b> {property_address}", style_normal,
+                f"<b>Property:</b> {rl_text(property_address)}", style_normal,
             ))
 
     # Build
@@ -2654,7 +2680,7 @@ def _add_photo_grid(
                 cell = [
                     img,
                     Spacer(1, 2),
-                    Paragraph(caption, caption_style),
+                    Paragraph(rl_text(caption), caption_style),
                 ]
             else:
                 cell = img

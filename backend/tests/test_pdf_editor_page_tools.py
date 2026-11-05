@@ -435,7 +435,8 @@ def test_paths_inside_go_paths_across_stay():
     painted = [op for _, op in ops_out if op in (b"S", b"f", b"B")]
     # The line is still stroked; the rectangle isn't; the area fill is added
     assert painted.count(b"S") == 1
-    assert b"n" in [op for _, op in ops_out]
+    # and the rectangle is gone from the content, not just left unpainted
+    assert not any(op == b"re" and [float(v) for v in o] == [110, 110, 20, 20] for o, op in ops_out)
 
 
 def test_links_touching_the_area_are_removed_and_metadata_can_go():

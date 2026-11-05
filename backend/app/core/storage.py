@@ -14,6 +14,28 @@ from typing import Generator, Optional
 from app.core.config import settings
 
 
+class InvalidStorageKey(ValueError):
+    """A key that could escape its folder (.., absolute paths, backslashes)."""
+
+
+def validate_storage_key(key: str) -> str:
+    """Refuse keys that are not plain relative "a/b/c.ext" paths.
+
+    Keys are generated server-side, but some arrive back from clients (photo
+    ids, saved session data). On local disk "../" would read outside the
+    storage folder; on R2 it is a literal key but still never legitimate.
+    """
+    if not isinstance(key, str) or not key:
+        raise InvalidStorageKey("empty storage key")
+    if "\x00" in key or "\\" in key or key.startswith("/"):
+        raise InvalidStorageKey("invalid storage key")
+    if any(part in ("", ".", "..") for part in key.split("/")):
+        raise InvalidStorageKey("invalid storage key")
+    if len(key) > 1024:
+        raise InvalidStorageKey("storage key too long")
+    return key
+
+
 class StorageBackend:
     """Base storage interface."""
 
@@ -53,7 +75,13 @@ class LocalStorage(StorageBackend):
         self.base_dir = os.path.abspath(base_dir)
 
     def _path(self, key: str) -> str:
-        return os.path.join(self.base_dir, key)
+        validate_storage_key(key)
+        path = os.path.abspath(os.path.join(self.base_dir, key))
+        # Belt and braces: whatever the key, the file must be under base_dir
+        # (drive-relative or symlink-free tricks included).
+        if os.path.commonpath([path, self.base_dir]) != self.base_dir:
+            raise InvalidStorageKey("invalid storage key")
+        return path
 
     def write(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         path = self._path(key)
@@ -106,6 +134,7 @@ class R2Storage(StorageBackend):
         self.bucket = settings.R2_BUCKET_NAME
 
     def write(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+        validate_storage_key(key)
         self.client.put_object(
             Bucket=self.bucket,
             Key=key,
@@ -114,10 +143,12 @@ class R2Storage(StorageBackend):
         )
 
     def read(self, key: str) -> bytes:
+        validate_storage_key(key)
         resp = self.client.get_object(Bucket=self.bucket, Key=key)
         return resp["Body"].read()
 
     def exists(self, key: str) -> bool:
+        validate_storage_key(key)
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
             return True
@@ -125,6 +156,7 @@ class R2Storage(StorageBackend):
             return False
 
     def delete(self, key: str) -> None:
+        validate_storage_key(key)
         try:
             self.client.delete_object(Bucket=self.bucket, Key=key)
         except Exception:
@@ -133,6 +165,7 @@ class R2Storage(StorageBackend):
     @contextmanager
     def open_for_processing(self, key: str, suffix: str = "") -> Generator[str, None, None]:
         """Download from R2 to temp, yield path, upload back on exit."""
+        validate_storage_key(key)
         if not suffix:
             _, suffix = os.path.splitext(key)
         fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="scopit_")
@@ -158,6 +191,8 @@ class R2Storage(StorageBackend):
 
     def copy(self, src_key: str, dst_key: str) -> None:
         """Copy an object within R2."""
+        validate_storage_key(src_key)
+        validate_storage_key(dst_key)
         self.client.copy_object(
             Bucket=self.bucket,
             Key=dst_key,

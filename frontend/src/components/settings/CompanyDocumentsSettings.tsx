@@ -22,6 +22,8 @@ import {
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import axios from 'axios';
+import { getErrorMessage } from '@/services/api';
 import type { UploadFile, UploadProps, RcFile } from 'antd/es/upload';
 import {
   UploadOutlined,
@@ -46,6 +48,12 @@ import SendForSignModal from '@/components/features/tools/pdf-editor/SendForSign
 import type { CompanyDocument, PdfDocument } from '@/components/features/tools/pdf-editor/types';
 import { useTools } from '@/hooks/useTools';
 import { colors, fonts } from '@/styles/theme';
+
+/** The server's reason for 4xx errors (e.g. permission), else the fallback. */
+function errorText(err: unknown, fallback: string): string {
+  const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+  return status && status >= 400 && status < 500 ? getErrorMessage(err) : fallback;
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -491,8 +499,9 @@ const CompanyDocumentsSettings: React.FC = () => {
       message.success('Document uploaded');
       setUploadModalOpen(false);
     },
-    onError: () => {
-      message.error('Failed to upload document');
+    onError: (err) => {
+      // e.g. 403 for staff: only admins/managers manage the shared library
+      message.error(errorText(err, 'Failed to upload document'));
     },
   });
 
@@ -510,8 +519,9 @@ const CompanyDocumentsSettings: React.FC = () => {
       setEditModalOpen(false);
       setEditingDoc(null);
     },
-    onError: () => {
-      message.error('Failed to update document');
+    onError: (err) => {
+      // e.g. 403 for staff: only admins/managers manage the shared library
+      message.error(errorText(err, 'Failed to update document'));
     },
   });
 
@@ -521,8 +531,9 @@ const CompanyDocumentsSettings: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['company-documents'] });
       message.success('Document deleted');
     },
-    onError: () => {
-      message.error('Failed to delete document');
+    onError: (err) => {
+      // e.g. 403 for staff: only admins/managers manage the shared library
+      message.error(errorText(err, 'Failed to delete document'));
     },
   });
 

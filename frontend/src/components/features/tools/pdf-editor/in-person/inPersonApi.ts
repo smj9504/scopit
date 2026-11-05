@@ -1,8 +1,10 @@
 /**
- * Scopit - In-person signing API client
+ * Scopit - In-person signing API client: the employee's steps
  * Backend: backend/app/domains/tools/modules/pdf_editor/in_person_api.py
+ * The signer's steps, after the hand-over, are in kioskApi.ts.
  */
 import api from '@/services/api';
+import type { Handoff } from './kioskApi';
 
 const BASE = '/tools/pdf-editor/sign/in-person';
 
@@ -122,43 +124,16 @@ export const inPersonApi = {
     return response.data;
   },
 
-  /** The document filled in with the answers so far, as a PDF */
-  preview: async (subject: Subject, documentId: string, answers: Answers, today: string): Promise<ArrayBuffer> => {
-    const response = await api.post(`${BASE}/preview`, {
+  /**
+   * Hand the device to the signer: the visit is checked, and the signer's
+   * part gets a kiosk token of its own (see kioskApi.ts). The last call made
+   * with the employee's session.
+   */
+  handoff: async (subject: Subject, documentIds: string[], answers: Answers): Promise<Handoff> => {
+    const response = await api.post<Handoff>(`${BASE}/handoff`, {
       ...subjectBody(subject),
-      document_id: documentId,
+      document_ids: documentIds,
       answers,
-      today,
-    }, { responseType: 'arraybuffer' });
-    return response.data;
-  },
-
-  sign: async (data: {
-    subject: Subject;
-    documentIds: string[];
-    answers: Answers;
-    today: string;
-    signers: { role: string; name: string; email?: string }[];
-    marks: Record<string, Mark>;
-    consentText: string;
-  }): Promise<SignedVisit> => {
-    const response = await api.post<SignedVisit>(`${BASE}/sign`, {
-      ...subjectBody(data.subject),
-      document_ids: data.documentIds,
-      answers: data.answers,
-      today: data.today,
-      signers: data.signers,
-      marks: data.marks,
-      consent_agreed: true,
-      consent_text: data.consentText,
-    });
-    return response.data;
-  },
-
-  email: async (requestIds: string[], emails: string[]): Promise<{ emails: string[] }> => {
-    const response = await api.post<{ emails: string[] }>(`${BASE}/email`, {
-      request_ids: requestIds,
-      emails,
     });
     return response.data;
   },

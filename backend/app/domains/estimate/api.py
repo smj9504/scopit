@@ -6,6 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_
@@ -17,7 +18,10 @@ CURRENCY_PRECISION = Decimal('0.01')
 from app.common.responses import BulkOperationResponse, MessageResponse
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.email import email_service
+from app.core.config import settings as app_settings
+from app.core.email import clean_recipients, email_service
+from app.core.rate_limit import enforce_rate_limit
+from app.core.safe_text import content_disposition
 from app.core.pdf_generator import (
     DEFAULT_TEMPLATE,
     format_currency,
@@ -52,10 +56,10 @@ class StatusUpdateRequest(BaseModel):
 
 
 class SendEstimateRequest(BaseModel):
-    to_email: Optional[str] = None  # Defaults to the customer's email on file
-    cc_emails: List[str] = Field(default_factory=list)
-    message: Optional[str] = None
-    template: Optional[str] = None
+    to_email: Optional[str] = Field(default=None, max_length=320)  # Defaults to the customer's email on file
+    cc_emails: List[str] = Field(default_factory=list, max_length=50)
+    message: Optional[str] = Field(default=None, max_length=5000)
+    template: Optional[str] = Field(default=None, max_length=50)
 
 
 class EstimateItemCreate(BaseModel):
@@ -272,6 +276,36 @@ class ItemReorderRequest(BaseModel):
 # Helper Functions
 # ===================
 
+def _serialize_section(section: EstimateSection) -> dict:
+    """Section with its items, ids as strings (shared by the estimate and section responses)."""
+    section_data = {
+        "id": str(section.id),
+        "name": section.name,
+        "order_index": section.order_index,
+        "is_collapsed": section.is_collapsed,
+        "subtotal": section.subtotal,
+        "items": [],
+    }
+    for item in section.items:
+        section_data["items"].append({
+            "id": str(item.id),
+            "section_id": str(item.section_id) if item.section_id else None,
+            "line_item_id": str(item.line_item_id) if item.line_item_id else None,
+            "code": item.code,
+            "name": item.name,
+            "description": item.description,
+            "unit": item.unit,
+            "quantity": item.quantity,
+            "unit_price": item.unit_price,
+            "total": item.total,
+            "is_taxable": item.is_taxable,
+            "order_index": item.order_index,
+            "notes": item.notes or [],
+            "images": item.images or [],
+        })
+    return section_data
+
+
 def serialize_estimate(estimate: Estimate) -> dict:
     """Serialize estimate with status_config, payments, and adjustments"""
     data = {
@@ -324,32 +358,7 @@ def serialize_estimate(estimate: Estimate) -> dict:
 
     # Add sections with items
     for section in estimate.sections:
-        section_data = {
-            "id": str(section.id),
-            "name": section.name,
-            "order_index": section.order_index,
-            "is_collapsed": section.is_collapsed,
-            "subtotal": section.subtotal,
-            "items": [],
-        }
-        for item in section.items:
-            section_data["items"].append({
-                "id": str(item.id),
-                "section_id": str(item.section_id) if item.section_id else None,
-                "line_item_id": str(item.line_item_id) if item.line_item_id else None,
-                "code": item.code,
-                "name": item.name,
-                "description": item.description,
-                "unit": item.unit,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "total": item.total,
-                "is_taxable": item.is_taxable,
-                "order_index": item.order_index,
-                "notes": item.notes or [],
-                "images": item.images or [],
-            })
-        data["sections"].append(section_data)
+        data["sections"].append(_serialize_section(section))
 
     # Add payments
     for payment in estimate.payments:
@@ -481,23 +490,23 @@ async def list_estimates(
 ):
     """List estimates"""
     query = db.query(Estimate).filter(Estimate.company_id == current_user.company_id)
-    
+
     if status:
         query = query.filter(Estimate.status == status)
-    
+
     if customer_id:
         query = query.filter(Estimate.customer_id == customer_id)
-    
+
     if search:
         query = query.filter(
             Estimate.estimate_number.ilike(f"%{search}%") |
             Estimate.title.ilike(f"%{search}%") |
             Estimate.customer_name.ilike(f"%{search}%")
         )
-    
+
     total = query.count()
     estimates = query.order_by(Estimate.created_at.desc()).offset(skip).limit(limit).all()
-    
+
     return EstimateListResponse(
         items=[EstimateResponse(**serialize_estimate(e)) for e in estimates],
         total=total,
@@ -636,14 +645,15 @@ async def download_estimate_excel_template():
 @router.post("/import-excel")
 async def parse_estimate_excel(
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
 ):
     """Parse uploaded Excel file and return preview data for estimate import"""
     from app.common.excel_service import parse_excel_file
 
-    if not file.filename.endswith((".xlsx", ".xls")):
+    if not (file.filename or "").lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Please upload an Excel file (.xlsx)")
 
-    contents = await file.read()
+    contents = await file.read(5 * 1024 * 1024 + 1)  # never buffer more than the limit
     if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB.")
 
@@ -663,7 +673,7 @@ async def get_estimate(
             Estimate.company_id == current_user.company_id,
         )
     ).first()
-    
+
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
 
@@ -697,7 +707,12 @@ async def create_estimate(
     customer_zipcode = data.customer_zipcode
 
     if data.customer_id:
-        customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
+        customer = db.query(Customer).filter(
+            Customer.id == data.customer_id,
+            Customer.company_id == current_user.company_id,
+        ).first()
+        if not customer:
+            raise HTTPException(status_code=400, detail="Customer not found")
         if customer:
             customer_name = customer.name
             customer_email = customer.email
@@ -736,7 +751,7 @@ async def create_estimate(
     )
     db.add(estimate)
     db.flush()
-    
+
     # Create sections and items
     for section_data in data.sections:
         section = EstimateSection(
@@ -746,7 +761,7 @@ async def create_estimate(
         )
         db.add(section)
         db.flush()
-        
+
         for item_data in section_data.items:
             item = EstimateItem(
                 estimate_id=estimate.id,
@@ -768,7 +783,7 @@ async def create_estimate(
 
     db.commit()
     db.refresh(estimate)
-    
+
     # Recalculate totals
     recalculate_estimate(estimate, db)
 
@@ -805,7 +820,12 @@ async def update_estimate(
     customer_zipcode = data.customer_zipcode
 
     if data.customer_id:
-        customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
+        customer = db.query(Customer).filter(
+            Customer.id == data.customer_id,
+            Customer.company_id == current_user.company_id,
+        ).first()
+        if not customer:
+            raise HTTPException(status_code=400, detail="Customer not found")
         if customer:
             customer_name = customer.name
             customer_email = customer.email
@@ -889,10 +909,10 @@ async def delete_estimate(
             Estimate.company_id == current_user.company_id,
         )
     ).first()
-    
+
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
-    
+
     db.delete(estimate)
     db.commit()
 
@@ -915,10 +935,10 @@ async def create_section(
             Estimate.company_id == current_user.company_id,
         )
     ).first()
-    
+
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
-    
+
     section = EstimateSection(
         estimate_id=estimate.id,
         name=data.name,
@@ -927,8 +947,50 @@ async def create_section(
     db.add(section)
     db.commit()
     db.refresh(section)
-    
-    return EstimateSectionResponse.model_validate(section)
+
+    return EstimateSectionResponse(**_serialize_section(section))
+
+
+def _owned_estimate_or_404(db: Session, estimate_id: str, current_user: User) -> Estimate:
+    estimate = db.query(Estimate).filter(
+        and_(
+            Estimate.id == estimate_id,
+            Estimate.company_id == current_user.company_id,
+        )
+    ).first()
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return estimate
+
+
+def _estimate_section_or_404(db: Session, estimate: Estimate, section_id: str) -> EstimateSection:
+    section = db.query(EstimateSection).filter(
+        EstimateSection.id == section_id,
+        EstimateSection.estimate_id == estimate.id,
+    ).first()
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+    return section
+
+
+@router.put("/{estimate_id}/sections/reorder")
+async def reorder_sections(
+    estimate_id: str,
+    data: ReorderRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reorder sections"""
+    # Declared before /sections/{section_id} so "reorder" isn't taken as an id.
+    estimate = _owned_estimate_or_404(db, estimate_id, current_user)
+    for index, section_id in enumerate(data.section_ids):
+        db.query(EstimateSection).filter(
+            EstimateSection.id == section_id,
+            EstimateSection.estimate_id == estimate.id,
+        ).update({"order_index": index}, synchronize_session=False)
+
+    db.commit()
+    return MessageResponse(message="Sections reordered")
 
 
 @router.put("/{estimate_id}/sections/{section_id}", response_model=EstimateSectionResponse)
@@ -940,21 +1002,17 @@ async def update_section(
     db: Session = Depends(get_db),
 ):
     """Update section"""
-    section = db.query(EstimateSection).filter(
-        EstimateSection.id == section_id,
-    ).first()
-    
-    if not section:
-        raise HTTPException(status_code=404, detail="Section not found")
-    
+    estimate = _owned_estimate_or_404(db, estimate_id, current_user)
+    section = _estimate_section_or_404(db, estimate, section_id)
+
     for field, value in data.model_dump(exclude_unset=True).items():
         if hasattr(section, field):
             setattr(section, field, value)
-    
+
     db.commit()
     db.refresh(section)
-    
-    return EstimateSectionResponse.model_validate(section)
+
+    return EstimateSectionResponse(**_serialize_section(section))
 
 
 @router.delete("/{estimate_id}/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -966,38 +1024,19 @@ async def delete_section(
     db: Session = Depends(get_db),
 ):
     """Delete section"""
-    section = db.query(EstimateSection).filter(
-        EstimateSection.id == section_id,
-    ).first()
-    
-    if not section:
-        raise HTTPException(status_code=404, detail="Section not found")
-    
-    # Move items to another section if specified
+    estimate = _owned_estimate_or_404(db, estimate_id, current_user)
+    section = _estimate_section_or_404(db, estimate, section_id)
+
+    # Move items to another section of the same estimate if specified
     if move_items_to:
+        target = _estimate_section_or_404(db, estimate, move_items_to)
         db.query(EstimateItem).filter(
-            EstimateItem.section_id == section_id
-        ).update({"section_id": move_items_to})
-    
+            EstimateItem.section_id == section.id,
+            EstimateItem.estimate_id == estimate.id,
+        ).update({"section_id": target.id}, synchronize_session=False)
+
     db.delete(section)
     db.commit()
-
-
-@router.put("/{estimate_id}/sections/reorder")
-async def reorder_sections(
-    estimate_id: str,
-    data: ReorderRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Reorder sections"""
-    for index, section_id in enumerate(data.section_ids):
-        db.query(EstimateSection).filter(
-            EstimateSection.id == section_id
-        ).update({"order_index": index})
-    
-    db.commit()
-    return MessageResponse(message="Sections reordered")
 
 
 # ===================
@@ -1012,44 +1051,46 @@ async def bulk_action(
     db: Session = Depends(get_db),
 ):
     """Bulk action on items (delete, move, copy)"""
-    
+    estimate = _owned_estimate_or_404(db, estimate_id, current_user)
+    # Only ever touch items that belong to this (caller-owned) estimate.
+    items_query = db.query(EstimateItem).filter(
+        EstimateItem.id.in_(data.item_ids),
+        EstimateItem.estimate_id == estimate.id,
+    )
+
     if data.action == "delete":
-        db.query(EstimateItem).filter(
-            EstimateItem.id.in_(data.item_ids)
-        ).delete(synchronize_session=False)
+        affected = items_query.delete(synchronize_session=False)
         db.commit()
         return BulkOperationResponse(
-            message=f"{len(data.item_ids)} items deleted",
-            affected_count=len(data.item_ids)
+            message=f"{affected} items deleted",
+            affected_count=affected
         )
 
     elif data.action == "move":
         if not data.target_section_id:
             raise HTTPException(status_code=400, detail="target_section_id required for move")
+        target = _estimate_section_or_404(db, estimate, data.target_section_id)
 
-        db.query(EstimateItem).filter(
-            EstimateItem.id.in_(data.item_ids)
-        ).update({"section_id": data.target_section_id}, synchronize_session=False)
+        affected = items_query.update({"section_id": target.id}, synchronize_session=False)
         db.commit()
         return BulkOperationResponse(
-            message=f"{len(data.item_ids)} items moved",
-            affected_count=len(data.item_ids)
+            message=f"{affected} items moved",
+            affected_count=affected
         )
-    
+
     elif data.action == "copy":
         if not data.target_section_id:
             raise HTTPException(status_code=400, detail="target_section_id required for copy")
-        
+        target = _estimate_section_or_404(db, estimate, data.target_section_id)
+
         # Get original items
-        items = db.query(EstimateItem).filter(
-            EstimateItem.id.in_(data.item_ids)
-        ).all()
-        
+        items = items_query.all()
+
         # Create copies
         for item in items:
             new_item = EstimateItem(
-                estimate_id=item.estimate_id,
-                section_id=data.target_section_id,
+                estimate_id=estimate.id,
+                section_id=target.id,
                 line_item_id=item.line_item_id,
                 code=item.code,
                 name=item.name,
@@ -1064,11 +1105,11 @@ async def bulk_action(
                 images=item.images or [],
             )
             db.add(new_item)
-        
+
         db.commit()
         return BulkOperationResponse(
-            message=f"{len(data.item_ids)} items copied",
-            affected_count=len(data.item_ids)
+            message=f"{len(items)} items copied",
+            affected_count=len(items)
         )
 
     else:
@@ -1083,16 +1124,19 @@ async def reorder_item(
     db: Session = Depends(get_db),
 ):
     """Reorder single item (move between sections)"""
+    estimate = _owned_estimate_or_404(db, estimate_id, current_user)
     item = db.query(EstimateItem).filter(
-        EstimateItem.id == data.item_id
+        EstimateItem.id == data.item_id,
+        EstimateItem.estimate_id == estimate.id,
     ).first()
-    
+
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    
-    item.section_id = data.target_section_id
+    target = _estimate_section_or_404(db, estimate, data.target_section_id)
+
+    item.section_id = target.id
     item.order_index = data.target_index
-    
+
     db.commit()
     return MessageResponse(message="Item reordered")
 
@@ -1141,14 +1185,25 @@ async def send_estimate(
             detail="Email sending is not configured. Contact support.",
         )
 
+    to_email, cc_emails = clean_recipients(to_email, data.cc_emails)
+    # Shared per-company budget for customer-facing email (also used by e-sign)
+    enforce_rate_limit(
+        f"email-send:{current_user.company_id}",
+        app_settings.EMAIL_SENDS_PER_COMPANY_PER_HOUR,
+        3600,
+        "You've sent a lot of emails in the last hour. Please try again later.",
+    )
+
     # Generate the PDF exactly as the download endpoint does
     template_name = data.template or current_user.default_pdf_template or DEFAULT_TEMPLATE
     pdf_data = _prepare_estimate_pdf_data(estimate, company, db)
-    pdf_bytes = generate_estimate_pdf(pdf_data, template_name)
+    # PDF rendering and SMTP are blocking; keep them off the event loop
+    pdf_bytes = await run_in_threadpool(generate_estimate_pdf, pdf_data, template_name)
 
     customer_name = estimate.customer.name if estimate.customer else (estimate.customer_name or "Customer")
 
-    sent = email_service.send_document_email(
+    sent = await run_in_threadpool(
+        email_service.send_document_email,
         to_email=to_email,
         document_type="estimate",
         document_number=estimate.estimate_number or "",
@@ -1160,7 +1215,7 @@ async def send_estimate(
         sender_name=current_user.full_name,
         sender_email=current_user.email,
         message=data.message,
-        cc_emails=data.cc_emails,
+        cc_emails=cc_emails,
     )
 
     if not sent:
@@ -1560,7 +1615,8 @@ async def get_pdf(
     pdf_data = _prepare_estimate_pdf_data(estimate, company, db)
 
     # Generate PDF
-    pdf_bytes = generate_estimate_pdf(pdf_data, template_name)
+    # PDF rendering and SMTP are blocking; keep them off the event loop
+    pdf_bytes = await run_in_threadpool(generate_estimate_pdf, pdf_data, template_name)
 
     # Build filename with address
     customer_name = estimate.customer.name if estimate.customer else (estimate.customer_name or "Customer")
@@ -1579,7 +1635,7 @@ async def get_pdf(
         content=pdf_bytes.read(),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": content_disposition(filename)
         }
     )
 

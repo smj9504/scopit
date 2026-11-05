@@ -1,8 +1,8 @@
 /**
  * Scopit - Login Page
  */
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Form, Input, Button, App } from 'antd';
 import { MailOutlined, LockOutlined, GoogleOutlined } from '@ant-design/icons';
 import { motion } from 'framer-motion';
@@ -13,6 +13,7 @@ import { colors, fonts } from '@/styles/theme';
 import { warmupBackend } from '@/utils';
 import { useResumePendingAction } from '@/hooks/useResumePendingAction';
 import { usePendingActionStore } from '@/stores/pendingActionStore';
+import { googleSignInUrl, safeReturnPath } from '@/utils/googleSignIn';
 
 interface LoginForm {
   email: string;
@@ -33,15 +34,37 @@ const LoginPage: React.FC = () => {
   // A queued packing-lead claim (e.g. an existing user returning from the
   // estimate result page) carries their verified email to pre-fill here.
   const pendingAction = usePendingActionStore((s) => s.pendingAction);
+  // A device handed back after in-person signing arrives with where to
+  // return to, whose email to pre-fill, and `reauth` (see SignInPersonPage).
+  const location = useLocation();
+  const navState = location.state as { returnTo?: string; email?: string; reauth?: boolean } | null;
+  const returnTo = safeReturnPath(navState?.returnTo);
   const prefillEmail =
-    pendingAction?.type === 'packing-claim' ? pendingAction.prefillEmail : undefined;
+    pendingAction?.type === 'packing-claim' ? pendingAction.prefillEmail : navState?.email;
+
+  // The API sends failed Google sign-ins back here with ?error=<reason>.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const error = searchParams.get('error');
+    if (!error) return;
+    const text: Record<string, string> = {
+      email_not_verified: 'Your Google account email is not verified. Verify it with Google, or sign up with email and password.',
+      account_inactive: 'This account is inactive. Please contact support.',
+    };
+    message.error(text[error] || 'Failed to sign in with Google. Please try again.');
+    searchParams.delete('error');
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, setSearchParams, message]);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     setGoogleWaking(false);
     try {
       await warmupBackend(() => setGoogleWaking(true));
-      window.location.href = `${API_URL}/auth/google`;
+      window.location.href = googleSignInUrl(API_URL, {
+        returnTo,
+        reauth: !!navState?.reauth,
+      });
     } catch {
       message.error('The server is taking longer than usual to start. Please try again in a moment.');
       setGoogleLoading(false);
@@ -53,29 +76,14 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     try {
       const response = await authService.login(values);
-      console.log('🔍 Login Response:', response);
-      console.log('🔑 Access Token:', response.accessToken);
-      console.log('🔑 Refresh Token:', response.refreshToken);
-      console.log('👤 User:', response.user);
-
       login(response.user, response.accessToken, response.refreshToken);
-
-      // Verify store after login
-      const storeState = useAuthStore.getState();
-      console.log('📦 Store State After Login:', {
-        hasAccessToken: !!storeState.accessToken,
-        hasRefreshToken: !!storeState.refreshToken,
-        isAuthenticated: storeState.isAuthenticated,
-        user: storeState.user,
-      });
 
       message.success('Welcome back!');
       const resumed = await resumePendingAction();
       if (!resumed) {
-        navigate('/app/dashboard');
+        navigate(returnTo || '/app/dashboard');
       }
     } catch (error) {
-      console.error('❌ Login Error:', error);
       if (getErrorCode(error) === 'EMAIL_NOT_VERIFIED') {
         message.info('Please verify your email to continue.');
         navigate('/register', { state: { step: 'verify', email: values.email } });

@@ -255,13 +255,15 @@ def test_submit_stores_initials_separately():
     service._resolve_by_token = lambda token: (sign_req, recipient)
     service._send_completion_notifications = MagicMock()
     service._burn_document = MagicMock(return_value="key.pdf")
+    # Submitted images are checked, so these are real PNGs
+    sig, initials = png_b64((255, 0, 0, 255)), png_b64((0, 0, 255, 255))
 
     service.submit_signature(
-        "tok", "SIGB64", "draw", "", {"__initials__": "spoofed"}, True, "1.2.3.4", "ua",
-        initials_data="INITB64",
+        "tok", sig, "draw", "", {"__initials__": "spoofed"}, True, "1.2.3.4", "ua",
+        initials_data=initials,
     )
-    assert recipient.signature_data == "SIGB64"
-    assert recipient.signed_field_values == {INITIALS_KEY: "INITB64"}
+    assert recipient.signature_data == sig
+    assert recipient.signed_field_values == {INITIALS_KEY: initials}
     assert sign_req.status == "signed"
 
 

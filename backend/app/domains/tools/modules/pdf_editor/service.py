@@ -12,6 +12,7 @@ Database: SQLAlchemy 2.0 SYNC (Session, not AsyncSession).
 """
 
 import base64
+import logging
 import os
 import tempfile
 import uuid
@@ -25,6 +26,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.images import MAX_UPLOAD_PIXELS, ImageRejected, check_image_bytes
+from app.core.safe_text import rl_text
 from app.core.storage import StorageBackend, get_storage
 from app.domains.customer.models import Customer
 from app.domains.tools.modules.pdf_editor.models import (
@@ -65,6 +68,8 @@ from app.domains.tools.modules.pdf_editor.pdf_text_edit import (
     with_cover_kinds,
 )
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -89,17 +94,64 @@ MIN_CROP_SIZE = 36
 # Most pages one insert (blank pages) or one extract (separate files) makes
 MAX_PAGES_PER_OPERATION = 100
 
+# Photos -> PDF: how many images, how big each, and which kinds (Pillow's
+# format names; MPO is how many phone cameras' JPEGs open, HEIF needs
+# pillow-heif). Anything else isn't decoded at all.
+MAX_IMAGES_PER_PDF = 50
+MAX_IMAGE_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+PHOTO_FORMATS = ("JPEG", "MPO", "PNG", "WEBP", "HEIF", "AVIF", "TIFF", "BMP", "GIF")
+# JPEGs can be decoded at 1/2, 1/4 or 1/8 scale (Image.draft), so a full-size
+# 48-100 MP phone photo costs little memory; other formats decode at full
+# size and keep the general 40 MP cap.
+JPEG_FORMATS = ("JPEG", "MPO")
+MAX_JPEG_PIXELS = 100_000_000
+# Longest side of an image placed on a letter page: 11in at 300 dpi.
+PAGE_IMAGE_MAX_PX = 3300
+
+
+def _check_photo_for_page(content: bytes, max_bytes: int, label: str) -> None:
+    """Refuse an image before decoding it: wrong type, too many bytes or pixels."""
+    try:
+        info = check_image_bytes(
+            content, max_bytes=max_bytes, max_pixels=MAX_JPEG_PIXELS,
+            allowed_formats=PHOTO_FORMATS,
+        )
+        if info.format not in JPEG_FORMATS and info.width * info.height > MAX_UPLOAD_PIXELS:
+            raise ImageRejected(
+                f"The image is too large ({info.width}x{info.height} pixels; "
+                f"max {MAX_UPLOAD_PIXELS // 1_000_000} megapixels)."
+            )
+    except ImageRejected as exc:
+        raise HTTPException(status_code=400, detail=f"{label[:100]}: {exc}")
+
+
+def _load_page_image(source, rotation: int = 0):
+    """Open an image sized for a letter page (<= PAGE_IMAGE_MAX_PX), upright and RGB.
+
+    JPEGs are decoded directly at a reduced scale, so memory stays small even
+    for very large photos; anything still larger is downscaled. 300 dpi on
+    the page is print quality, so nothing visible is lost.
+    """
+    from PIL import ImageOps
+
+    img = _open_image(source)
+    if img.format in JPEG_FORMATS:
+        img.draft("RGB", (PAGE_IMAGE_MAX_PX, PAGE_IMAGE_MAX_PX))
+    img = ImageOps.exif_transpose(img)
+    if rotation:
+        img = img.rotate(-rotation, expand=True)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img.thumbnail((PAGE_IMAGE_MAX_PX, PAGE_IMAGE_MAX_PX))
+    return img
+
 
 _heif_registered = False
 
 
-def _open_image(source):
-    """PIL Image.open that also understands HEIC/HEIF (iPhone photos) when
-    pillow-heif is installed, and turns unreadable files into a 400 instead
-    of a 500."""
+def _register_heif() -> None:
+    """Let Pillow open HEIC/HEIF (iPhone photos) when pillow-heif is installed."""
     global _heif_registered
-    from PIL import Image, UnidentifiedImageError
-
     if not _heif_registered:
         try:
             import pillow_heif
@@ -108,6 +160,15 @@ def _open_image(source):
         except ImportError:
             pass
         _heif_registered = True
+
+
+def _open_image(source):
+    """PIL Image.open that also understands HEIC/HEIF (iPhone photos) when
+    pillow-heif is installed, and turns unreadable files into a 400 instead
+    of a 500."""
+    from PIL import Image, UnidentifiedImageError
+
+    _register_heif()
     try:
         return Image.open(source)
     except UnidentifiedImageError:
@@ -995,16 +1056,12 @@ class PdfEditorService:
     def _image_to_pdf(
         self, image_path: str, output_path: str, rotation: int = 0
     ) -> None:
-        from PIL import ImageOps
         from reportlab.lib.pagesizes import letter
         from reportlab.pdfgen import canvas as rl_canvas
 
-        img = _open_image(image_path)
-        img = ImageOps.exif_transpose(img)
-        if rotation:
-            img = img.rotate(-rotation, expand=True)
-        if img.mode != "RGB":
-            img = img.convert("RGB")
+        with open(image_path, "rb") as fh:
+            _check_photo_for_page(fh.read(), MAX_FILE_SIZE, "This image")
+        img = _load_page_image(image_path, rotation)
 
         temp_jpg = image_path + ".tmp.jpg"
         img.save(temp_jpg, "JPEG", quality=95)
@@ -1042,7 +1099,8 @@ class PdfEditorService:
             story = []
             for para in doc.paragraphs:
                 if para.text.strip():
-                    story.append(Paragraph(para.text, styles["Normal"]))
+                    # Paragraph reads markup: the document's text must stay text
+                    story.append(Paragraph(rl_text(para.text), styles["Normal"]))
                     story.append(Spacer(1, 6))
 
             if not story:
@@ -1053,9 +1111,11 @@ class PdfEditorService:
             pdf_doc = SimpleDocTemplate(output_path, pagesize=letter)
             pdf_doc.build(story)
         except Exception as exc:
+            logger.exception("DOCX conversion failed")
             raise HTTPException(
-                status_code=400, detail=f"Failed to convert DOCX: {exc}"
-            )
+                status_code=400,
+                detail="This Word document couldn't be converted. Try saving it as a PDF and uploading that.",
+            ) from exc
 
     def _convert_to_pdf(
         self,
@@ -2203,11 +2263,16 @@ class PdfEditorService:
         files: list[UploadFile],
         name: Optional[str] = None,
     ) -> PdfDocument:
-        from PIL import ImageOps
         from reportlab.lib.pagesizes import letter
         from reportlab.pdfgen import canvas as rl_canvas
 
         doc_id = uuid.uuid4()
+        if len(files) > MAX_IMAGES_PER_PDF:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Combine at most {MAX_IMAGES_PER_PDF} images into one PDF.",
+            )
+        _register_heif()
 
         with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
             pdf_path = os.path.join(tmpdir, "document.pdf")
@@ -2216,14 +2281,15 @@ class PdfEditorService:
             page_count = 0
 
             for upload_file in files:
-                content = upload_file.file.read()
+                # One byte over the limit is enough to know it's too big
+                content = upload_file.file.read(MAX_IMAGE_FILE_SIZE + 1)
                 if not content:
                     continue
-
-                img = _open_image(BytesIO(content))
-                img = ImageOps.exif_transpose(img)
-                if img.mode != "RGB":
-                    img = img.convert("RGB")
+                # Size, pixel count and type from the header, before decoding
+                _check_photo_for_page(
+                    content, MAX_IMAGE_FILE_SIZE, upload_file.filename or "An image",
+                )
+                img = _load_page_image(BytesIO(content))
 
                 temp_img = os.path.join(tmpdir, f"_tmp_{page_count}.jpg")
                 img.save(temp_img, "JPEG", quality=95)

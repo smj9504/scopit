@@ -2,6 +2,7 @@
 Scopit - Geolocation Service (Free IP-API)
 Uses ip-api.com - Free for non-commercial use, 45 requests/minute
 """
+import ipaddress
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -44,7 +45,14 @@ class GeolocationService:
     def _cached_lookup(ip: str) -> Optional[dict]:
         """Cached IP lookup to reduce API calls"""
         try:
-            # Skip private/local IPs
+            # Only look up real public addresses. The value comes from request
+            # headers, so anything that isn't a plain global IP (spoofed text,
+            # private ranges) is never put into the lookup URL.
+            try:
+                if not ipaddress.ip_address(ip).is_global:
+                    return None
+            except ValueError:
+                return None
             if GeolocationService._is_private_ip(ip):
                 return None
 

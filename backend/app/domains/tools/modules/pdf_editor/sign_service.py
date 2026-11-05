@@ -1,7 +1,6 @@
 """
 Scopit - E-Sign Service
 """
-import base64
 import hashlib
 import html
 import json
@@ -20,6 +19,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.email import email_service
+from app.core.images import ImageRejected, check_image_bytes, decode_data_url
+from app.core.rate_limit import enforce_rate_limit
+from app.core.safe_text import html_text
 from app.core.storage import StorageBackend, get_storage
 from app.domains.company.models import Company
 from app.domains.customer.models import Customer
@@ -56,6 +58,24 @@ SIGNED_TS_FORMAT = "%m/%d/%Y %I:%M %p UTC"
 
 DEFAULT_EXPIRY_DAYS = 14
 
+# What a signer may submit. A drawn or typed signature is a small canvas
+# PNG; these leave plenty of room while keeping one public submit from
+# storing (and every later burn from decoding) something huge.
+SIGNATURE_IMAGE_FORMATS = ("PNG", "JPEG")
+SIGNATURE_MAX_BYTES = 2 * 1024 * 1024
+SIGNATURE_MAX_PIXELS = 4_000_000
+MAX_FIELD_VALUES = 200
+MAX_FIELD_KEY_LENGTH = 200
+MAX_FIELD_VALUE_LENGTH = 5000
+
+# Burning checks every stored image again before decoding it, with roomier
+# limits, so a signature saved before submit-time checks existed still burns.
+BURN_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+BURN_IMAGE_MAX_PIXELS = 16_000_000
+
+# Reminder emails one request may send per day (all recipients or one)
+REMINDERS_PER_REQUEST_PER_DAY = 3
+
 
 def _utc_naive(dt: Optional[datetime]) -> Optional[datetime]:
     """Normalize a (possibly tz-aware) timestamp to naive UTC. Naive input is
@@ -69,6 +89,66 @@ def _utc_naive(dt: Optional[datetime]) -> Optional[datetime]:
 
 def _format_signed_ts(dt: Optional[datetime]) -> str:
     return (_utc_naive(dt) or datetime.utcnow()).strftime(SIGNED_TS_FORMAT)
+
+
+def _check_signature_image(value: Optional[str], what: str) -> None:
+    """400 unless a submitted signature/initials image (base64, bare or as a
+    data: URL) is a PNG or JPEG within the size limits. Header-only: nothing
+    is decoded here."""
+    if not value:
+        return
+    try:
+        data = decode_data_url(value, max_bytes=SIGNATURE_MAX_BYTES)
+        check_image_bytes(
+            data,
+            max_bytes=SIGNATURE_MAX_BYTES,
+            max_pixels=SIGNATURE_MAX_PIXELS,
+            allowed_formats=SIGNATURE_IMAGE_FORMATS,
+        )
+    except ImageRejected as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your {what} couldn't be used: {exc} Please sign again.",
+        )
+
+
+def _check_field_values(values: dict) -> None:
+    if len(values) > MAX_FIELD_VALUES:
+        raise HTTPException(status_code=400, detail="Too many field values were submitted.")
+    for key, value in values.items():
+        if len(str(key)) > MAX_FIELD_KEY_LENGTH or len(str(value or "")) > MAX_FIELD_VALUE_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"A field value is too long (max {MAX_FIELD_VALUE_LENGTH} characters).",
+            )
+
+
+def _burn_image_bytes(value: str, request_id) -> Optional[bytes]:
+    """A stored signature image's bytes, or None (logged) if it can't be
+    used -- one bad image must not stop the whole document from burning."""
+    try:
+        data = decode_data_url(value, max_bytes=BURN_IMAGE_MAX_BYTES)
+        check_image_bytes(
+            data,
+            max_bytes=BURN_IMAGE_MAX_BYTES,
+            max_pixels=BURN_IMAGE_MAX_PIXELS,
+            allowed_formats=SIGNATURE_IMAGE_FORMATS,
+        )
+        return data
+    except ImageRejected as exc:
+        logger.warning("Sign request %s: leaving out a stored signature image: %s", request_id, exc)
+        return None
+
+
+def _enforce_send_budget(company_id) -> None:
+    """The company-wide hourly budget for customer-facing email, shared with
+    estimate/invoice sends."""
+    enforce_rate_limit(
+        f"email-send:{company_id}",
+        settings.EMAIL_SENDS_PER_COMPANY_PER_HOUR,
+        3600,
+        "Your company has sent a lot of emails in the last hour. Please try again later.",
+    )
 
 
 class SignService:
@@ -341,6 +421,34 @@ class SignService:
             logger.exception("Couldn't hash snapshot for %s", sign_req.id)
         return None
 
+    def _stored_sha256(self, key: Optional[str]) -> Optional[str]:
+        """sha256 of a stored file (the signed PDF), for the audit trail."""
+        try:
+            if key and self.storage.exists(key):
+                return hashlib.sha256(self.storage.read(key)).hexdigest()
+        except Exception:  # noqa: BLE001 -- hash is best-effort extra evidence
+            logger.exception("Couldn't hash %s", key)
+        return None
+
+    def _lock_envelope(self, sign_req: SignRequest) -> None:
+        """Hold the envelope's row lock until this transaction ends, then
+        re-read it and its recipients. Two signers finishing at the same
+        moment are taken one after the other, so the second sees the first
+        as signed and completes the envelope (instead of both seeing the
+        other as unsigned and leaving it partially_signed for good).
+
+        FOR NO KEY UPDATE: it excludes other submits/declines and status
+        updates, but not the foreign-key checks of audit-event inserts."""
+        (
+            self.db.query(SignRequest.id)
+            .filter(SignRequest.id == sign_req.id)
+            .with_for_update(key_share=True)
+            .first()
+        )
+        self.db.refresh(sign_req)
+        for r in sign_req.recipients:
+            self.db.refresh(r)
+
     # ------------------------------------------------------------------
     # Authenticated (company-scoped) operations
     # ------------------------------------------------------------------
@@ -405,6 +513,9 @@ class SignService:
                 )
                 .first()
             )
+            # Never store (or later resolve) another company's customer id
+            if customer is None:
+                raise HTTPException(status_code=404, detail="Customer not found")
         company = self.db.query(Company).filter(Company.id == company_id).first()
         prefill_data = self._build_prefill_data(field_definitions, customer, company)
 
@@ -534,6 +645,12 @@ class SignService:
                 ),
             )
 
+        if (
+            sign_req.delivery_method == "email_request"
+            or sign_req.cc_emails or sign_req.bcc_emails
+        ):
+            _enforce_send_budget(company_id)
+
         # Freeze exactly what the recipients will see and sign, so edits made
         # to the document after sending can't change this envelope.
         snapshot_key, snapshot_sha = self._write_snapshot(sign_req)
@@ -648,6 +765,15 @@ class SignService:
                     detail="Recipient not found or already completed",
                 )
 
+        enforce_rate_limit(
+            f"sign-reminder:{request_id}",
+            REMINDERS_PER_REQUEST_PER_DAY,
+            86400,
+            "Reminders for this request have already been sent "
+            f"{REMINDERS_PER_REQUEST_PER_DAY} times today. Please try again tomorrow.",
+        )
+        _enforce_send_budget(company_id)
+
         failures: list = []
         for recipient in targets:
             sign_url = f"{settings.FRONTEND_URL}/sign/{recipient.access_token}"
@@ -701,7 +827,11 @@ class SignService:
                 detail="The signed document couldn't be generated. Please try again.",
             ) from exc
         sign_req.signed_file_path = key
-        self._log_event(sign_req.id, "signed_file_generated", metadata={"key": key})
+        metadata = {"key": key}
+        signed_sha = self._stored_sha256(key)
+        if signed_sha:
+            metadata["signed_sha256"] = signed_sha
+        self._log_event(sign_req.id, "signed_file_generated", metadata=metadata)
         self.db.commit()
         return key
 
@@ -717,6 +847,7 @@ class SignService:
                 status_code=400,
                 detail="Document has not been fully signed yet",
             )
+        _enforce_send_budget(company_id)
 
         try:
             self.ensure_signed_file(sign_req)
@@ -892,6 +1023,7 @@ class SignService:
         sign_req, recipient = self._resolve_by_token(token)
         if not sign_req or not recipient:
             raise HTTPException(status_code=404, detail="Sign request not found")
+        self._lock_envelope(sign_req)
         if recipient.status == "signed" or sign_req.status == "signed":
             raise HTTPException(status_code=409, detail="Document already signed")
         self._raise_if_unavailable(sign_req, recipient)
@@ -901,9 +1033,12 @@ class SignService:
                 detail="You must agree to sign electronically before submitting",
             )
 
+        _check_signature_image(signature_data, "signature")
+        _check_signature_image(initials_data, "initials")
         field_values = {
             k: v for k, v in (field_values or {}).items() if k != INITIALS_KEY
         }
+        _check_field_values(field_values)
         my_fields = [
             f for f in (sign_req.sign_fields or [])
             if f.get("signer_role") == recipient.role
@@ -968,11 +1103,13 @@ class SignService:
                 self._log_event(
                     sign_req.id, "burn_failed", metadata={"error": str(exc)}
                 )
-            self._log_event(
-                sign_req.id,
-                "completed",
-                metadata={"recipient_count": len(sign_req.recipients)},
-            )
+            completed = {"recipient_count": len(sign_req.recipients)}
+            # The final signed PDF's fingerprint (absent if the burn failed;
+            # the lazy re-burn records it with signed_file_generated)
+            signed_sha = self._stored_sha256(sign_req.signed_file_path)
+            if signed_sha:
+                completed["signed_sha256"] = signed_sha
+            self._log_event(sign_req.id, "completed", metadata=completed)
         elif any_signed:
             sign_req.status = "partially_signed"
 
@@ -990,6 +1127,7 @@ class SignService:
         sign_req, recipient = self._resolve_by_token(token)
         if not sign_req or not recipient:
             raise HTTPException(status_code=404, detail="Sign request not found")
+        self._lock_envelope(sign_req)
         if recipient.status in ("signed", "declined"):
             raise HTTPException(
                 status_code=400,
@@ -1285,11 +1423,19 @@ class SignService:
             ph = int(fh * img_h) if fh <= 1 else int(fh)
 
             if "image_b64" in value:
-                sig_img = Image.open(
-                    BytesIO(base64.b64decode(value["image_b64"]))
-                ).convert("RGBA")
-                resized = sig_img.resize((pw, ph), Image.LANCZOS)
-                base_img.paste(resized, (px, py), resized)
+                sig_bytes = _burn_image_bytes(value["image_b64"], getattr(sign_req, "id", None))
+                if sig_bytes is None:
+                    continue
+                try:
+                    sig_img = Image.open(BytesIO(sig_bytes)).convert("RGBA")
+                    resized = sig_img.resize((pw, ph), Image.LANCZOS)
+                    base_img.paste(resized, (px, py), resized)
+                except Exception:  # noqa: BLE001 -- leave this one image out
+                    logger.warning(
+                        "Sign request %s: couldn't draw a stored signature image",
+                        getattr(sign_req, "id", None), exc_info=True,
+                    )
+                    continue
                 ts_size = max(9, int(ph * 0.2))
                 try:
                     ts_font = ImageFont.truetype("arial.ttf", ts_size)
@@ -1348,6 +1494,28 @@ class SignService:
         output = base_img.convert("RGB")
         output.save(output_path, "PDF", resolution=150)
 
+    @staticmethod
+    def _draw_signature_image(c, image_b64: str, sign_req, x, y, w, h) -> bool:
+        """Draw a stored signature image into the field box. False (logged,
+        nothing drawn) when the image is unusable, so one bad stored image
+        can't keep the signed PDF from ever being generated."""
+        from reportlab.lib.utils import ImageReader
+
+        request_id = getattr(sign_req, "id", None)
+        sig_bytes = _burn_image_bytes(image_b64, request_id)
+        if sig_bytes is None:
+            return False
+        try:
+            # The image is decoded before anything is written to the page
+            c.drawImage(ImageReader(BytesIO(sig_bytes)), x, y, w, h, mask="auto")
+        except Exception:  # noqa: BLE001 -- leave this one image out
+            logger.warning(
+                "Sign request %s: couldn't draw a stored signature image",
+                request_id, exc_info=True,
+            )
+            return False
+        return True
+
     def _burn_fields_pdf(
         self, sign_req: SignRequest, src_path: str, output_path: str,
     ) -> None:
@@ -1358,7 +1526,6 @@ class SignService:
         drawn in that top-down screen space and each field gets its own
         y-up local frame with the origin at the field's bottom-left."""
         from pypdf import PdfReader, PdfWriter
-        from reportlab.lib.utils import ImageReader
         from reportlab.pdfgen import canvas as rl_canvas
 
         reader = PdfReader(src_path)
@@ -1402,17 +1569,15 @@ class SignService:
                     x, y, w, h = 0.0, 0.0, sw, sh
 
                     if "image_b64" in value:
-                        sig_bytes = base64.b64decode(value["image_b64"])
-                        sig_reader = ImageReader(BytesIO(sig_bytes))
-                        c.drawImage(sig_reader, x, y, w, h, mask="auto")
-                        ts_size = max(6, min(8, h * 0.18))
-                        c.setFont("Helvetica", ts_size)
-                        c.setFillColorRGB(0.42, 0.45, 0.50)
-                        c.drawString(
-                            x + 1, y - ts_size - 1,
-                            _format_signed_ts(value.get("signed_at")),
-                        )
-                        c.setFillColorRGB(0, 0, 0)
+                        if self._draw_signature_image(c, value["image_b64"], sign_req, x, y, w, h):
+                            ts_size = max(6, min(8, h * 0.18))
+                            c.setFont("Helvetica", ts_size)
+                            c.setFillColorRGB(0.42, 0.45, 0.50)
+                            c.drawString(
+                                x + 1, y - ts_size - 1,
+                                _format_signed_ts(value.get("signed_at")),
+                            )
+                            c.setFillColorRGB(0, 0, 0)
                     elif field.get("type") == "checkbox":
                         if str(value.get("text") or "").strip().lower() in (
                             "true", "1", "yes", "on", "checked",
@@ -1476,21 +1641,32 @@ class SignService:
 </body>
 </html>"""
 
+    @staticmethod
+    def _message_block(sign_req: SignRequest) -> str:
+        """The sender's own message, as plain text (line breaks kept)."""
+        if not sign_req.email_message:
+            return ""
+        return (
+            '<p style="color:#374151; font-size:16px; line-height:1.6; margin:0 0 20px; white-space:pre-wrap;">'
+            f"{html_text(sign_req.email_message)}</p>"
+        )
+
+    @staticmethod
+    def _sender_html(sign_req: SignRequest) -> str:
+        return html_text(f"{sign_req.sender_name} ({sign_req.sender_email})")
+
     def _build_sign_email(
         self, sign_req: SignRequest, recipient: SignRecipient, sign_url: str
     ) -> str:
-        """Build HTML email for a signing invitation to one recipient."""
+        """Build HTML email for a signing invitation to one recipient.
+        Everything a user typed (names, message) is escaped: it's text, and
+        must never become links or markup in a mail sent from Scopit."""
         expires_str = (
             sign_req.expires_at.strftime("%B %d, %Y")
             if sign_req.expires_at
             else "N/A"
         )
-        message_block = (
-            f'<p style="color:#374151; font-size:16px; line-height:1.6; margin:0 0 20px;">'
-            f"{sign_req.email_message}</p>"
-            if sign_req.email_message
-            else ""
-        )
+        message_block = self._message_block(sign_req)
         return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -1499,10 +1675,10 @@ class SignService:
 <tr><td style="background:#fff; border-radius:12px; padding:40px; box-shadow:0 2px 4px rgba(0,0,0,0.1);">
   <h1 style="margin:0 0 20px; color:#111827; font-size:24px;">Signature Requested</h1>
   <p style="color:#374151; font-size:16px; line-height:1.6; margin:0 0 10px;">
-    Hi {recipient.name},
+    Hi {html_text(recipient.name)},
   </p>
   <p style="color:#374151; font-size:16px; line-height:1.6; margin:0 0 20px;">
-    {sign_req.sender_name} ({sign_req.sender_email}) has requested your signature on a document.
+    {self._sender_html(sign_req)} has requested your signature on a document.
   </p>
   {message_block}
   <table width="100%" cellspacing="0" cellpadding="0">
@@ -1527,13 +1703,8 @@ class SignService:
         """Informational email for Cc/Bcc at send time. No signing link."""
         doc_name = html.escape(self._doc_name(sign_req))
         names = html.escape(", ".join(r.name for r in sign_req.recipients) or "the recipients")
-        sender = html.escape(f"{sign_req.sender_name} ({sign_req.sender_email})")
-        message_block = (
-            f'<p style="color:#374151; font-size:16px; line-height:1.6; margin:0 0 20px;">'
-            f"{sign_req.email_message}</p>"
-            if sign_req.email_message
-            else ""
-        )
+        sender = self._sender_html(sign_req)
+        message_block = self._message_block(sign_req)
         body = f"""<p style="color:#374151; font-size:16px; line-height:1.6; margin:0 0 20px;">
     {sender} sent <strong>{doc_name}</strong> to {names} for signature.
   </p>
@@ -1573,7 +1744,7 @@ class SignService:
             if sign_req.expires_at
             else "N/A"
         )
-        doc_name = sign_req.document.name if sign_req.document else "a document"
+        doc_name = html_text(sign_req.document.name if sign_req.document else "a document")
         return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -1582,10 +1753,10 @@ class SignService:
 <tr><td style="background:#fff; border-radius:12px; padding:40px; box-shadow:0 2px 4px rgba(0,0,0,0.1);">
   <h1 style="margin:0 0 20px; color:#111827; font-size:24px;">Friendly Reminder</h1>
   <p style="color:#374151; font-size:16px; line-height:1.6; margin:0 0 10px;">
-    Hi {recipient.name},
+    Hi {html_text(recipient.name)},
   </p>
   <p style="color:#374151; font-size:16px; line-height:1.6; margin:0 0 20px;">
-    {sign_req.sender_name} ({sign_req.sender_email}) is waiting for your signature on <strong>{doc_name}</strong>.
+    {self._sender_html(sign_req)} is waiting for your signature on <strong>{doc_name}</strong>.
   </p>
   <table width="100%" cellspacing="0" cellpadding="0">
     <tr><td style="text-align:center; padding:25px 0;">
@@ -1617,6 +1788,13 @@ class SignService:
             if sign_req.signed_at else "just now"
         )
         signer_names = ", ".join(r.name for r in sign_req.recipients) or "Your recipients"
+        # The same values escaped for the HTML bodies (subjects stay plain
+        # text). _build_completion_email takes HTML, so nothing user-typed
+        # goes into it unescaped.
+        doc_html = html_text(doc_name)
+        signers_html = html_text(signer_names)
+        sender_html = self._sender_html(sign_req)
+        company_html = html_text(company_name)
 
         attachments = None
         signed_key = sign_req.signed_file_path
@@ -1643,8 +1821,7 @@ class SignService:
             "A copy of the fully signed document is attached for your records."
             if attached
             else (
-                f"A copy of the signed document is available from "
-                f"{sign_req.sender_name} ({sign_req.sender_email})."
+                f"A copy of the signed document is available from {sender_html}."
             )
         )
 
@@ -1670,11 +1847,11 @@ class SignService:
             sign_req.sender_email,
             f"{signer_names} signed {doc_name}",
             self._build_completion_email(
-                greeting_name=sign_req.sender_name,
+                greeting_name=html_text(sign_req.sender_name),
                 intro=(
-                    f"<strong>{signer_names}</strong> "
+                    f"<strong>{signers_html}</strong> "
                     f"{'have' if len(sign_req.recipients) != 1 else 'has'} "
-                    f"signed <strong>{doc_name}</strong>. {copy_note_sender}"
+                    f"signed <strong>{doc_html}</strong>. {copy_note_sender}"
                 ),
                 completed_at_str=completed_at_str,
                 footer=None,
@@ -1687,15 +1864,15 @@ class SignService:
                 recipient.email,
                 f"Your signed copy of {doc_name}",
                 self._build_completion_email(
-                    greeting_name=recipient.name,
+                    greeting_name=html_text(recipient.name),
                     intro=(
-                        f"Thank you for signing <strong>{doc_name}</strong>. "
+                        f"Thank you for signing <strong>{doc_html}</strong>. "
                         f"{copy_note_other}"
                     ),
                     completed_at_str=completed_at_str,
                     footer=(
-                        f"This document was requested by {sign_req.sender_name} "
-                        f"({sign_req.sender_email}) on behalf of {company_name}."
+                        f"This document was requested by {sender_html} "
+                        f"on behalf of {company_html}."
                     ),
                 ),
                 sign_req.sender_email,
@@ -1708,14 +1885,14 @@ class SignService:
                 html_content=self._build_completion_email(
                     greeting_name="there",
                     intro=(
-                        f"<strong>{signer_names}</strong> "
+                        f"<strong>{signers_html}</strong> "
                         f"{'have' if len(sign_req.recipients) != 1 else 'has'} "
-                        f"signed <strong>{doc_name}</strong>. {copy_note_other}"
+                        f"signed <strong>{doc_html}</strong>. {copy_note_other}"
                     ),
                     completed_at_str=completed_at_str,
                     footer=(
-                        f"You were copied on this request by {sign_req.sender_name} "
-                        f"({sign_req.sender_email}) on behalf of {company_name}."
+                        f"You were copied on this request by {sender_html} "
+                        f"on behalf of {company_html}."
                     ),
                 ),
                 attachments=attachments,
@@ -1725,6 +1902,8 @@ class SignService:
         self, greeting_name: str, intro: str, completed_at_str: str,
         footer: Optional[str],
     ) -> str:
+        """greeting_name, intro and footer are HTML: callers escape every
+        user-supplied value in them."""
         footer_block = (
             f'<p style="color:#6b7280; font-size:13px; line-height:1.6; margin:0;">{footer}</p>'
             if footer else ""

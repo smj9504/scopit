@@ -9,20 +9,35 @@ and already fully signed, so it shows wherever sign requests do (the Sign
 Requests tab, the customer's Signatures) and its signed PDF, audit trail and
 "Resend signed copy" work as for any other. Nothing is written until the
 signer signs, and a visit's documents are saved together or not at all.
+
+Handing the device over: the employee's part (the customer, the documents,
+the details) runs on their own session. Handing over trades that session for
+a kiosk token and signs the employee out on the device, so the signer's part
+(reading, signing, emailing their copies) runs on the token alone. The token
+is a JWT of its own type, never accepted as a sign-in, and it names exactly
+what the signer may do: this visit's documents and customer, with the
+company's answers as they were handed over, which the signer can't change.
+It lasts KIOSK_TTL, signs once, and dies with the employee's sessions
+(password change, deactivation).
 """
 from __future__ import annotations
 
 import base64
 import binascii
 import logging
+import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import or_
+from jose import JWTError, jwt
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.security import TokenPayload, token_is_current
 from app.domains.company.models import Company
 from app.domains.customer.models import Customer
 from app.domains.tools.modules.pdf_editor.field_registry import resolve_entity_value
@@ -31,6 +46,7 @@ from app.domains.tools.modules.pdf_editor.in_person import (
     clean_answers,
     clean_email,
     document_values,
+    handed_over_answers,
     has_signature_line,
     is_signature,
     missing_required,
@@ -41,12 +57,19 @@ from app.domains.tools.modules.pdf_editor.in_person import (
     signing_day,
     strip_data_url,
 )
-from app.domains.tools.modules.pdf_editor.models import PdfDocument, SignRecipient, SignRequest
+from app.domains.tools.modules.pdf_editor.models import (
+    PdfDocument,
+    SignAuditEvent,
+    SignRecipient,
+    SignRequest,
+)
 from app.domains.tools.modules.pdf_editor.sign_service import (
     DEFAULT_EXPIRY_DAYS,
     INITIALS_KEY,
     SignService,
 )
+from app.domains.tools.service import ToolAccessService
+from app.domains.user.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +77,80 @@ IN_PERSON = "in_person"
 
 # The most documents one visit signs together
 MAX_DOCUMENTS = 10
+
+# ── Kiosk tokens (the signer's part of a visit) ──────────────────────────────
+
+KIOSK_TOKEN_TYPE = "in_person_kiosk"
+KIOSK_TTL = timedelta(hours=2)
+# How many times the signer can email their copies from the device
+KIOSK_MAX_EMAILS = 3
+# The token travels in a header; well under what servers and proxies accept
+KIOSK_MAX_TOKEN_LENGTH = 12_000
+
+
+@dataclass
+class KioskVisit:
+    """A handed-over visit, as its kiosk token names it"""
+    user: User
+    company_id: UUID
+    document_ids: list
+    customer_id: Optional[UUID]
+    new_customer: Optional[dict]
+    # The company's answers as handed over, by question key
+    answers: dict
+    kiosk_id: str
+
+
+def kiosk_ended() -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail={
+            "code": "KIOSK_ENDED",
+            "message": "This signing session has ended. Hand the device back to start again.",
+        },
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def issue_kiosk_token(
+    *,
+    user,
+    company_id: UUID,
+    document_ids: list,
+    customer_id: Optional[UUID],
+    new_customer: Optional[dict],
+    answers: dict,
+    now: Optional[datetime] = None,
+) -> tuple[str, datetime]:
+    """(token, expiry) for the signer's part of a visit"""
+    now = now or datetime.utcnow()
+    expires = now + KIOSK_TTL
+    claims = {
+        "type": KIOSK_TOKEN_TYPE,
+        "sub": str(user.id),
+        "ver": int(getattr(user, "token_version", 0) or 0),
+        "company_id": str(company_id),
+        "docs": [str(d) for d in document_ids],
+        "customer_id": str(customer_id) if customer_id else None,
+        "new_customer": new_customer or None,
+        "answers": answers,
+        "jti": secrets.token_urlsafe(16),
+        "iat": now,
+        "exp": expires,
+    }
+    return jwt.encode(claims, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM), expires
+
+
+def read_kiosk_token(token: str) -> dict:
+    """The claims of a genuine, unexpired kiosk token; raises otherwise"""
+    try:
+        claims = jwt.decode(token or "", settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError as exc:
+        raise kiosk_ended() from exc
+    if claims.get("type") != KIOSK_TOKEN_TYPE:
+        raise kiosk_ended()
+    return claims
+
 
 # Customer record fields an answer may fill when the record is blank there
 _CUSTOMER_FIELDS = (
@@ -252,14 +349,18 @@ class InPersonSignService:
         today: Optional[str],
         customer_id: Optional[UUID] = None,
         new_customer: Optional[dict] = None,
+        fixed: Optional[dict] = None,
     ) -> bytes:
         """One document filled in with the answers so far, for the signer to
-        read before signing. Nothing is saved."""
+        read before signing. Nothing is saved. `fixed`: the company's answers
+        as handed over, which `answers` can't change."""
         _, customer = self._subject(company_id, customer_id, new_customer)
         doc = self._documents(company_id, [document_id], customer_id)[0]
         fields = doc.field_definitions or []
         known = self._known([doc], customer, self._company(company_id))
         questions = build_questions([(doc.name, fields)], known)
+        if fixed is not None:
+            answers = handed_over_answers(questions, fixed, answers)
         prefill, by_role = document_values(
             fields, clean_answers(answers, questions), known, signing_day(today)
         )
@@ -345,10 +446,14 @@ class InPersonSignService:
         user_agent: str,
         customer_id: Optional[UUID] = None,
         new_customer: Optional[dict] = None,
+        fixed: Optional[dict] = None,
+        kiosk_id: Optional[str] = None,
     ) -> dict:
         """Sign: makes the customer if they're new, then one fully signed
         request with its signed PDF per document. Everything is checked
-        before anything is written."""
+        before anything is written. `fixed`: the company's answers as handed
+        over, which `answers` can't change; `kiosk_id`: the hand-over this
+        signing ran on, kept in the audit trail."""
         if not consent_agreed:
             raise HTTPException(
                 status_code=400, detail="The signer must agree to sign electronically"
@@ -363,6 +468,8 @@ class InPersonSignService:
         known = self._known(docs, customer, company)
         fields_of = [doc.field_definitions or [] for doc in docs]
         questions = build_questions(zip((d.name for d in docs), fields_of), known)
+        if fixed is not None:
+            answers = handed_over_answers(questions, fixed, answers)
         answered = clean_answers(answers, questions)
         missing = missing_required(questions, answered)
         if missing:
@@ -378,10 +485,11 @@ class InPersonSignService:
 
         try:
             customer, created = self._save_customer(company_id, user.id, saved, customer, answered)
+            kiosk = {"kiosk_id": kiosk_id, "customer_created": created} if kiosk_id else {}
             requests = [
                 self._sign_document(
                     doc, fields, company, customer, user, answered, known, day,
-                    names, emails, checked, consent_text, ip, user_agent,
+                    names, emails, checked, consent_text, ip, user_agent, kiosk,
                 )
                 for doc, fields in zip(docs, fields_of)
             ]
@@ -395,6 +503,10 @@ class InPersonSignService:
             or answered.get("customer.email")
             or next((emails[r["role"]] for r in roles if emails.get(r["role"])), "")
         )
+        return self._result(customer, created, email, requests)
+
+    @staticmethod
+    def _result(customer: Customer, created: bool, email: Optional[str], requests: list) -> dict:
         return {
             "customerId": str(customer.id),
             "customerName": customer.name,
@@ -413,7 +525,7 @@ class InPersonSignService:
 
     def _sign_document(
         self, doc, fields, company, customer, user, answered, known, day,
-        names, emails, checked, consent_text, ip, user_agent,
+        names, emails, checked, consent_text, ip, user_agent, kiosk=None,
     ) -> SignRequest:
         """One document's request, signed by everyone it needs. Flushed, not
         committed: the visit commits its documents together."""
@@ -485,6 +597,7 @@ class InPersonSignService:
                 "recipient_count": len(doc_roles),
                 "source_key": source_key,
                 "source_sha256": source_sha,
+                **(kiosk or {}),
             },
         )
         for recipient in sign_req.recipients:
@@ -521,3 +634,210 @@ class InPersonSignService:
             sign_req.id, "completed", metadata={"recipient_count": len(doc_roles)}
         )
         return sign_req
+
+    # ------------------------------------------------------------------
+    # Handing the device over
+    # ------------------------------------------------------------------
+
+    def handoff(
+        self,
+        *,
+        company_id: UUID,
+        user,
+        document_ids: list,
+        answers: Optional[dict],
+        customer_id: Optional[UUID] = None,
+        new_customer: Optional[dict] = None,
+    ) -> dict:
+        """Hand the device to the signer. The visit is checked as signing
+        checks it (the documents, the customer, every required answer) and
+        the company's answers are fixed in a kiosk token for the signer's
+        part. Nothing is saved."""
+        if not customer_id and self.draft_customer(new_customer) is None:
+            raise HTTPException(
+                status_code=400, detail="Pick a customer, or enter the new customer's name"
+            )
+        form = self.form(company_id, document_ids, customer_id=customer_id, new_customer=new_customer)
+        answered = clean_answers(answers, form["questions"])
+        missing = missing_required(form["questions"], answered)
+        if missing:
+            raise HTTPException(
+                status_code=400, detail=f"Fill in the required fields: {', '.join(missing)}"
+            )
+        snapshot = None
+        if not customer_id:
+            snapshot = {
+                name: value.strip()
+                for name, value in (new_customer or {}).items()
+                if name in _CUSTOMER_FIELDS and isinstance(value, str) and value.strip()
+            }
+        token, expires = issue_kiosk_token(
+            user=user,
+            company_id=company_id,
+            document_ids=[doc["id"] for doc in form["documents"]],
+            customer_id=customer_id,
+            new_customer=snapshot,
+            answers=answered,
+        )
+        if len(token) > KIOSK_MAX_TOKEN_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail="There's too much filled in to hand over. Shorten the longest answers.",
+            )
+        company = self._company(company_id)
+        return {
+            "token": token,
+            "expiresAt": expires.isoformat() + "Z",
+            "companyName": (company.name if company else None) or "",
+            "staff": {"name": user.full_name or user.email, "email": user.email},
+            "form": form,
+            "answers": answered,
+        }
+
+    def kiosk_visit(self, token: str) -> KioskVisit:
+        """The visit a kiosk token was handed over for, checked again now:
+        the employee is still active, at the same company, signed in under
+        the same password, and the company still has the tool"""
+        claims = read_kiosk_token(token)
+        try:
+            payload = TokenPayload(**claims)
+            user_id = UUID(claims["sub"])
+            company_id = UUID(claims["company_id"])
+            document_ids = [UUID(d) for d in claims.get("docs") or []]
+            customer_id = UUID(claims["customer_id"]) if claims.get("customer_id") else None
+            answers = {str(k): str(v) for k, v in (claims.get("answers") or {}).items()}
+            new_customer = claims.get("new_customer") or None
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise kiosk_ended() from exc
+        if not document_ids or not claims.get("jti") or (new_customer and not isinstance(new_customer, dict)):
+            raise kiosk_ended()
+
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if (
+            not user
+            or not user.is_active
+            or user.company_id != company_id
+            or not token_is_current(payload, user)
+        ):
+            raise kiosk_ended()
+        if not ToolAccessService(self.db).can_access_tool("pdf_editor", user):
+            raise HTTPException(
+                status_code=403, detail="Your company's plan no longer includes the PDF editor."
+            )
+        return KioskVisit(
+            user=user,
+            company_id=company_id,
+            document_ids=document_ids,
+            customer_id=customer_id,
+            new_customer=new_customer,
+            answers=answers,
+            kiosk_id=claims["jti"],
+        )
+
+    def kiosk_preview(
+        self, visit: KioskVisit, document_id: UUID, answers: Optional[dict], today: Optional[str]
+    ) -> bytes:
+        """One of the handed-over documents, filled in, for the signer to read"""
+        if str(document_id) not in {str(d) for d in visit.document_ids}:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return self.preview(
+            visit.company_id,
+            document_id,
+            answers,
+            today,
+            customer_id=visit.customer_id,
+            new_customer=visit.new_customer,
+            fixed=visit.answers,
+        )
+
+    def kiosk_sign(
+        self,
+        visit: KioskVisit,
+        *,
+        answers: Optional[dict],
+        today: Optional[str],
+        signers: list,
+        marks: dict,
+        consent_agreed: bool,
+        consent_text: Optional[str],
+        ip: str,
+        user_agent: str,
+    ) -> dict:
+        """The signer signs the handed-over documents. A hand-over signs once:
+        asked again (say, a retry after a lost response) it answers with what
+        it already signed rather than signing a second set."""
+        # One signing at a time per hand-over, so a double tap can't sign twice
+        self.db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"in-person-kiosk:{visit.kiosk_id}"},
+        )
+        signed = self._kiosk_signed(visit)
+        if signed:
+            requests = [r for r, _ in signed]
+            customer = requests[0].customer
+            first = sorted(requests[0].recipients or [], key=lambda r: r.sequence or 0)
+            email = customer.email or next((r.email for r in first if r.email), None)
+            created = any(meta.get("customer_created") for _, meta in signed)
+            return self._result(customer, created, email, requests)
+        return self.sign(
+            company_id=visit.company_id,
+            user=visit.user,
+            document_ids=visit.document_ids,
+            answers=answers,
+            today=today,
+            signers=signers,
+            marks=marks,
+            consent_agreed=consent_agreed,
+            consent_text=consent_text,
+            ip=ip,
+            user_agent=user_agent,
+            customer_id=visit.customer_id,
+            new_customer=visit.new_customer,
+            fixed=visit.answers,
+            kiosk_id=visit.kiosk_id,
+        )
+
+    def kiosk_email(self, visit: KioskVisit, request_ids: list, emails: list) -> list:
+        """Email the signer copies of what they signed on this hand-over --
+        nothing else -- a few times at most"""
+        signed = {str(r.id) for r, _ in self._kiosk_signed(visit)}
+        ids = list(dict.fromkeys(request_ids))
+        if not ids or any(str(i) not in signed for i in ids):
+            raise HTTPException(status_code=404, detail="Sign request not found")
+        sent = (
+            self.db.query(SignAuditEvent)
+            .filter(
+                SignAuditEvent.sign_request_id == ids[0],
+                SignAuditEvent.event_type == "signed_copy_sent",
+            )
+            .count()
+        )
+        if sent >= KIOSK_MAX_EMAILS:
+            raise HTTPException(
+                status_code=429,
+                detail="The signed copies have already been sent from this device. "
+                "The company can send them again later.",
+            )
+        return self.esign.email_signed_copies(
+            visit.company_id, ids, emails, actor_email=visit.user.email
+        )
+
+    def _kiosk_signed(self, visit: KioskVisit) -> list:
+        """(request, its "created" audit metadata) for each document signed
+        on this hand-over, in the visit's order"""
+        rows = (
+            self.db.query(SignRequest, SignAuditEvent.event_metadata)
+            .join(SignAuditEvent, SignAuditEvent.sign_request_id == SignRequest.id)
+            .filter(
+                SignRequest.company_id == visit.company_id,
+                SignRequest.delivery_method == IN_PERSON,
+                SignAuditEvent.event_type == "created",
+                SignAuditEvent.event_metadata["kiosk_id"].astext == visit.kiosk_id,
+            )
+            .all()
+        )
+        order = {str(d): i for i, d in enumerate(visit.document_ids)}
+        return sorted(
+            ((r, meta or {}) for r, meta in rows),
+            key=lambda row: order.get(str(row[0].document_id), len(order)),
+        )

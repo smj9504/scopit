@@ -6,25 +6,34 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from authlib.integrations.starlette_client import OAuth
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
 from app.common.responses import MessageResponse
 from app.common.utils import generate_random_username
+from app.core.client_ip import get_client_ip
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.email import email_service
+from app.core.rate_limit import enforce_rate_limit
 from app.core.security import (
     create_access_token,
+    create_oauth_code,
     create_refresh_token,
     decode_token,
     get_password_hash,
+    password_problem,
+    redeem_oauth_code,
+    token_is_current,
     verify_password,
 )
 from app.domains.admin.login_tracker import track_login, track_signup_location
@@ -75,14 +84,14 @@ if settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET:
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., max_length=256)
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
-    full_name: Optional[str] = None  # Optional, will generate random username if not provided
-    company_name: str
+    password: str = Field(..., max_length=256)
+    full_name: Optional[str] = Field(default=None, max_length=100)  # Optional, will generate random username if not provided
+    company_name: str = Field(..., min_length=1, max_length=200)
 
 
 class TokenResponse(BaseModel):
@@ -138,11 +147,24 @@ class LoginResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(..., max_length=4096)
 
 
 class RefreshResponse(BaseModel):
     access_token: str
+
+
+class GoogleExchangeRequest(BaseModel):
+    code: str = Field(..., max_length=4096)
+    state: str = Field(..., min_length=16, max_length=256)
+
+
+class PasswordChangedResponse(BaseModel):
+    """Changing or setting a password signs out every other device, so the
+    current one gets fresh tokens to stay signed in."""
+    message: str
+    access_token: str
+    refresh_token: str
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -161,7 +183,7 @@ class RegisterResponse(BaseModel):
 
 class VerifyEmailRequest(BaseModel):
     email: EmailStr
-    code: str
+    code: str = Field(..., max_length=20)
 
 
 class ResendVerificationRequest(BaseModel):
@@ -169,17 +191,17 @@ class ResendVerificationRequest(BaseModel):
 
 
 class UserUpdateRequest(BaseModel):
-    full_name: Optional[str] = None
-    default_pdf_template: Optional[str] = None  # classic, modern, professional
+    full_name: Optional[str] = Field(default=None, max_length=100)
+    default_pdf_template: Optional[str] = Field(default=None, max_length=50)  # classic, modern, professional
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(..., max_length=256)
+    new_password: str = Field(..., max_length=256)
 
 
 class SetPasswordRequest(BaseModel):
-    new_password: str
+    new_password: str = Field(..., max_length=256)
 
 
 def _notify_admin_of_signup(db: Session, user: User, signup_method: str) -> None:
@@ -214,6 +236,61 @@ def _notify_admin_of_signup(db: Session, user: User, signup_method: str) -> None
         logger.exception("Failed to send signup notification for %s", user.email)
 
 
+def _issue_tokens(user: User) -> tuple[str, str]:
+    """Access + refresh token pair for the user's current token_version."""
+    version = user.token_version or 0
+    access_token = create_access_token(
+        user_id=str(user.id),
+        company_id=str(user.company_id) if user.company_id else None,
+        role=user.role,
+        token_version=version,
+    )
+    refresh_token = create_refresh_token(user_id=str(user.id), token_version=version)
+    return access_token, refresh_token
+
+
+async def _track_login(db: Session, user: User, request: Request, login_method: str) -> None:
+    """Record the login. The IP geolocation lookup is a blocking HTTP call
+    (up to 5s), so it runs in a worker thread instead of stalling every other
+    request on the event loop."""
+    await run_in_threadpool(
+        track_login,
+        db,
+        user,
+        get_client_ip(request),
+        request.headers.get("User-Agent"),
+        login_method,
+    )
+
+
+async def _track_signup_location(db: Session, user: User, request: Request) -> None:
+    await run_in_threadpool(track_signup_location, db, user, get_client_ip(request))
+
+
+def _limit_by_ip(request: Request, action: str, limit: int, window_seconds: int) -> None:
+    enforce_rate_limit(
+        f"{action}:ip:{get_client_ip(request)}",
+        limit,
+        window_seconds,
+        "Too many attempts. Please wait a few minutes and try again.",
+    )
+
+
+def _limit_by_email(email: str, action: str, limit: int, window_seconds: int) -> None:
+    enforce_rate_limit(
+        f"{action}:email:{email.strip().lower()}",
+        limit,
+        window_seconds,
+        "Too many attempts for this account. Please wait a few minutes and try again.",
+    )
+
+
+def _require_good_password(password: str) -> None:
+    problem = password_problem(password)
+    if problem:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=problem)
+
+
 # ===================
 # Endpoints
 # ===================
@@ -225,6 +302,8 @@ async def register(
     db: Session = Depends(get_db),
 ):
     """Register new user and company, then email a verification code"""
+    _limit_by_ip(request, "register", 10, 3600)
+    _require_good_password(data.password)
 
     # Check if email already exists
     existing_user = db.query(User).filter(User.email == data.email).first()
@@ -272,14 +351,13 @@ async def register(
     db.refresh(user)
 
     # Track signup location from IP
-    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
-    track_signup_location(db, user, client_ip)
+    await _track_signup_location(db, user, request)
 
     # Issue and email a verification code (must be entered before the user can log in)
     code = issue_verification_code(db, user)
     db.commit()
 
-    email_service.send_verification_code_email(
+    await run_in_threadpool(email_service.send_verification_code_email,
         to_email=user.email,
         user_name=user.full_name or "there",
         code=code,
@@ -296,6 +374,8 @@ async def verify_email(
     db: Session = Depends(get_db),
 ):
     """Verify the emailed 6-digit code, activate the account, and log the user in"""
+    _limit_by_ip(request, "verify-email", 30, 900)
+    _limit_by_email(data.email, "verify-email", 15, 900)
 
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
@@ -339,22 +419,15 @@ async def verify_email(
     db.commit()
     db.refresh(user)
 
-    email_service.send_welcome_email(
+    await run_in_threadpool(email_service.send_welcome_email,
         to_email=user.email,
         user_name=user.full_name or "there",
     )
-    _notify_admin_of_signup(db, user, signup_method="email")
+    await run_in_threadpool(_notify_admin_of_signup, db, user, signup_method="email")
 
-    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
-    user_agent = request.headers.get("User-Agent")
-    track_login(db, user, client_ip, user_agent, login_method="email")
+    await _track_login(db, user, request, login_method="email")
 
-    access_token = create_access_token(
-        user_id=str(user.id),
-        company_id=str(user.company_id) if user.company_id else None,
-        role=user.role,
-    )
-    refresh_token = create_refresh_token(user_id=str(user.id))
+    access_token, refresh_token = _issue_tokens(user)
 
     return LoginResponse(
         access_token=access_token,
@@ -366,9 +439,12 @@ async def verify_email(
 @router.post("/resend-verification-code", response_model=MessageResponse)
 async def resend_verification_code(
     data: ResendVerificationRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Issue a new verification code, invalidating the previous one"""
+    _limit_by_ip(request, "resend-code", 10, 3600)
+    _limit_by_email(data.email, "resend-code", 5, 3600)
 
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
@@ -390,7 +466,7 @@ async def resend_verification_code(
     code = issue_verification_code(db, user)
     db.commit()
 
-    email_service.send_verification_code_email(
+    await run_in_threadpool(email_service.send_verification_code_email,
         to_email=user.email,
         user_name=user.full_name or "there",
         code=code,
@@ -407,6 +483,8 @@ async def login(
     db: Session = Depends(get_db),
 ):
     """Login with email and password"""
+    _limit_by_ip(request, "login", 50, 900)
+    _limit_by_email(data.email, "login", 10, 900)
 
     # Find user
     user = db.query(User).filter(User.email == data.email).first()
@@ -430,18 +508,11 @@ async def login(
         )
 
     # Track login with geolocation and device info
-    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
-    user_agent = request.headers.get("User-Agent")
-    track_login(db, user, client_ip, user_agent, login_method="email")
+    await _track_login(db, user, request, login_method="email")
 
     # Generate tokens
-    access_token = create_access_token(
-        user_id=str(user.id),
-        company_id=str(user.company_id) if user.company_id else None,
-        role=user.role,
-    )
-    refresh_token = create_refresh_token(user_id=str(user.id))
-    
+    access_token, refresh_token = _issue_tokens(user)
+
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -452,31 +523,33 @@ async def login(
 @router.post("/refresh", response_model=RefreshResponse)
 async def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     """Refresh access token"""
-    
+
     payload = decode_token(data.refresh_token)
-    
+
     if not payload or payload.type != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token"
         )
-    
+
     # Get user
     user = db.query(User).filter(User.id == payload.sub).first()
-    
+
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive"
         )
-    
+
+    if not token_is_current(payload, user):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again.",
+        )
+
     # Generate new access token
-    access_token = create_access_token(
-        user_id=str(user.id),
-        company_id=str(user.company_id) if user.company_id else None,
-        role=user.role,
-    )
-    
+    access_token, _ = _issue_tokens(user)
+
     return RefreshResponse(access_token=access_token)
 
 
@@ -496,13 +569,13 @@ async def update_me(
     try:
         # Re-fetch user from current session to ensure it's attached
         user = db.query(User).filter(User.id == current_user.id).first()
-        
+
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
-        
+
         # Update fields
         if data.full_name is not None:
             user.full_name = data.full_name
@@ -514,30 +587,32 @@ async def update_me(
 
         # Commit the changes
         db.commit()
-        
+
         # Refresh to get the latest data from database
         db.refresh(user)
-        
+
         return UserResponse.model_validate(user)
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
-    except Exception as e:
+    except Exception:
         # Rollback on error
         db.rollback()
+        logger.exception("Failed to update profile for user %s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update profile: {str(e)}"
+            detail="Failed to update profile. Please try again."
         )
 
 
-@router.post("/me/change-password")
+@router.post("/me/change-password", response_model=PasswordChangedResponse)
 async def change_password(
     data: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Change password"""
+    """Change password. Signs out every other device; this one gets new tokens."""
+    _limit_by_email(current_user.email, "change-password", 10, 900)
     # Verify current password
     if not current_user.hashed_password:
         raise HTTPException(
@@ -551,14 +626,23 @@ async def change_password(
             detail="Current password is incorrect"
         )
 
-    # Update password
+    _require_good_password(data.new_password)
+
+    # Update password and invalidate every token issued before now
     current_user.hashed_password = get_password_hash(data.new_password)
+    current_user.token_version = (current_user.token_version or 0) + 1
     db.commit()
+    db.refresh(current_user)
 
-    return MessageResponse(message="Password changed successfully")
+    access_token, refresh_token = _issue_tokens(current_user)
+    return PasswordChangedResponse(
+        message="Password changed successfully",
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
 
 
-@router.post("/me/set-password")
+@router.post("/me/set-password", response_model=PasswordChangedResponse)
 async def set_password(
     data: SetPasswordRequest,
     current_user: User = Depends(get_current_user),
@@ -571,16 +655,19 @@ async def set_password(
             detail="Password already set. Use change password instead."
         )
 
-    if len(data.new_password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must be at least 8 characters"
-        )
+    _require_good_password(data.new_password)
 
     current_user.hashed_password = get_password_hash(data.new_password)
+    current_user.token_version = (current_user.token_version or 0) + 1
     db.commit()
+    db.refresh(current_user)
 
-    return MessageResponse(message="Password set successfully")
+    access_token, refresh_token = _issue_tokens(current_user)
+    return PasswordChangedResponse(
+        message="Password set successfully",
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
 
 
 @router.post("/logout")
@@ -590,16 +677,19 @@ async def logout(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/forgot-password")
-async def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+async def forgot_password(
+    data: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)
+):
     """Request password reset email"""
-    
+    _limit_by_ip(request, "forgot-password", 10, 3600)
+
     user = db.query(User).filter(User.email == data.email).first()
-    
+
     # Always return success to prevent email enumeration
     if user:
         # TODO: Send password reset email
         pass
-    
+
     return MessageResponse(message="If the email exists, a reset link has been sent")
 
 
@@ -616,16 +706,42 @@ async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_d
 # Google OAuth Endpoints
 # ===================
 
+_CLIENT_STATE_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+
+
+def _valid_client_state(value: Optional[str]) -> bool:
+    return bool(value) and 16 <= len(value) <= 256 and set(value) <= _CLIENT_STATE_CHARS
+
+
+def _oauth_error_redirect(code: str = "oauth_failed") -> RedirectResponse:
+    return RedirectResponse(url=f"{settings.FRONTEND_URL}/login?error={code}")
+
+
 @router.get("/google")
-async def google_login(request: Request):
-    """Redirect to Google OAuth"""
+async def google_login(request: Request, state: Optional[str] = None, reauth: bool = False):
+    """Redirect to Google OAuth.
+
+    `state` is a random value the frontend generated and kept in its own
+    sessionStorage. It comes back with the one-time code after Google, and
+    the frontend only accepts a code that carries its own state -- so a
+    link with someone else's code can't sign this browser into their
+    account (login CSRF).
+    """
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Google OAuth is not configured"
         )
+    if not _valid_client_state(state):
+        # An outdated frontend (cached before this change) doesn't send one.
+        return _oauth_error_redirect()
 
+    request.session["client_state"] = state
     redirect_uri = settings.GOOGLE_REDIRECT_URI
+    if reauth:
+        # A device handed back after in-person signing: make Google ask for
+        # the password instead of reusing a session open in the browser.
+        return await oauth.google.authorize_redirect(request, redirect_uri, prompt="login")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
@@ -637,6 +753,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Google OAuth is not configured"
         )
+
+    client_state = request.session.pop("client_state", None)
+    if not _valid_client_state(client_state):
+        return _oauth_error_redirect()
 
     try:
         token = await oauth.google.authorize_access_token(request)
@@ -658,6 +778,11 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not get email from Google"
             )
+        if user_info.get('email_verified') is not True:
+            # Only a Google-verified address proves the person owns it;
+            # otherwise this could sign someone into another person's account.
+            logger.warning("Google sign-in refused: email not verified by Google")
+            return _oauth_error_redirect("email_not_verified")
 
         # Check if user exists
         user = db.query(User).filter(User.email == email).first()
@@ -665,7 +790,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         if not user:
             # Create new user and company
             # Use name from Google, fallback to email prefix if empty
-            display_name = name if name else email.split('@')[0]
+            display_name = (name if name else email.split('@')[0])[:100]
             company = Company(name=f"{display_name}'s Company")
             db.add(company)
             db.flush()
@@ -696,41 +821,71 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             db.refresh(user)
 
             # Track signup location
-            client_ip = request.headers.get(
-                "X-Forwarded-For", request.client.host
-            )
-            track_signup_location(db, user, client_ip)
+            await _track_signup_location(db, user, request)
 
             # Send welcome email for new OAuth users
-            email_service.send_welcome_email(
+            await run_in_threadpool(email_service.send_welcome_email,
                 to_email=user.email,
                 user_name=user.full_name or "there",
             )
-            _notify_admin_of_signup(db, user, signup_method="google")
+            await run_in_threadpool(_notify_admin_of_signup, db, user, signup_method="google")
+        else:
+            if not user.is_active:
+                return _oauth_error_redirect("account_inactive")
+            if not user.is_verified:
+                # The account was registered with a password but its email was
+                # never confirmed -- possibly by someone else who typed this
+                # address. Google has now proven who owns the address, so mark
+                # it verified and drop the unconfirmed password (and any tokens)
+                # so whoever set it can't sign in. The owner can set a new
+                # password from their profile.
+                user.is_verified = True
+                user.hashed_password = None
+                user.token_version = (user.token_version or 0) + 1
+                db.commit()
+                db.refresh(user)
 
         # Track login (for both new and existing users)
-        client_ip = request.headers.get("X-Forwarded-For", request.client.host)
-        user_agent = request.headers.get("User-Agent")
-        track_login(db, user, client_ip, user_agent, login_method="google")
+        await _track_login(db, user, request, login_method="google")
 
-        # Generate tokens
-        access_token = create_access_token(
-            user_id=str(user.id),
-            company_id=str(user.company_id) if user.company_id else None,
-            role=user.role,
-        )
-        refresh_token = create_refresh_token(user_id=str(user.id))
-
-        # Redirect to frontend with tokens
-        frontend_url = settings.FRONTEND_URL
-        redirect_url = f"{frontend_url}/auth/callback?access_token={access_token}&refresh_token={refresh_token}"
-
-        return RedirectResponse(url=redirect_url)
+        # Hand the browser a short-lived one-time code (in the URL fragment,
+        # which browsers never send to servers), not the tokens themselves.
+        code = create_oauth_code(str(user.id), client_state)
+        fragment = urlencode({"code": code, "state": client_state})
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/auth/callback#{fragment}")
 
     except Exception as e:
         logger.exception("Google OAuth callback failed: %s", str(e))
+        db.rollback()
+        return _oauth_error_redirect()
 
-        # Redirect to frontend with error
-        frontend_url = settings.FRONTEND_URL
-        error_url = f"{frontend_url}/login?error=oauth_failed"
-        return RedirectResponse(url=error_url)
+
+@router.post("/google/exchange", response_model=LoginResponse)
+async def google_exchange(
+    data: GoogleExchangeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Trade the one-time code from the Google callback for tokens."""
+    _limit_by_ip(request, "google-exchange", 30, 900)
+
+    user_id = redeem_oauth_code(data.code, data.state)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sign-in link expired or invalid. Please sign in again.",
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account not found or inactive",
+        )
+
+    access_token, refresh_token = _issue_tokens(user)
+    return LoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserResponse.model_validate(user),
+    )

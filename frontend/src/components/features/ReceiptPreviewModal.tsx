@@ -292,6 +292,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
             }}
           >
             <iframe
+              sandbox="allow-same-origin allow-modals"
               ref={iframeRef}
               srcDoc={previewHtml}
               style={{

@@ -1,7 +1,6 @@
 """
 Scopit - Packing & Moving Estimator Tool API
 """
-import base64
 import io
 import logging
 import re
@@ -12,12 +11,22 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
 from app.core.config import settings
+from app.core.safe_text import content_disposition
 from app.core.database import get_db
+from app.core.images import ImageRejected, decode_data_url
+from app.core.storage import InvalidStorageKey, validate_storage_key
 from app.domains.tools.dependencies import require_tool_access
+from app.domains.tools.modules.packing.photo_checks import (
+    decode_photo,
+    extension_for,
+    media_type_for,
+    media_type_for_key,
+)
 from app.domains.tools.modules.packing.presets import get_presets_by_category
 from app.domains.tools.modules.packing.schemas import (
     BatchCompleteEvent,
@@ -37,6 +46,7 @@ from app.domains.tools.modules.packing.schemas import (
     SubmitCorrectionsResponse,
 )
 from app.domains.tools.modules.packing.service import EstimateCalculator
+from app.domains.tools.usage import reserve_ai_units
 from app.domains.user.models import User
 
 try:
@@ -54,6 +64,66 @@ except ImportError:
 
 router = APIRouter()
 _gate = require_tool_access("packing")
+
+_MB = 1024 * 1024
+# Photo limits for signed-in requests. The app downsizes photos to ~1600px
+# before sending them, so these leave wide headroom for normal use.
+MAX_PHOTO_BYTES = 20 * _MB                    # one photo, decoded
+MAX_PHOTOS_PER_REQUEST = 50                   # /photos/upload, and per room for analysis
+MAX_UPLOAD_BYTES_PER_REQUEST = 100 * _MB      # all photos in one /photos/upload
+MAX_ANALYSIS_BYTES_PER_REQUEST = 150 * _MB    # all photos in one analyze call
+
+
+def _check_base64_photos(
+    images: list, *, max_count: int, total_budget: int, label: str = "", used: int = 0,
+) -> tuple:
+    """Decode and header-check base64 photos without decoding any pixels.
+
+    Returns (each photo's ImageInfo, bytes used so far including `used`).
+    Raises HTTPException(400) naming the offending photo, so nothing is stored
+    or sent to the model for a request that contains an oversized, unreadable
+    or non-photo file.
+    """
+    if len(images) > max_count:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label}Too many photos in one request (max {max_count}).",
+        )
+    infos = []
+    total = used
+    for idx, value in enumerate(images, 1):
+        try:
+            data, info = decode_photo(value, max_bytes=MAX_PHOTO_BYTES)
+        except ImageRejected as exc:
+            raise HTTPException(status_code=400, detail=f"{label}Photo {idx}: {exc}")
+        total += len(data)
+        del data
+        if total > total_budget:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{label}These photos are too large together "
+                    f"(max {total_budget // _MB} MB per request). "
+                    "Please send fewer or smaller photos."
+                ),
+            )
+        infos.append(info)
+    return infos, total
+
+
+def _is_company_photo_key(key, company_id) -> bool:
+    """True only for a well-formed packing photo key in this company's folder.
+
+    Photo keys come back from clients (URLs, saved session data), so they are
+    never trusted to stay inside the caller's company on their own.
+    """
+    if not isinstance(key, str):
+        return False
+    try:
+        validate_storage_key(key)
+    except InvalidStorageKey:
+        return False
+    return key.startswith(f"{company_id}/packing/photos/")
 
 
 def _sanitize_filename(text: str) -> str:
@@ -128,6 +198,20 @@ async def analyze_room(
     """Analyze room photos using Claude Vision to produce an itemized content list."""
     from app.domains.tools.modules.packing import vision
 
+    if not request.images:
+        raise HTTPException(status_code=400, detail="No images provided")
+    await run_in_threadpool(
+        _check_base64_photos,
+        request.images,
+        max_count=MAX_PHOTOS_PER_REQUEST,
+        total_budget=MAX_ANALYSIS_BYTES_PER_REQUEST,
+    )
+    # Fail on a missing API key before charging the quota.
+    vision._require_vision_dependencies()
+    # Each room sent to the model counts against the company's daily cap
+    # (raises 429 with a user-facing message when it's used up).
+    reserve_ai_units(db, current_user, "packing", 1)
+
     try:
         logger.info("analyze-room: room=%s, images=%d", request.room_name, len(request.images))
         result = await vision.analyze_room_photos(
@@ -143,7 +227,7 @@ async def analyze_room(
         logger.exception("analyze-room failed: %s", exc)
         raise HTTPException(
             status_code=503,
-            detail=f"Room photo analysis is currently unavailable: {exc}",
+            detail="Room photo analysis is currently unavailable. Please try again in a few minutes.",
         ) from exc
 
 
@@ -162,6 +246,24 @@ async def analyze_batch(
 
     from app.core.config import settings as app_settings
     from app.domains.tools.modules.packing import vision
+
+    def _check_all_rooms() -> None:
+        used = 0  # the byte budget covers the whole batch
+        for room_req in request.rooms:
+            _, used = _check_base64_photos(
+                room_req.images,
+                max_count=MAX_PHOTOS_PER_REQUEST,
+                total_budget=MAX_ANALYSIS_BYTES_PER_REQUEST,
+                label=f"{room_req.room_name}: ",
+                used=used,
+            )
+
+    # Validate every photo before anything is charged or sent to the model.
+    await run_in_threadpool(_check_all_rooms)
+    vision._require_vision_dependencies()
+    # One unit per room against the company's daily cap, reserved up front so
+    # an over-limit batch is refused (429) before any room is analyzed.
+    reserve_ai_units(db, current_user, "packing", len(request.rooms))
 
     delay = app_settings.VISION_BATCH_INTER_ROOM_DELAY
     total = len(request.rooms)
@@ -257,9 +359,10 @@ async def master_content(
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("master-content aggregation failed")
         raise HTTPException(
             status_code=503,
-            detail=f"Master content aggregation failed: {exc}",
+            detail="Master content aggregation failed. Please try again.",
         ) from exc
 
 
@@ -385,7 +488,7 @@ async def export_pdf(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": content_disposition(filename)
         },
     )
 
@@ -470,7 +573,7 @@ async def export_excel(
         io.BytesIO(excel_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": content_disposition(filename)
         },
     )
 
@@ -547,6 +650,11 @@ async def export_report(
         storage = get_storage()
         photos = []
         for idx, key in enumerate(photo_keys):
+            # photo_keys come from client-writable session data: only read
+            # well-formed keys inside this company's own photo folder.
+            if not _is_company_photo_key(key, current_user.company_id):
+                logger.warning("report export: skipping foreign/invalid photo key %r", key)
+                continue
             try:
                 try:
                     compressed = storage.read(_report_variant_key(key))
@@ -590,7 +698,8 @@ async def export_report(
                 continue
             try:
                 raw_b64 = b64.split(",", 1)[1] if "," in b64 else b64
-                raw = base64.b64decode(raw_b64)
+                # Length-checked before decoding; oversized photos are skipped.
+                raw = decode_data_url(raw_b64, max_bytes=MAX_PHOTO_BYTES)
                 compressed = _compress_image_bytes(
                     raw,
                     max_width=request.max_image_width,
@@ -638,7 +747,7 @@ async def export_report(
                 # them the same way _load_photos_from_keys does, or a report
                 # with several full-size photos can exceed the backend's
                 # memory limit.
-                rd["photos"] = _recompress_photo_dicts(existing_photos)
+                rd["photos"] = await run_in_threadpool(_recompress_photo_dicts, existing_photos)
                 # model_dump() above copied every base64 string out of the
                 # request model, so the originals are now held twice. Release
                 # this room's copies as soon as they've been compressed
@@ -668,12 +777,12 @@ async def export_report(
                 if matching:
                     keys = matching.get("photo_keys", [])
                     if keys:
-                        rd["photos"] = _load_photos_from_keys(keys, room_name)
+                        rd["photos"] = await run_in_threadpool(_load_photos_from_keys, keys, room_name)
                     elif matching.get("photos"):
                         # Fallback: inline base64 photos from session (no
                         # size limit at capture time) — compress before use.
                         raw = matching["photos"]
-                        rd["photos"] = _recompress_photo_dicts([
+                        rd["photos"] = await run_in_threadpool(_recompress_photo_dicts, [
                             {"image": p if p.startswith("data:") else f"data:image/jpeg;base64,{p}",
                              "caption": f"{room_name} - Photo {idx + 1}",
                              "is_damage": False}
@@ -699,12 +808,12 @@ async def export_report(
                 # Try photo_keys first, then fall back to inline base64
                 photo_keys = pr.get("photo_keys", [])
                 if photo_keys:
-                    report_photos = _load_photos_from_keys(photo_keys, room_name)
+                    report_photos = await run_in_threadpool(_load_photos_from_keys, photo_keys, room_name)
                 else:
                     # Inline base64 photos with no size limit at capture
                     # time — compress before use (see _recompress_photo_dicts).
                     raw_photos = pr.get("photos", [])
-                    report_photos = _recompress_photo_dicts([
+                    report_photos = await run_in_threadpool(_recompress_photo_dicts, [
                         {"image": p, "caption": "", "is_damage": False}
                         for p in raw_photos
                         if isinstance(p, str) and len(p) > 100
@@ -824,7 +933,7 @@ async def export_report(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": content_disposition(filename)
         },
     )
 
@@ -1090,31 +1199,44 @@ async def upload_photos(
     was the dominant cost behind repeated OOMs on the export endpoint, since
     the original's actual pixel size only gets reduced at export time,
     per-photo, which still spikes memory decoding each one.
+
+    Every photo is checked first (count, size, real image format and pixel
+    count, from the header only); one bad photo rejects the whole request
+    with 400 so nothing is stored and the returned keys always line up
+    one-to-one with the photos sent (the client maps them by position).
+    The stored content type comes from the detected format, not the client.
     """
+    if len(request.images) > MAX_PHOTOS_PER_REQUEST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many photos in one upload (max {MAX_PHOTOS_PER_REQUEST}).",
+        )
+    company_id = current_user.company_id
+    # Decoding, validating and compressing are CPU-bound (and storage writes
+    # block): run them off the event loop.
+    photo_keys = await run_in_threadpool(_store_uploaded_photos, request.images, company_id)
+    return PhotoUploadResponse(photo_keys=photo_keys)
+
+
+def _store_uploaded_photos(images: List[str], company_id) -> List[str]:
     from app.core.storage import get_storage
     from app.domains.tools.modules.packing.export import _compress_image_bytes
+
+    infos, _ = _check_base64_photos(
+        images,
+        max_count=MAX_PHOTOS_PER_REQUEST,
+        total_budget=MAX_UPLOAD_BYTES_PER_REQUEST,
+    )
 
     storage = get_storage()
     photo_keys: list[str] = []
 
-    for img_b64 in request.images:
-        raw = img_b64
-        media_type = "image/jpeg"
-        if raw.startswith("data:"):
-            parts = raw.split(",", 1)
-            if len(parts) > 1:
-                media_type = parts[0].split(":")[1].split(";")[0]
-                raw = parts[1]
+    for img_b64, info in zip(images, infos):
+        img_bytes = decode_data_url(img_b64, max_bytes=MAX_PHOTO_BYTES)
 
-        try:
-            img_bytes = base64.b64decode(raw)
-        except Exception:
-            continue
-
-        ext = {"image/png": ".png", "image/webp": ".webp"}.get(media_type, ".jpg")
         file_id = str(uuid.uuid4())
-        key = f"{current_user.company_id}/packing/photos/{file_id}{ext}"
-        storage.write(key, img_bytes, content_type=media_type)
+        key = f"{company_id}/packing/photos/{file_id}{extension_for(info)}"
+        storage.write(key, img_bytes, content_type=media_type_for(info))
         photo_keys.append(key)
 
         try:
@@ -1131,13 +1253,12 @@ async def upload_photos(
             # _load_photos_from_keys).
             pass
 
-    return PhotoUploadResponse(photo_keys=photo_keys)
+    return photo_keys
 
 
 @router.get("/photos/{file_id:path}")
 async def serve_photo(
     file_id: str,
-    token: str | None = None,
     current_user: User = Depends(_gate),
 ):
     """Serve a stored photo by its storage key."""
@@ -1147,12 +1268,12 @@ async def serve_photo(
 
     from app.core.storage import LocalStorage, get_storage
 
-    company_prefix = str(current_user.company_id)
-    if not file_id.startswith(company_prefix):
+    # The key comes from the URL: it must be a plain key inside this
+    # company's own photo folder (no "..", absolute paths, other folders).
+    if not _is_company_photo_key(file_id, current_user.company_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    ext = file_id.rsplit(".", 1)[-1].lower() if "." in file_id else "jpg"
-    media_type = {"png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
+    media_type = media_type_for_key(file_id)
 
     storage = get_storage()
 

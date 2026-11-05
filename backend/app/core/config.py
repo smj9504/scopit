@@ -49,6 +49,32 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+
+    # ===================
+    # Client IP / Rate limiting
+    # ===================
+    # Header the hosting platform overwrites with the visitor's address
+    # (e.g. "True-Client-IP" behind Cloudflare). Empty = don't use one.
+    CLIENT_IP_HEADER: str = ""
+    # Number of proxies in front of the app that append to X-Forwarded-For.
+    # 0 = trust only the socket peer (local development).
+    TRUSTED_PROXY_HOPS: int = 0
+    # Master switch for the in-process limits in app/core/rate_limit.py
+    # (tests turn it off).
+    RATE_LIMIT_ENABLED: bool = True
+
+    # ===================
+    # Outgoing email limits (estimate/invoice/e-sign sends)
+    # ===================
+    # Recipients per message (To + Cc + Bcc).
+    EMAIL_MAX_RECIPIENTS: int = 10
+    # Customer-facing emails a company can send per hour.
+    EMAIL_SENDS_PER_COMPANY_PER_HOUR: int = 60
+    SMTP_TIMEOUT_SECONDS: int = 20
+
+    # Hard ceiling on any request body (endpoints apply tighter limits).
+    # Above the 150 MB anonymous packing-lead form, the largest legitimate upload.
+    MAX_REQUEST_BODY_MB: int = 160
     
     # ===================
     # Frontend URL
@@ -102,6 +128,10 @@ class Settings(BaseSettings):
     VISION_BATCH_MAX_ROOMS: int = 15
     VISION_RATE_LIMIT_RETRIES: int = 3
     VISION_RATE_LIMIT_BASE_DELAY: float = 2.0
+    # Rooms a company may send to the vision model per rolling 24 hours
+    # (signed-in packing tool; anonymous leads use PACKING_LEAD_DAILY_CAP).
+    # Superusers are exempt.
+    AI_VISION_ROOMS_PER_COMPANY_PER_DAY: int = 150
 
     # ===================
     # File Storage
@@ -173,4 +203,24 @@ def get_settings() -> Settings:
     return Settings(_env_file=env_file) if env_file else Settings()
 
 
+_DEFAULT_SECRET_KEYS = {
+    "your-super-secret-key-change-in-production",
+    "dev-secret-key-change-in-production",
+}
+
+
+def check_production_settings(s: Settings) -> None:
+    """Refuse to start in production with settings that would make tokens forgeable."""
+    if s.ENV != "production":
+        return
+    if not s.SECRET_KEY or s.SECRET_KEY in _DEFAULT_SECRET_KEYS:
+        raise RuntimeError("SECRET_KEY must be set to a random value in production.")
+    if len(s.SECRET_KEY) < 32:
+        import logging
+        logging.getLogger(__name__).warning(
+            "SECRET_KEY is shorter than 32 characters; use a longer random value."
+        )
+
+
 settings = get_settings()
+check_production_settings(settings)

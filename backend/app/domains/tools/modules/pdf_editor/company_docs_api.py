@@ -7,6 +7,8 @@ CRUD endpoints for the company-wide reusable document library.
 These endpoints are NOT tool-gated: any authenticated user may access them.
 
 Router prefix ``/api/company-documents`` is registered in main.py.
+Anyone in the company can browse and use the library; adding, editing and
+removing documents is for admins and managers.
 """
 
 import io
@@ -26,7 +28,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_manager
+from app.core.safe_text import content_disposition
 from app.core.storage import get_storage
 from app.domains.tools.dependencies import require_tool_access
 from app.domains.tools.modules.pdf_editor.api import _to_response as _to_pdf_document_response
@@ -116,7 +119,7 @@ def upload_company_document(
     category: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
 ) -> CompanyDocumentResponse:
     """Upload a PDF to the company document library.
 
@@ -202,11 +205,7 @@ def download_company_document(
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{safe_filename}"'
-            ),
-        },
+        headers={"Content-Disposition": content_disposition(safe_filename)},
     )
 
 
@@ -240,7 +239,7 @@ def update_company_document(
     document_id: UUID,
     body: CompanyDocumentUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
 ) -> CompanyDocumentResponse:
     """Update mutable metadata (name, description, category, tags)."""
     service = CompanyDocumentService(db)
@@ -259,7 +258,7 @@ def update_company_document(
 def delete_company_document(
     document_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
 ) -> dict:
     """Soft-delete a company document."""
     service = CompanyDocumentService(db)

@@ -23,14 +23,17 @@ not set, both public functions raise HTTPException(503) with a clear message.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
+import logging
 from collections import defaultdict
 from typing import List, Optional
 
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.domains.tools.modules.packing.photo_checks import check_photo
 from app.domains.tools.modules.packing.schemas import (
     DetectedContentItem,
     ExistingItem,
@@ -61,10 +64,21 @@ except ImportError:
 # CONSTANTS
 # ============================================
 
+logger = logging.getLogger(__name__)
+
 MAX_IMAGE_BYTES = 5_000_000   # 5 MB per image — preserve quality for better analysis
 MAX_IMAGE_DIM = 1568          # px — Claude Vision optimal max dimension
 MAX_IMAGES_PER_ROOM = 6       # hard cap after deduplication
 CONFIDENCE_THRESHOLD = 0.8    # minimum confidence (0–1) to accept results
+# Largest decoded photo this module will open with Pillow. Callers validate
+# photos first; this is the backstop before any pixel data is decoded.
+MAX_DECODE_INPUT_BYTES = 25 * 1024 * 1024
+
+# Shown to users instead of upstream exception text (which is logged).
+_ANALYSIS_FAILED_MESSAGE = "Photo analysis failed for this room. Please try again."
+_ANALYSIS_BUSY_MESSAGE = (
+    "The photo analysis service is busy right now. Please try again in a minute."
+)
 
 
 # ============================================
@@ -635,6 +649,8 @@ def _select_diverse_images(
             if raw.startswith("data:"):
                 raw = raw.split(",", 1)[1]
             img_bytes = base64.b64decode(raw)
+            # Header-only size/format check before resize() decodes pixels.
+            check_photo(img_bytes, max_bytes=MAX_DECODE_INPUT_BYTES)
             img = _Image.open(io.BytesIO(img_bytes))
             thumb = img.resize((THUMB, THUMB), _Image.LANCZOS).convert("L")
             return list(thumb.getdata())
@@ -738,6 +754,9 @@ def _compress_image_base64(
         from PIL import Image
 
         img_bytes = base64.b64decode(raw_b64)
+        # Header-only size/format check before any pixel data is decoded
+        # (raises, which falls through to returning the image unchanged).
+        check_photo(img_bytes, max_bytes=MAX_DECODE_INPUT_BYTES)
         img = Image.open(io.BytesIO(img_bytes))
 
         if img.mode in ("RGBA", "P", "LA"):
@@ -820,17 +839,22 @@ async def _analyze_room_with_claude(
     per_image_limit = MAX_IMAGE_BYTES // max(len(images), 1)
     per_image_limit = max(per_image_limit, 1_000_000)
 
-    content = []
-    for img in images:
-        media_type, img_data = _compress_image_base64(img, max_bytes=per_image_limit)
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": img_data,
-            },
-        })
+    def _build_image_blocks() -> list:
+        blocks = []
+        for img in images:
+            media_type, img_data = _compress_image_base64(img, max_bytes=per_image_limit)
+            blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": img_data,
+                },
+            })
+        return blocks
+
+    # Pillow decode/re-encode is CPU-bound; keep it off the event loop.
+    content = await asyncio.to_thread(_build_image_blocks)
 
     pass1_prompt = _build_pass1_tool_prompt(room_name, len(images), existing_items)
     content.append({"type": "text", "text": pass1_prompt})
@@ -1158,7 +1182,8 @@ async def analyze_room_photos(
 
     _require_vision_dependencies()
 
-    deduplicated = _select_diverse_images(
+    deduplicated = await asyncio.to_thread(
+        _select_diverse_images,
         images,
         max_images=max_images,
         threshold=dedup_threshold,
@@ -1304,14 +1329,12 @@ async def analyze_room_with_retry(
         (RoomAnalysisResponse, None, None) on success
         (None, error_code, error_message) on terminal failure
     """
-    import asyncio
-
     _require_vision_dependencies()
 
     if not images:
         return None, "IMAGE_ERROR", "No images provided"
 
-    deduplicated = _select_diverse_images(images)
+    deduplicated = await asyncio.to_thread(_select_diverse_images, images)
     if not deduplicated:
         return None, "IMAGE_ERROR", "No valid images after filtering"
 
@@ -1348,18 +1371,25 @@ async def analyze_room_with_retry(
                 or "529" in str(exc)
                 or "429" in str(exc)
             )
+            # Upstream error text (API responses, request ids) is logged,
+            # never returned: it reaches users via SSE events and lead rows.
             if is_rate and attempt < max_retries - 1:
+                logger.warning(
+                    "vision rate-limited for room %r (attempt %d): %s",
+                    room_name, attempt + 1, exc,
+                )
                 delay = base_delay * (2 ** attempt)
                 last_code = "RATE_LIMITED"
-                last_msg = str(exc)
+                last_msg = _ANALYSIS_BUSY_MESSAGE
                 await asyncio.sleep(delay)
                 continue
 
+            logger.exception("vision analysis failed for room %r", room_name)
             last_code = (
                 "RATE_LIMITED" if is_rate
                 else "INTERNAL_ERROR"
             )
-            last_msg = str(exc)
+            last_msg = _ANALYSIS_BUSY_MESSAGE if is_rate else _ANALYSIS_FAILED_MESSAGE
             break
 
     return None, last_code, last_msg

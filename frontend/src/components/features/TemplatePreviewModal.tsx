@@ -117,6 +117,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
             }}
           >
             <iframe
+              sandbox="allow-same-origin allow-modals"
               srcDoc={html}
               style={{
                 width: '100%',

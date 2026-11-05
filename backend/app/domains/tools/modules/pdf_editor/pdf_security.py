@@ -46,7 +46,7 @@ def unlock_pdf(pdf_data: bytes, password: Optional[str] = None) -> bytes:
     except DependencyError as exc:
         raise PdfPasswordError("unsupported", "This PDF's encryption can't be opened on the server.") from exc
     except (PdfReadError, NotImplementedError) as exc:
-        raise PdfPasswordError("unsupported", f"This PDF's encryption isn't supported: {exc}") from exc
+        raise PdfPasswordError("unsupported", "This PDF's encryption isn't supported.") from exc
     if not opened:
         if password:
             raise PdfPasswordError("password_incorrect", "That password doesn't open this PDF.")

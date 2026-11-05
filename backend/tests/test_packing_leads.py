@@ -101,6 +101,15 @@ def _auth_headers(user) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _jpeg_bytes() -> bytes:
+    """A real (tiny) JPEG: submit checks photos are actual images."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (16, 12), (200, 120, 40)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
 def _submit_lead(rooms=None, contact_email=None, idempotency_key=None):
     if rooms is None:
         rooms = [{"room_name": "Bedroom", "photo_count": 1}]
@@ -114,7 +123,7 @@ def _submit_lead(rooms=None, contact_email=None, idempotency_key=None):
     }
     total_photos = sum(r["photo_count"] for r in rooms)
     files = [
-        ("photos", (f"photo{i}.jpg", BytesIO(b"fake-jpeg-bytes"), "image/jpeg"))
+        ("photos", (f"photo{i}.jpg", BytesIO(_jpeg_bytes()), "image/jpeg"))
         for i in range(total_photos)
     ]
     data = {"payload": json.dumps(payload)}
@@ -208,17 +217,28 @@ class TestSubmit:
         db.delete(lead)
         db.commit()
 
-    def test_submit_notifies_internal_team(self, db):
+    def test_internal_team_notified_only_after_verification(self, db):
+        """The team notification waits for a verified email, so an
+        unverified submit can't be used to make us send mail."""
         from app.core.config import settings
 
-        resp, mock_send = _submit_lead()
-        assert resp.status_code == 201
-
         notify_to = settings.PACKING_LEAD_NOTIFY_EMAIL
+        with _fixed_code("123123"):
+            resp, mock_send = _submit_lead()
+        assert resp.status_code == 201
         recipients = [c.kwargs.get("to_email") for c in mock_send.call_args_list]
-        assert notify_to in recipients
+        assert notify_to not in recipients
 
         token = resp.json()["token"]
+        with _patched_vision_success(), patch(
+            "app.domains.tools.modules.packing.lead_api.email_service.send_email",
+            return_value=True,
+        ) as mock_verify_send:
+            r = client.post(f"/api/packing-leads/{token}/verify-email", json={"code": "123123"})
+        assert r.status_code == 200
+        recipients = [c.kwargs.get("to_email") for c in mock_verify_send.call_args_list]
+        assert notify_to in recipients
+
         lead = db.query(PackingLead).filter(PackingLead.token == token).first()
         db.delete(lead)
         db.commit()
@@ -473,7 +493,7 @@ class TestRetry:
 # ── 5. claim() ───────────────────────────────────────────────────────────
 
 class TestClaim:
-    def _seed_ready_lead_with_photo(self, db, lead_ids) -> PackingLead:
+    def _seed_ready_lead_with_photo(self, db, lead_ids, contact_email=None) -> PackingLead:
         from app.core.storage import get_storage
 
         storage = get_storage()
@@ -481,10 +501,12 @@ class TestClaim:
         key = f"leads/packing/{lead_id}/test.jpg"
         storage.write(key, b"fake-jpeg-bytes", content_type="image/jpeg")
 
+        extra = {"contact_email": contact_email} if contact_email else {}
         lead = _seed_lead(
             db,
             id=lead_id,
             status=PackingLeadStatus.READY.value,
+            **extra,
             rooms_input=[{"room_name": "Bedroom", "photo_keys": [key]}],
             ai_result={"rooms": [{
                 "room_name": "Bedroom", "status": "success",
@@ -506,7 +528,7 @@ class TestClaim:
         free signup with zero plan entitlements must still be able to
         claim their own lead."""
         _, user = company_and_user
-        lead = self._seed_ready_lead_with_photo(db, lead_ids)
+        lead = self._seed_ready_lead_with_photo(db, lead_ids, contact_email=user.email)
 
         with patch(
             "app.domains.tools.service.ToolAccessService.can_access_tool",
@@ -531,8 +553,8 @@ class TestClaim:
         """One free estimate per account: after claiming one lead, claiming a
         different lead is politely declined."""
         _, user = company_and_user
-        first = self._seed_ready_lead_with_photo(db, lead_ids)
-        second = self._seed_ready_lead_with_photo(db, lead_ids)
+        first = self._seed_ready_lead_with_photo(db, lead_ids, contact_email=user.email)
+        second = self._seed_ready_lead_with_photo(db, lead_ids, contact_email=user.email)
 
         r1 = client.post(f"/api/packing-leads/{first.token}/claim", headers=_auth_headers(user))
         assert r1.status_code == 200
@@ -547,7 +569,7 @@ class TestClaim:
 
     def test_claim_is_idempotent_same_user_conflict_other_user(self, db, lead_ids, company_and_user):
         _, user = company_and_user
-        lead = self._seed_ready_lead_with_photo(db, lead_ids)
+        lead = self._seed_ready_lead_with_photo(db, lead_ids, contact_email=user.email)
 
         r1 = client.post(f"/api/packing-leads/{lead.token}/claim", headers=_auth_headers(user))
         assert r1.status_code == 200

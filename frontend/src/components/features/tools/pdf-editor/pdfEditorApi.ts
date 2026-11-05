@@ -545,7 +545,6 @@ export const pdfEditorApi = {
     recipients: Array<{ role: string; name: string; email: string; phone?: string }>;
     customerId?: string;
     deliveryMethod?: DeliveryMethod;
-    senderEmail?: string;
     senderName?: string;
     emailSubject?: string;
     emailMessage?: string;
@@ -563,7 +562,6 @@ export const pdfEditorApi = {
       })),
       ...(data.customerId ? { customer_id: data.customerId } : {}),
       delivery_method: data.deliveryMethod || 'email_request',
-      ...(data.senderEmail ? { sender_email: data.senderEmail } : {}),
       ...(data.senderName ? { sender_name: data.senderName } : {}),
       ...(data.emailSubject ? { email_subject: data.emailSubject } : {}),
       ...(data.emailMessage ? { email_message: data.emailMessage } : {}),

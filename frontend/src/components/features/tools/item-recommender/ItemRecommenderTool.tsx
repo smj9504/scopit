@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '@/services/api';
+import { useAuthStore } from '@/stores/authStore';
 import { colors, fonts, borderRadius, shadows } from '@/styles/theme';
 import { formatCurrency } from '@/utils/formatters';
 import type { ToolComponentProps } from '../registry';
@@ -181,6 +182,9 @@ const ItemRecommenderTool: React.FC<ToolComponentProps> = () => {
     mutationFn: searchItems,
   });
 
+  // Re-indexing rebuilds the shared index for everyone; the API only allows staff.
+  const isSuperuser = useAuthStore((s) => !!s.user?.isSuperuser);
+
   const reindexMutation = useMutation({
     mutationFn: triggerReindex,
     onSuccess: () => message.success('Re-indexing started in background'),
@@ -271,15 +275,17 @@ const ItemRecommenderTool: React.FC<ToolComponentProps> = () => {
               </Tag>
             )}
           </span>
-          <Button
-            type="text"
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => reindexMutation.mutate()}
-            loading={reindexMutation.isPending}
-          >
-            Re-index
-          </Button>
+          {isSuperuser && (
+            <Button
+              type="text"
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => reindexMutation.mutate()}
+              loading={reindexMutation.isPending}
+            >
+              Re-index
+            </Button>
+          )}
         </div>
       </Card>
 

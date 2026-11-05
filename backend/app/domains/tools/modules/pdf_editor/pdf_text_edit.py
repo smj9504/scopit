@@ -715,6 +715,9 @@ DROP = object()
 # Path construction operators -> how many points their operands hold
 _PATH_POINTS = {b"m": 1, b"l": 1, b"c": 3, b"v": 2, b"y": 2}
 _PATH_PAINT = {b"S", b"s", b"f", b"F", b"f*", b"B", b"B*", b"b", b"b*"}
+# What may sit between a path's first operator and the one that paints it
+_PATH_BUILD = {b"m", b"l", b"c", b"v", b"y", b"re", b"h", b"W", b"W*"}
+_CLIP = {b"W", b"W*"}
 
 
 class ContentWalker:
@@ -756,9 +759,16 @@ class ContentWalker:
         return None
 
     def path(self, points: list[tuple[float, float]]) -> bool:
-        """A path about to be painted, as its points and control points in
-        the viewport. True leaves it unpainted."""
+        """One subpath of a path about to be painted, as its points and
+        control points in the viewport. True takes it out of the content --
+        its coordinates too -- and the rest of the path is painted as before.
+        (A clipping path is only left unpainted: it still clips.)"""
         return False
+
+    def marked_content(self, operands, resources) -> Optional[list]:
+        """A marked-content operator's (BDC/DP) operands: new operands to
+        write instead, or None to keep them."""
+        return None
 
     def _anchor(self, index: int, ctm) -> None:
         """A text object (or an edited form) ended at `index` of the page's
@@ -797,7 +807,8 @@ class ContentWalker:
         changed = False
         stack = []
         tm = tlm = _IDENTITY
-        points: list[tuple[float, float]] = []  # of the path being built
+        # The path being built: where in `out` each subpath starts, its points
+        subpaths: list[tuple[int, list[tuple[float, float]]]] = []
 
         def next_line(tx: float, ty: float):
             nonlocal tm, tlm
@@ -882,22 +893,32 @@ class ContentWalker:
                     if self.image(_mul(ctm, self.to_view), None) is DROP:
                         changed = True
                         continue
+                elif op in (b"BDC", b"DP"):
+                    replaced = self.marked_content(operands, resources)
+                    if replaced is not None:
+                        out.append((replaced, op))
+                        changed = True
+                        continue
                 elif self.track_paths:
-                    if op in _PATH_POINTS:
+                    if op in _PATH_POINTS or op == b"re":
+                        if op in (b"m", b"re") or not subpaths:
+                            subpaths.append((len(out), []))
                         m = _mul(ctm, self.to_view)
-                        nums = [float(v) for v in operands]
-                        points += [_apply(m, nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)]
-                    elif op == b"re":
-                        x, y, w, h = (float(v) for v in operands)
-                        points += quad(_mul(ctm, self.to_view), x, y, x + w, y + h)
+                        if op == b"re":
+                            x, y, w, h = (float(v) for v in operands)
+                            subpaths[-1][1].extend(quad(m, x, y, x + w, y + h))
+                        else:
+                            nums = [float(v) for v in operands]
+                            subpaths[-1][1].extend(
+                                _apply(m, nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)
+                            )
                     elif op in _PATH_PAINT:
-                        painted, points = points, []
-                        if painted and self.path(painted):
-                            out.append(([], b"n"))
+                        built, subpaths = subpaths, []
+                        if self._paint_path(out, built, operands, op):
                             changed = True
                             continue
                     elif op == b"n":
-                        points = []
+                        subpaths = []
             except (IndexError, TypeError, ValueError, ZeroDivisionError):
                 pass  # malformed operator: keep it, as viewers do
             out.append((operands, op))
@@ -906,6 +927,28 @@ class ContentWalker:
         if depth == 0:
             self._anchor(len(out), ctm)
         return (out if changed else None), added
+
+    def _paint_path(self, out: list, built: list, operands, op) -> bool:
+        """At a path's painting operator: take out the subpaths path() drops
+        and paint what's left (nothing, if that's all of it). False when
+        nothing is dropped and the operator should be written as it is."""
+        drop = [bool(points) and self.path(points) for _, points in built]
+        if not any(drop):
+            return False
+        start = built[0][0]
+        tail = [o for _, o in out[start:]]
+        if any(o not in _PATH_BUILD or o in _CLIP for o in tail):
+            # A clipping path (or something unexpected inside the path): keep
+            # it as it is so it still clips, just don't paint it
+            out.append(([], b"n"))
+            return True
+        ends = [s for s, _ in built[1:]] + [len(out)]
+        kept = [item for (s, _), e, d in zip(built, ends, drop) if not d for item in out[s:e]]
+        del out[start:]
+        if kept:
+            out.extend(kept)
+            out.append((operands, op))
+        return True
 
     def _show(self, items, tm, ctm, ts: _TextState):
         """Walk one text-showing operator. Returns (TJ items with the dropped

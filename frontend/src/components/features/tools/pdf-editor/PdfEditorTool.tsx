@@ -273,7 +273,7 @@ const EditorTab: React.FC<EditorTabProps> = ({ onOpenEditor, onOpenMerge, onOpen
       message.success(`Photos combined into PDF`);
       queryClient.invalidateQueries({ queryKey: ['pdf-editor-documents'] });
     },
-    onError: () => message.error('Failed to create PDF from images'),
+    onError: (err) => message.error(apiErrorMessage(err, 'Failed to create PDF from images')),
   });
 
   const deleteMutation = useMutation({

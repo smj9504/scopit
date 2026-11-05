@@ -509,7 +509,7 @@ class ReportExportRequest(BaseModel):
     include_field_notes: bool = Field(default=True, description="Include auto-generated handling notes per room")
     image_quality: int = Field(default=60, ge=20, le=90, description="JPEG quality for photos (lower = smaller file)")
     max_image_width: int = Field(default=800, ge=400, le=1200, description="Max image width in pixels")
-    photos_per_page: int = Field(default=2, description="Number of photos per row in the report (2 or 4)")
+    photos_per_page: int = Field(default=2, ge=1, le=6, description="Number of photos per row in the report (2 or 4)")
 
 
 # ============================================

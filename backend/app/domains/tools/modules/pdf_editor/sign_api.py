@@ -8,6 +8,7 @@ Two routers:
   public_router - public (token-based) endpoints under /api/sign/
 """
 import io
+import logging
 import os
 import tempfile
 from typing import Optional
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.safe_text import content_disposition
 from app.core.storage import get_storage
 from app.domains.tools.dependencies import require_tool_access
 from app.domains.tools.modules.pdf_editor.models import SignRecipient, SignRequest
@@ -33,6 +35,8 @@ from app.domains.tools.modules.pdf_editor.sign_service import (
     SignService,
 )
 from app.domains.user.models import User
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Routers
@@ -100,7 +104,29 @@ def _to_failures(failures: list) -> list:
     ]
 
 
-def _to_sign_response(req: SignRequest) -> dict:
+# Company roles that see every request's live signing links (not just the
+# ones they sent themselves)
+_LINK_ROLES = ("admin", "manager")
+
+# Longest sender name shown in invitations and the email From name
+MAX_SENDER_NAME_LENGTH = 100
+
+
+def _can_see_sign_links(req: SignRequest, viewer: Optional[User]) -> bool:
+    """A recipient's link lets whoever holds it sign as that recipient, so
+    only the request's sender and company admins/managers get them."""
+    if viewer is None:
+        return False
+    return req.sent_by == viewer.id or getattr(viewer, "role", None) in _LINK_ROLES
+
+
+def _sender_name(requested: Optional[str], user: User) -> str:
+    """One line, of sensible length: it's shown in emails and the From name."""
+    name = " ".join((requested or "").split()) or user.full_name or user.email or ""
+    return " ".join(name.split())[:MAX_SENDER_NAME_LENGTH]
+
+
+def _to_sign_response(req: SignRequest, viewer: Optional[User]) -> dict:
     resp = {
         "id": str(req.id),
         "documentId": str(req.document_id),
@@ -131,13 +157,13 @@ def _to_sign_response(req: SignRequest) -> dict:
         "createdAt": req.created_at,
         "updatedAt": req.updated_at,
     }
-    # The sender is already authorized to view/manage this request, so
-    # seeing each recipient's link is equivalent information to what's
-    # already been (or would be) emailed to them. Drafts get none: their
-    # links don't work until the request is actually sent.
+    # The sender (and admins/managers) may hand each recipient their link
+    # themselves -- the same link that's emailed to them; other users in the
+    # company get none. Drafts get none either: their links don't work until
+    # the request is actually sent.
     resp["signUrls"] = (
         {}
-        if req.status == "draft"
+        if req.status == "draft" or not _can_see_sign_links(req, viewer)
         else {
             str(r.id): f"{settings.FRONTEND_URL}/sign/{r.access_token}"
             for r in req.recipients
@@ -159,14 +185,15 @@ async def create_sign_request(
 ):
     """Create a new sign request (status: draft)."""
     service = SignService(db)
-    sender_name = data.sender_name or (current_user.full_name or current_user.email)
     sign_req = service.create_sign_request(
         company_id=current_user.company_id,
         user_id=current_user.id,
         document_id=UUID(data.document_id),
         recipients=[r.model_dump() for r in data.recipients],
-        sender_email=data.sender_email or current_user.email,
-        sender_name=sender_name,
+        # Always the signed-in user's own address: it's shown to customers
+        # and is the Reply-To, so it can't be whatever the request says
+        sender_email=current_user.email,
+        sender_name=_sender_name(data.sender_name, current_user),
         customer_id=(
             UUID(data.customer_id) if data.customer_id else None
         ),
@@ -177,7 +204,7 @@ async def create_sign_request(
         bcc_emails=data.bcc_emails,
         expires_in_days=data.expires_in_days,
     )
-    return _to_sign_response(sign_req)
+    return _to_sign_response(sign_req, current_user)
 
 
 @router.get("/requests")
@@ -197,7 +224,7 @@ async def list_sign_requests(
         limit=limit,
     )
     return {
-        "items": [_to_sign_response(r) for r in items],
+        "items": [_to_sign_response(r, current_user) for r in items],
         "total": total,
         "skip": skip,
         "limit": limit,
@@ -220,7 +247,7 @@ async def get_sign_request(
         raise HTTPException(
             status_code=404, detail="Sign request not found"
         )
-    return _to_sign_response(sign_req)
+    return _to_sign_response(sign_req, current_user)
 
 
 @router.patch("/requests/{request_id}/creator-fields")
@@ -237,7 +264,7 @@ async def set_creator_field_values(
         request_id=request_id,
         values=data.values,
     )
-    return _to_sign_response(sign_req)
+    return _to_sign_response(sign_req, current_user)
 
 
 @router.get("/requests/{request_id}/preview")
@@ -274,7 +301,7 @@ async def send_sign_request(
         company_id=current_user.company_id,
         request_id=request_id,
     )
-    resp = _to_sign_response(sign_req)
+    resp = _to_sign_response(sign_req, current_user)
     resp["deliveryFailures"] = _to_failures(failures)
     return resp
 
@@ -294,7 +321,7 @@ async def send_reminder(
         request_id=request_id,
         recipient_id=recipient_id,
     )
-    resp = _to_sign_response(sign_req)
+    resp = _to_sign_response(sign_req, current_user)
     resp["deliveryFailures"] = _to_failures(failures)
     return resp
 
@@ -313,7 +340,7 @@ async def resend_signed_copy(
         request_id=request_id,
         actor_email=current_user.email,
     )
-    return _to_sign_response(sign_req)
+    return _to_sign_response(sign_req, current_user)
 
 
 @router.post("/requests/{request_id}/cancel")
@@ -328,7 +355,7 @@ async def cancel_sign_request(
         company_id=current_user.company_id,
         request_id=request_id,
     )
-    return _to_sign_response(sign_req)
+    return _to_sign_response(sign_req, current_user)
 
 
 @router.delete("/requests/{request_id}", status_code=204)
@@ -407,11 +434,7 @@ async def download_signed_document(
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{filename}"'
-            ),
-        },
+        headers={"Content-Disposition": content_disposition(filename)},
     )
 
 
@@ -556,9 +579,10 @@ async def get_page_image(
         finally:
             os.unlink(tmp_path)
     except Exception as exc:
+        logger.exception("Rendering page %s of sign request %s failed", page_num, sign_req.id)
         raise HTTPException(
             status_code=503,
-            detail=f"Page rendering is unavailable: {exc}",
+            detail="This page couldn't be shown right now. Please try again.",
         ) from exc
 
     if not images:

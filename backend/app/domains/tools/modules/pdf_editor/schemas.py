@@ -10,8 +10,10 @@ from datetime import datetime
 from typing import Annotated, Literal, Optional
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
+
+from app.core.config import settings
 
 # ============================================
 # PDF DOCUMENT SCHEMAS
@@ -254,25 +256,42 @@ def _validate_email_address(value: str) -> str:
 EmailAddress = Annotated[str, AfterValidator(_validate_email_address)]
 
 
+# Limits on what one sign request may ask the server to email
+MAX_SIGN_RECIPIENTS = 20
+MAX_EMAIL_SUBJECT_LENGTH = 200
+MAX_EMAIL_MESSAGE_LENGTH = 5000
+
+
 class SignRecipientCreate(BaseModel):
-    role: str
-    name: str
+    role: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=200)
     email: EmailAddress
-    phone: Optional[str] = None
+    phone: Optional[str] = Field(None, max_length=50)
 
 
 class SignRequestCreate(BaseModel):
     document_id: str
-    recipients: list[SignRecipientCreate] = Field(..., min_length=1)
+    recipients: list[SignRecipientCreate] = Field(
+        ..., min_length=1, max_length=MAX_SIGN_RECIPIENTS
+    )
     customer_id: Optional[str] = None
     delivery_method: str = "email_request"  # "direct_link" | "email_request"
+    # Ignored: requests always come from the signed-in user's own address
     sender_email: Optional[str] = None
     sender_name: Optional[str] = None
-    email_subject: Optional[str] = None
-    email_message: Optional[str] = None
+    email_subject: Optional[str] = Field(None, max_length=MAX_EMAIL_SUBJECT_LENGTH)
+    email_message: Optional[str] = Field(None, max_length=MAX_EMAIL_MESSAGE_LENGTH)
     cc_emails: list[EmailAddress] = []
     bcc_emails: list[EmailAddress] = []
     expires_in_days: int = Field(default=14, ge=1, le=365)
+
+    @model_validator(mode="after")
+    def _cap_watchers(self):
+        # Cc and Bcc all go out on one message (see SignService._send_to_watchers)
+        limit = settings.EMAIL_MAX_RECIPIENTS
+        if len(self.cc_emails) + len(self.bcc_emails) > limit:
+            raise ValueError(f"Add at most {limit} Cc/Bcc addresses in total")
+        return self
 
 
 class CreatorFieldValuesRequest(BaseModel):
@@ -327,16 +346,17 @@ class SignViewResponse(BaseModel):
 
 
 class SignSubmitRequest(BaseModel):
+    # Images and field values are checked (size, type) by SignService
     signature_data: str  # base64 PNG
-    signature_type: str = "draw"  # "draw" or "type"
-    signature_font: Optional[str] = None  # font name if type mode
+    signature_type: str = Field("draw", max_length=20)  # "draw" or "type"
+    signature_font: Optional[str] = Field(None, max_length=100)  # font name if type mode
     field_values: dict[str, str] = {}  # this recipient's own signer_input values, keyed by field key
     consent_agreed: bool = False
     initials_data: Optional[str] = None  # base64 PNG, captured separately for initials fields
 
 
 class SignDeclineRequest(BaseModel):
-    reason: Optional[str] = None
+    reason: Optional[str] = Field(None, max_length=2000)
 
 
 # ============================================

@@ -8,7 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_manager
 from app.domains.estimate.models import Estimate
 from app.domains.invoice.models import Invoice
 from app.domains.settings.models import (
@@ -260,7 +260,7 @@ async def get_estimate_status_usage(
 )
 async def migrate_estimate_status(
     data: BulkStatusMigrationRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Bulk migrate estimates from one status to another"""
@@ -307,7 +307,7 @@ async def migrate_estimate_status(
 )
 async def create_estimate_status(
     data: EstimateStatusConfigCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Create new estimate status config"""
@@ -350,6 +350,24 @@ async def create_estimate_status(
     )
 
 
+# Declared before the /{id} routes so "reorder" is not taken as an id.
+@router.put("/estimate-statuses/reorder")
+async def reorder_estimate_statuses(
+    data: ReorderRequest,
+    current_user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Reorder estimate status configs"""
+    for index, status_id in enumerate(data.item_ids):
+        db.query(EstimateStatusConfig).filter(
+            EstimateStatusConfig.id == status_id,
+            EstimateStatusConfig.company_id == current_user.company_id,
+        ).update({"order_index": index})
+
+    db.commit()
+    return {"message": "Statuses reordered"}
+
+
 @router.put(
     "/estimate-statuses/{status_id}",
     response_model=EstimateStatusConfigResponse
@@ -357,7 +375,7 @@ async def create_estimate_status(
 async def update_estimate_status(
     status_id: str,
     data: EstimateStatusConfigUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Update estimate status config"""
@@ -403,7 +421,7 @@ async def delete_estimate_status(
         None,
         description="Status ID to migrate existing estimates to"
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Delete estimate status config (soft delete)"""
@@ -481,23 +499,6 @@ async def delete_estimate_status(
     # Soft delete
     status_config.is_active = False
     db.commit()
-
-
-@router.put("/estimate-statuses/reorder")
-async def reorder_estimate_statuses(
-    data: ReorderRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Reorder estimate status configs"""
-    for index, status_id in enumerate(data.item_ids):
-        db.query(EstimateStatusConfig).filter(
-            EstimateStatusConfig.id == status_id,
-            EstimateStatusConfig.company_id == current_user.company_id,
-        ).update({"order_index": index})
-
-    db.commit()
-    return {"message": "Statuses reordered"}
 
 
 # ===================
@@ -601,7 +602,7 @@ async def get_invoice_status_usage(
 )
 async def migrate_invoice_status(
     data: BulkStatusMigrationRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Bulk migrate invoices from one status to another"""
@@ -648,7 +649,7 @@ async def migrate_invoice_status(
 )
 async def create_invoice_status(
     data: InvoiceStatusConfigCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Create new invoice status config"""
@@ -691,6 +692,24 @@ async def create_invoice_status(
     )
 
 
+# Declared before the /{id} routes so "reorder" is not taken as an id.
+@router.put("/invoice-statuses/reorder")
+async def reorder_invoice_statuses(
+    data: ReorderRequest,
+    current_user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Reorder invoice status configs"""
+    for index, status_id in enumerate(data.item_ids):
+        db.query(InvoiceStatusConfig).filter(
+            InvoiceStatusConfig.id == status_id,
+            InvoiceStatusConfig.company_id == current_user.company_id,
+        ).update({"order_index": index})
+
+    db.commit()
+    return {"message": "Statuses reordered"}
+
+
 @router.put(
     "/invoice-statuses/{status_id}",
     response_model=InvoiceStatusConfigResponse
@@ -698,7 +717,7 @@ async def create_invoice_status(
 async def update_invoice_status(
     status_id: str,
     data: InvoiceStatusConfigUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Update invoice status config"""
@@ -744,7 +763,7 @@ async def delete_invoice_status(
         None,
         description="Status ID to migrate existing invoices to"
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Delete invoice status config (soft delete)"""
@@ -817,23 +836,6 @@ async def delete_invoice_status(
     db.commit()
 
 
-@router.put("/invoice-statuses/reorder")
-async def reorder_invoice_statuses(
-    data: ReorderRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Reorder invoice status configs"""
-    for index, status_id in enumerate(data.item_ids):
-        db.query(InvoiceStatusConfig).filter(
-            InvoiceStatusConfig.id == status_id,
-            InvoiceStatusConfig.company_id == current_user.company_id,
-        ).update({"order_index": index})
-
-    db.commit()
-    return {"message": "Statuses reordered"}
-
-
 # ===================
 # Line Item Category Routes
 # ===================
@@ -866,7 +868,7 @@ async def list_categories(
 )
 async def create_category(
     data: LineItemCategoryCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Create new line item category"""
@@ -904,11 +906,29 @@ async def create_category(
     return LineItemCategoryResponse(**serialize_category(category))
 
 
+# Declared before the /{id} routes so "reorder" is not taken as an id.
+@router.put("/categories/reorder")
+async def reorder_categories(
+    data: ReorderRequest,
+    current_user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Reorder line item categories"""
+    for index, category_id in enumerate(data.item_ids):
+        db.query(LineItemCategory).filter(
+            LineItemCategory.id == category_id,
+            LineItemCategory.company_id == current_user.company_id,
+        ).update({"order_index": index})
+
+    db.commit()
+    return {"message": "Categories reordered"}
+
+
 @router.put("/categories/{category_id}", response_model=LineItemCategoryResponse)
 async def update_category(
     category_id: str,
     data: LineItemCategoryUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Update line item category"""
@@ -940,7 +960,7 @@ async def update_category(
 @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_category(
     category_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Delete line item category (soft delete)"""
@@ -955,23 +975,6 @@ async def delete_category(
     # Soft delete
     category.is_active = False
     db.commit()
-
-
-@router.put("/categories/reorder")
-async def reorder_categories(
-    data: ReorderRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Reorder line item categories"""
-    for index, category_id in enumerate(data.item_ids):
-        db.query(LineItemCategory).filter(
-            LineItemCategory.id == category_id,
-            LineItemCategory.company_id == current_user.company_id,
-        ).update({"order_index": index})
-
-    db.commit()
-    return {"message": "Categories reordered"}
 
 
 # ===================
@@ -1006,7 +1009,7 @@ async def list_units(
 )
 async def create_unit(
     data: LineItemUnitCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Create new line item unit"""
@@ -1044,11 +1047,29 @@ async def create_unit(
     return LineItemUnitResponse(**serialize_unit(unit))
 
 
+# Declared before the /{id} routes so "reorder" is not taken as an id.
+@router.put("/units/reorder")
+async def reorder_units(
+    data: ReorderRequest,
+    current_user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Reorder line item units"""
+    for index, unit_id in enumerate(data.item_ids):
+        db.query(LineItemUnit).filter(
+            LineItemUnit.id == unit_id,
+            LineItemUnit.company_id == current_user.company_id,
+        ).update({"order_index": index})
+
+    db.commit()
+    return {"message": "Units reordered"}
+
+
 @router.put("/units/{unit_id}", response_model=LineItemUnitResponse)
 async def update_unit(
     unit_id: str,
     data: LineItemUnitUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Update line item unit"""
@@ -1080,7 +1101,7 @@ async def update_unit(
 @router.delete("/units/{unit_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_unit(
     unit_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Delete line item unit (soft delete)"""
@@ -1096,19 +1117,3 @@ async def delete_unit(
     unit.is_active = False
     db.commit()
 
-
-@router.put("/units/reorder")
-async def reorder_units(
-    data: ReorderRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Reorder line item units"""
-    for index, unit_id in enumerate(data.item_ids):
-        db.query(LineItemUnit).filter(
-            LineItemUnit.id == unit_id,
-            LineItemUnit.company_id == current_user.company_id,
-        ).update({"order_index": index})
-
-    db.commit()
-    return {"message": "Units reordered"}

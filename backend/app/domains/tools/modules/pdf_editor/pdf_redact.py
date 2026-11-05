@@ -8,8 +8,13 @@ good, then paints the area over:
     (their advance stays, so the rest of the line doesn't move) -- invisible
     text too, like a scan's OCR layer;
   * images lose the pixels under it; one entirely inside an area is removed;
-  * paths entirely inside an area aren't painted;
-  * PDF annotations (links, form fields, comments) touching it are removed.
+  * a path's subpaths with any point inside an area are removed (see
+    _Redactor.path);
+  * PDF annotations (links, form fields, comments) touching it are removed;
+  * text that stands in for what's printed -- /ActualText, /Alt and /E, in
+    marked content and in the structure tree of a tagged PDF -- is removed
+    from the whole redacted page: it's what text extraction and screen
+    readers use, so it would otherwise still say what was under the area.
 
 Then the file is written with only the objects its trailer still reaches
 (catalog, pages, info), so nothing the pages no longer use -- the old
@@ -52,6 +57,10 @@ from app.domains.tools.modules.pdf_editor.pdf_text_edit import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Marked-content / structure-element entries that hold text standing in
+# for what's printed
+_REPLACEMENT_TEXT_KEYS = ("/ActualText", "/Alt", "/E")
 
 # The part of a glyph that has to reach into an area for it to go: the
 # middle of its advance, from just above the baseline to about x-height.
@@ -136,7 +145,34 @@ class _Redactor(ContentWalker):
         return self._touches(base, lo, bottom, hi, top)
 
     def path(self, points) -> bool:
-        return any(all(a.contains(px, py, slack=0.01) for px, py in points) for a in self.areas)
+        # A subpath with a point (or control point) inside an area goes, all
+        # of it: what it draws under the area isn't implied by what's left
+        # showing (text drawn as outlines, a signature, a chart line ending
+        # there). One with every point outside -- a table rule across the
+        # area, a background behind it -- stays: every segment is fixed by
+        # its points, so the part under the paint is no secret, and dropping
+        # it would cut tables and page backgrounds apart.
+        return any(a.contains(px, py, slack=0.01) for a in self.areas for px, py in points)
+
+    def marked_content(self, operands, resources):
+        # Replacement text in marked content goes on the whole page (a
+        # property list in the page's or a form's resources is cleaned
+        # where it is)
+        if len(operands) < 2:
+            return None
+        props = operands[1]
+        if isinstance(props, DictionaryObject):
+            if any(k in props for k in _REPLACEMENT_TEXT_KEYS):
+                kept = DictionaryObject({k: v for k, v in props.items() if k not in _REPLACEMENT_TEXT_KEYS})
+                return [operands[0], kept]
+        elif isinstance(props, NameObject):
+            named = _resolve(resources.get("/Properties")) if resources else None
+            plist = _resolve(named.get(props)) if hasattr(named, "get") else None
+            if isinstance(plist, DictionaryObject):
+                for key in _REPLACEMENT_TEXT_KEYS:
+                    if key in plist:
+                        del plist[key]
+        return None
 
     def image(self, m, xobj):
         square = quad(m, 0.0, 0.0, 1.0, 1.0)
@@ -339,6 +375,54 @@ def _prune_xobjects(owner, operations, writer, depth: int = 0, seen=None) -> Non
             _prune_xobjects(form, ContentStream(form, writer).operations, writer, depth + 1, seen)
 
 
+def _strip_structure_text(writer: PdfWriter, pages: list) -> None:
+    """Remove /ActualText, /Alt and /E from the structure elements (tagged
+    PDF) with content on any of `pages` -- and from their ancestors, whose
+    text may sum up their children's."""
+    tree = _resolve(writer._root_object.get("/StructTreeRoot"))
+    if not isinstance(tree, DictionaryObject):
+        return
+    targets = {id(_resolve(p)) for p in pages}
+    seen: dict[int, bool] = {}
+
+    def on_target(page_ref) -> bool:
+        # Content whose page isn't known could be on one of them
+        return page_ref is None or id(_resolve(page_ref)) in targets
+
+    def visit(node, page_ref, depth: int) -> bool:
+        """Whether node has content on a target page (stripping it if so)."""
+        node = _resolve(node)
+        if isinstance(node, (int, float)):  # a marked-content id on page_ref
+            return on_target(page_ref)
+        if isinstance(node, ArrayObject):
+            return any([visit(kid, page_ref, depth) for kid in node])
+        if not isinstance(node, DictionaryObject):
+            return False
+        if id(node) in seen:
+            return seen[id(node)]
+        seen[id(node)] = False  # (a cycle doesn't count)
+        own_page = node.get("/Pg")
+        if own_page is not None:
+            page_ref = own_page
+        if _name(node.get("/Type")) in ("MCR", "OBJR"):
+            touches = on_target(page_ref)
+        elif depth > 64:
+            touches = True  # too deep to follow: strip it to be safe
+        else:
+            # (the kids are always walked: they're cleaned too)
+            kids = node.get("/K")
+            touches = kids is not None and visit(kids, page_ref, depth + 1)
+            touches = touches or (own_page is not None and on_target(own_page))
+            if touches:
+                for key in _REPLACEMENT_TEXT_KEYS:
+                    if key in node:
+                        del node[key]
+        seen[id(node)] = touches
+        return touches
+
+    visit(tree.get("/K"), None, 0)
+
+
 def _fill_content(areas: list[_Region], to_user, fill: tuple) -> bytes:
     def n(v: float) -> str:
         s = f"{v:.4f}".rstrip("0").rstrip(".")
@@ -415,6 +499,7 @@ def apply_redactions(
     fill = _rgb(fill_color)
     removed_images = 0
     removed_annots: set[int] = set()
+    redacted_pages = []
     for page_number, boxes in sorted(areas_by_page.items()):
         if not 1 <= page_number <= len(writer.pages):
             raise IndexError(page_number)
@@ -422,6 +507,7 @@ def apply_redactions(
         if not areas:
             continue
         page = writer.pages[page_number - 1]
+        redacted_pages.append(page)
         view = page_view(page)
         to_view = invert(view.to_user)
         redactor = _Redactor(areas, to_view, writer, fill)
@@ -434,6 +520,7 @@ def apply_redactions(
             del page["/Thumb"]  # a picture of the page as it was
         append_content(page, _fill_content(areas, view.to_user, fill))
     _drop_form_fields(writer, removed_annots)
+    _strip_structure_text(writer, redacted_pages)
     if remove_metadata:
         writer.metadata = None
     return _without_unused_objects(writer, remove_metadata), removed_images

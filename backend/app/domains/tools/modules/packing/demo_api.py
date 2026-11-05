@@ -10,18 +10,23 @@ import base64
 import io
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from app.core.client_ip import get_client_ip
 from app.core.database import get_db
+from app.core.images import ImageRejected
+from app.core.rate_limit import enforce_rate_limit
 from app.domains.tools.modules.packing.demo.fixtures import (
     DEMO_PHOTO_FILENAMES,
     DEMO_ROOMS,
     PHOTOS_DIR,
     DemoRoomFixture,
 )
+from app.domains.tools.modules.packing.photo_checks import decode_photo
 from app.domains.tools.modules.packing.schemas import (
     CompanyInfoOverride,
     EstimateResponse,
@@ -51,6 +56,50 @@ router = APIRouter()
 # Bounds on a public, unauthenticated endpoint to keep compute/PDF-render cost small.
 MAX_DEMO_ROOMS = 5
 MAX_ITEMS_PER_ROOM = 60
+# Visitor photos in a demo report. The sample photos are ~300 KB and the demo
+# downsizes added photos to ~1600px, so these leave plenty of headroom.
+MAX_DEMO_PHOTO_BYTES = 10 * 1024 * 1024
+MAX_DEMO_PHOTO_BYTES_PER_REQUEST = 50 * 1024 * 1024
+# File exports (PDF/Excel) per visitor IP per hour, per endpoint.
+DEMO_EXPORTS_PER_HOUR = 20
+_DEMO_RATE_LIMIT_DETAIL = (
+    "You've made a lot of demo exports in a short time. Please try again later."
+)
+
+
+def _limit_demo_export(request: Request, endpoint: str) -> None:
+    enforce_rate_limit(
+        f"demo-packing-{endpoint}:{get_client_ip(request)}",
+        DEMO_EXPORTS_PER_HOUR,
+        3600,
+        _DEMO_RATE_LIMIT_DETAIL,
+    )
+
+
+def _check_demo_photos(rooms) -> None:
+    """Header-check every visitor photo (format, size, pixel count) before
+    the report renderer decodes any of them. Raises HTTPException(400)."""
+    total = 0
+    for room in rooms:
+        for idx, photo in enumerate(room.photos, 1):
+            if not photo.image or len(photo.image) < 100:
+                continue  # the renderer skips these placeholders too
+            try:
+                data, _ = decode_photo(photo.image, max_bytes=MAX_DEMO_PHOTO_BYTES)
+            except ImageRejected as exc:
+                raise HTTPException(
+                    status_code=400, detail=f"{room.room_name}: Photo {idx}: {exc}",
+                )
+            total += len(data)
+            del data
+            if total > MAX_DEMO_PHOTO_BYTES_PER_REQUEST:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "The demo report's photos are too large together "
+                        f"(max {MAX_DEMO_PHOTO_BYTES_PER_REQUEST // (1024 * 1024)} MB)."
+                    ),
+                )
 
 
 # ── Schemas (demo-only; intentionally not coupled to the session-based real flow) ──
@@ -89,7 +138,7 @@ class DemoReportRequest(BaseModel):
     include_field_notes: bool = True
     image_quality: int = Field(default=60, ge=20, le=90)
     max_image_width: int = Field(default=800, ge=400, le=1200)
-    photos_per_page: int = Field(default=2)
+    photos_per_page: int = Field(default=2, ge=1, le=6)
 
 
 class DemoEstimatePdfRequest(BaseModel):
@@ -221,6 +270,7 @@ async def calculate_demo_estimate(
 @router.post("/report")
 async def export_demo_report(
     request: DemoReportRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
 ):
     """Generate a packing report PDF from the caller's rooms — items and
@@ -247,6 +297,8 @@ async def export_demo_report(
                 status_code=400,
                 detail=f"The demo is limited to {MAX_PHOTOS_PER_ROOM} photos per room.",
             )
+    _limit_demo_export(http_request, "report")
+    await run_in_threadpool(_check_demo_photos, request.rooms)
 
     calc = EstimateCalculator(db=db, company_id=None)
     crew_size = 4
@@ -303,10 +355,11 @@ async def export_demo_report(
 
 
 @router.post("/estimate/pdf")
-async def export_demo_estimate_pdf(request: DemoEstimatePdfRequest):
+async def export_demo_estimate_pdf(request: DemoEstimatePdfRequest, http_request: Request):
     """Generate a plain estimate PDF from a previously-calculated demo estimate."""
     if generate_estimate_pdf is None:
         raise HTTPException(status_code=503, detail="PDF export unavailable.")
+    _limit_demo_export(http_request, "estimate-pdf")
 
     override_dict = request.company_override.model_dump() if request.company_override else None
     company_info = build_company_info(None, override_dict)
@@ -333,11 +386,12 @@ async def export_demo_estimate_pdf(request: DemoEstimatePdfRequest):
 
 
 @router.post("/estimate/excel")
-async def export_demo_estimate_excel(request: DemoEstimatePdfRequest):
+async def export_demo_estimate_excel(request: DemoEstimatePdfRequest, http_request: Request):
     """Generate a plain estimate Excel workbook from a previously-calculated
     demo estimate (mirrors the real /export/excel endpoint)."""
     if generate_estimate_excel is None:
         raise HTTPException(status_code=503, detail="Excel export unavailable.")
+    _limit_demo_export(http_request, "estimate-excel")
 
     override_dict = request.company_override.model_dump() if request.company_override else None
     company_info = build_company_info(None, override_dict)

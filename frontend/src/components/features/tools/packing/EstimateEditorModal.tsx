@@ -46,7 +46,7 @@ import type { ToolSession } from '@/types/tools';
 import ReportExportModal from './ReportExportModal';
 import type { ColumnsType } from 'antd/es/table';
 import { colors, fonts, borderRadius } from '@/styles/theme';
-import { packingApi } from './packingApi';
+import { exportErrorMessage, packingApi } from './packingApi';
 import { getGrandTotal } from './sessionStatus';
 import { formatPropertyAddress, formatPropertyAddressForFilename } from './propertyAddress';
 import CustomerSelector from '@/components/features/CustomerSelector';
@@ -1881,8 +1881,8 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       const pdfName = addr ? `Pack_in_out Estimate - ${addr}.pdf` : `Pack_in_out Estimate-${activeSessionId}.pdf`;
       triggerDownload(blob, pdfName);
       message.success('PDF downloaded');
-    } catch {
-      message.error('Failed to export PDF');
+    } catch (err) {
+      message.error(await exportErrorMessage(err, 'Failed to export PDF'));
     } finally {
       setExporting(null);
     }
@@ -1901,8 +1901,8 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
       const xlsName = addr ? `Pack_in_out Estimate - ${addr}.xlsx` : `Pack_in_out Estimate-${activeSessionId}.xlsx`;
       triggerDownload(blob, xlsName);
       message.success('Excel downloaded');
-    } catch {
-      message.error('Failed to export Excel');
+    } catch (err) {
+      message.error(await exportErrorMessage(err, 'Failed to export Excel'));
     } finally {
       setExporting(null);
     }

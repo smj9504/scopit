@@ -31,7 +31,7 @@ import {
   LoadingOutlined,
 } from '@ant-design/icons';
 import { colors, fonts, borderRadius } from '@/styles/theme';
-import { packingApi } from './packingApi';
+import { exportErrorMessage, packingApi } from './packingApi';
 import { formatPropertyAddressForFilename } from './propertyAddress';
 import type {
   EstimateResponse,
@@ -594,7 +594,7 @@ const ReportExportModal: React.FC<ReportExportModalProps> = ({
         message.success('Report downloaded');
       }
     } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Report export failed');
+      message.error(await exportErrorMessage(err, 'Report export failed'));
     } finally {
       setExporting(false);
     }

@@ -32,6 +32,7 @@ from app.domains.tools.modules.pdf_editor.in_person import (
     build_questions,
     clean_answers,
     document_values,
+    handed_over_answers,
     missing_required,
     role_label,
     signer_roles,
@@ -138,6 +139,25 @@ def test_answers_only_count_for_questions_that_were_asked():
     assert cleaned == {"customer.name": "Pat Doe"}
     # Left out, a question keeps the value it was asked with
     assert clean_answers({}, questions) == {"customer.name": "Pat"}
+
+
+def test_once_handed_over_only_a_signers_own_fields_come_from_the_device():
+    fields = [
+        prefilled("n", "customer.name"),
+        field("amt", label="Amount"),
+        field("printed", mode="signer_input", role="signer_1", label="Printed name"),
+    ]
+    questions = build_questions([("Doc", fields)], {"customer.name": "Pat"})
+    fixed = {"customer.name": "Pat Doe", "field.text.amount": "1200", "field.text.signer_1.printed name": "Pat"}
+    given = {
+        "customer.name": "Evil", "field.text.amount": "1", "field.text.signer_1.printed name": "Pat Q Doe",
+        "company.name": "Evil Co",
+    }
+    assert handed_over_answers(questions, fixed, given) == {
+        "customer.name": "Pat Doe", "field.text.amount": "1200", "field.text.signer_1.printed name": "Pat Q Doe",
+    }
+    # Left out on the device, a signer's field keeps what was handed over
+    assert handed_over_answers(questions, fixed, {})["field.text.signer_1.printed name"] == "Pat"
 
 
 def test_a_required_checkbox_must_be_checked():
@@ -416,6 +436,24 @@ def test_a_failure_part_way_saves_none_of_the_visit(visit, monkeypatch):
     with pytest.raises(HTTPException):
         sign(visit)
     assert visit.db.rolled_back and not visit.db.committed
+
+
+def test_signing_a_handed_over_visit_keeps_the_company_answers(visit):
+    sign(
+        visit,
+        answers={"field.text.amount": "1", "customer.full_address": "Elsewhere"},
+        fixed={"field.text.amount": "1,200.00", "customer.full_address": "9 Elm St, Austin, TX 78701"},
+        kiosk_id="kiosk-1",
+    )
+    auth, dtp = visit.db.of(SignRequest)
+    assert auth.prefill_data == {"name": "Pat Doe", "amount": "1,200.00"}
+    assert dtp.prefill_data == {"addr": "9 Elm St, Austin, TX 78701"}
+    created = [
+        e for e in visit.db.added
+        if getattr(e, "event_type", None) == "created" and e.sign_request_id == auth.id
+    ]
+    assert created[0].event_metadata["kiosk_id"] == "kiosk-1"
+    assert created[0].event_metadata["customer_created"] is True
 
 
 def test_the_preview_fills_the_document_without_signatures(visit):

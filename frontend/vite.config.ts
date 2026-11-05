@@ -111,6 +111,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // Source maps would publish the full app source (admin pages included)
+    // next to the bundle; nothing uploads them to an error tracker.
+    sourcemap: false,
   },
 });

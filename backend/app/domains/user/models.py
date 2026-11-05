@@ -36,7 +36,10 @@ class User(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     is_superuser = Column(Boolean, nullable=False, default=False)
     is_verified = Column(Boolean, nullable=False, default=False)
-    
+    # Bumped to sign the user out everywhere (password change/set); tokens
+    # carry the version they were issued under. See core/security.py.
+    token_version = Column(Integer, nullable=False, default=0, server_default="0")
+
     # Profile - Occupation
     occupation = Column(String(50))  # contractor, public_adjuster, attorney, other
     occupation_other = Column(String(100))  # when occupation is 'other'

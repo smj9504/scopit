@@ -275,6 +275,7 @@ export const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
             }}
           >
             <iframe
+              sandbox="allow-same-origin allow-modals"
               ref={iframeRef}
               srcDoc={previewHtml}
               style={{

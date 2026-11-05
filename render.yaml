@@ -73,6 +73,14 @@ services:
         sync: false
       - key: EMAIL_FROM
         value: no-reply@scopit.work
+      # Visitor IP for rate limits (see backend/app/core/client_ip.py).
+      # Render fronts services with Cloudflare, which sets True-Client-IP;
+      # if it's missing, use the X-Forwarded-For entry Render's proxy appended.
+      # Confirm with Render support before relying on per-IP limits.
+      - key: CLIENT_IP_HEADER
+        value: True-Client-IP
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "1440"
       - key: REFRESH_TOKEN_EXPIRE_DAYS

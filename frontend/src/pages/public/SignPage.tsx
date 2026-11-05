@@ -47,6 +47,9 @@ import { isMultilineText, type SignViewData, type SignViewField } from '@/compon
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
+// The server's limit on one field value (sign_service.MAX_FIELD_VALUE_LENGTH)
+const MAX_FIELD_VALUE_LENGTH = 5000;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -371,6 +374,7 @@ const TextEntryModal: React.FC<TextEntryModalProps> = ({ open, onClose, onApply,
           onChange={(e) => setValue(e.target.value)}
           placeholder={field.label || 'Enter a value'}
           autoSize={{ minRows: 3, maxRows: 8 }}
+          maxLength={MAX_FIELD_VALUE_LENGTH}
           autoFocus
         />
       ) : (
@@ -380,6 +384,7 @@ const TextEntryModal: React.FC<TextEntryModalProps> = ({ open, onClose, onApply,
           onChange={(e) => setValue(e.target.value)}
           placeholder={field.label || 'Enter a value'}
           size="large"
+          maxLength={MAX_FIELD_VALUE_LENGTH}
           autoFocus
           onPressEnter={() => value.trim() && onApply(value.trim())}
         />

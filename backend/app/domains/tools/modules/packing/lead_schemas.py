@@ -15,29 +15,33 @@ class LeadRoomInput(BaseModel):
     """One room's metadata within the multipart /submit payload.
     photo_count tells the server how many of the flat `photos` upload list
     belong to this room (consumed in order)."""
-    room_name: str
+    room_name: str = Field(max_length=200)
     photo_count: int = Field(ge=0, le=10)
 
 
 class LeadSubmitPayload(BaseModel):
-    """The JSON-encoded `payload` form field of POST /packing-leads/submit."""
+    """The JSON-encoded `payload` form field of POST /packing-leads/submit.
+
+    max_length values match the packing_leads column sizes (lead_models.py),
+    so an over-long value is a clean 400 instead of a failed insert. The two
+    Text address columns get a generous cap of their own."""
     contact_email: EmailStr
-    contact_phone: Optional[str] = None
+    contact_phone: Optional[str] = Field(default=None, max_length=50)
     # The submitter's own contracting business -- distinct from contact_*
     # (the individual) and property_address (the job site being estimated).
-    company_name: Optional[str] = None
-    company_phone: Optional[str] = None
-    company_address_line1: Optional[str] = None
-    company_address_line2: Optional[str] = None
-    company_city: Optional[str] = None
-    company_state: Optional[str] = None
-    company_zipcode: Optional[str] = None
-    property_address_line1: Optional[str] = None
-    property_address_line2: Optional[str] = None
-    property_city: Optional[str] = None
-    property_state: Optional[str] = None
-    property_zipcode: Optional[str] = None
-    idempotency_key: str
+    company_name: Optional[str] = Field(default=None, max_length=255)
+    company_phone: Optional[str] = Field(default=None, max_length=50)
+    company_address_line1: Optional[str] = Field(default=None, max_length=500)
+    company_address_line2: Optional[str] = Field(default=None, max_length=255)
+    company_city: Optional[str] = Field(default=None, max_length=100)
+    company_state: Optional[str] = Field(default=None, max_length=50)
+    company_zipcode: Optional[str] = Field(default=None, max_length=20)
+    property_address_line1: Optional[str] = Field(default=None, max_length=500)
+    property_address_line2: Optional[str] = Field(default=None, max_length=255)
+    property_city: Optional[str] = Field(default=None, max_length=100)
+    property_state: Optional[str] = Field(default=None, max_length=50)
+    property_zipcode: Optional[str] = Field(default=None, max_length=20)
+    idempotency_key: str = Field(max_length=255)
     rooms: List[LeadRoomInput]
 
 

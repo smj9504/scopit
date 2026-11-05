@@ -197,7 +197,16 @@ class AdminService:
         total = query.count()
 
         # Apply sorting
-        sort_column = getattr(User, sort_by, User.created_at)
+        # Whitelisted: sort_by comes from the query string, and ordering by
+        # e.g. hashed_password would leak information about the hashes.
+        sortable = {
+            "created_at": User.created_at,
+            "last_login_at": User.last_login_at,
+            "email": User.email,
+            "full_name": User.full_name,
+            "login_count": User.login_count,
+        }
+        sort_column = sortable.get(sort_by, User.created_at)
         if sort_order == "desc":
             query = query.order_by(desc(sort_column))
         else:

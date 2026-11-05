@@ -10,11 +10,55 @@ from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 from typing import Optional
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _h(value) -> str:
+    """HTML-escape a user-supplied value for an email body (None -> "")."""
+    return "" if value is None else html.escape(str(value), quote=True)
+
+
+def clean_recipients(to_email: Optional[str], cc_emails: Optional[list[str]] = None) -> tuple[str, list[str]]:
+    """Validate a customer-facing email's recipients; raise 400 with a readable message.
+
+    Caps the total (To + Cc) at settings.EMAIL_MAX_RECIPIENTS so a send
+    endpoint can't be used to mail lists of addresses, and drops duplicates.
+    """
+    from email_validator import EmailNotValidError, validate_email
+    from fastapi import HTTPException
+
+    def _valid(addr: str) -> str:
+        try:
+            return validate_email(addr.strip(), check_deliverability=False).normalized
+        except (EmailNotValidError, AttributeError):
+            raise HTTPException(status_code=400, detail=f"Invalid email address: {str(addr)[:100]}")
+
+    if not to_email or not str(to_email).strip():
+        raise HTTPException(status_code=400, detail="A recipient email address is required.")
+    to_clean = _valid(to_email)
+    cc_clean: list[str] = []
+    for addr in cc_emails or []:
+        if not addr or not str(addr).strip():
+            continue
+        addr = _valid(addr)
+        if addr.lower() != to_clean.lower() and addr.lower() not in {c.lower() for c in cc_clean}:
+            cc_clean.append(addr)
+    if 1 + len(cc_clean) > settings.EMAIL_MAX_RECIPIENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many recipients (max {settings.EMAIL_MAX_RECIPIENTS} including Cc).",
+        )
+    return to_clean, cc_clean
+
+
+def _one_line(value: Optional[str]) -> str:
+    """Header-safe text: line breaks would otherwise make the email library refuse the message."""
+    return " ".join((value or "").split())
 
 # ---------------------------------------------------------------------------
 # Shared brand tokens for transactional emails.
@@ -138,9 +182,11 @@ class EmailService:
                     message.attach(MIMEText(text_content, "plain"))
                 message.attach(MIMEText(html_content, "html"))
 
-            message["Subject"] = subject
-            display_name = from_display_name or self.from_name
-            message["From"] = f"{display_name} <{self.from_email}>"
+            message["Subject"] = _one_line(subject)
+            display_name = _one_line(from_display_name or self.from_name)
+            # formataddr quotes/encodes the display name, so a name with
+            # quotes, commas or "<...>" can't change the actual sender address.
+            message["From"] = formataddr((display_name, self.from_email))
             message["To"] = to_email
             if cc_emails:
                 message["Cc"] = ", ".join(cc_emails)
@@ -152,7 +198,9 @@ class EmailService:
             # Send email
             context = ssl.create_default_context()
 
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            with smtplib.SMTP(
+                self.smtp_host, self.smtp_port, timeout=settings.SMTP_TIMEOUT_SECONDS
+            ) as server:
                 server.starttls(context=context)
                 server.login(self.smtp_user, self.smtp_password)
                 server.sendmail(
@@ -182,12 +230,12 @@ class EmailService:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
-<title>{title}</title>
+<title>{html.escape(title)}</title>
 {_RESPONSIVE_STYLE}
 </head>
 <body style="margin:0; padding:0; background-color:{COLOR_BG}; font-family:{FONT_STACK_BODY};">
   <div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">
-    {preheader}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+    {html.escape(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
   </div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{COLOR_BG};">
     <tr>
@@ -250,7 +298,7 @@ class EmailService:
         Verify your email
       </h1>
       <p style="margin:0 0 28px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
-        Hi {user_name}, enter this code to finish setting up your {settings.APP_NAME} account.
+        Hi {_h(user_name)}, enter this code to finish setting up your {settings.APP_NAME} account.
       </p>
     </td>
   </tr>
@@ -341,7 +389,7 @@ class EmailService:
         Welcome to {settings.APP_NAME}!
       </h1>
       <p style="margin:0 0 18px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
-        Hi {user_name}, your email is verified and your account is ready. We're excited to have you on board.
+        Hi {_h(user_name)}, your email is verified and your account is ready. We're excited to have you on board.
       </p>
       <p style="margin:0 0 6px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
         {settings.APP_NAME} helps restoration contractors create professional estimates quickly and easily. Here's what you can do:
@@ -558,17 +606,17 @@ The {settings.APP_NAME} Team
         message_block = ""
         if message:
             message_block = f"""
-      <p style="margin:0 0 20px 0; padding:16px 18px; background-color:{COLOR_BG}; border:1px solid {COLOR_BORDER}; border-radius:8px; color:{COLOR_TEXT}; font-size:14px; line-height:1.6; font-family:{FONT_STACK_BODY}; white-space:pre-wrap;">{message}</p>"""
+      <p style="margin:0 0 20px 0; padding:16px 18px; background-color:{COLOR_BG}; border:1px solid {COLOR_BORDER}; border-radius:8px; color:{COLOR_TEXT}; font-size:14px; line-height:1.6; font-family:{FONT_STACK_BODY}; white-space:pre-wrap;">{_h(message)}</p>"""
 
         body_html = f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
   <tr>
     <td>
       <h1 style="margin:0 0 14px 0; font-family:{FONT_STACK_HEADING}; font-size:23px; font-weight:800; color:{COLOR_PRIMARY}; letter-spacing:-0.3px;">
-        {label} {document_number}
+        {label} {_h(document_number)}
       </h1>
       <p style="margin:0 0 18px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
-        Hi {customer_name}, {company_name} has sent you {'an' if document_type == 'estimate' else 'an'} {document_type} for your review. The full details are in the attached PDF.
+        Hi {_h(customer_name)}, {_h(company_name)} has sent you {'an' if document_type == 'estimate' else 'an'} {document_type} for your review. The full details are in the attached PDF.
       </p>
       {message_block}
     </td>
@@ -581,11 +629,11 @@ The {settings.APP_NAME} Team
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td style="color:{COLOR_MUTED}; font-size:13px; font-family:{FONT_STACK_BODY};">{label} Number</td>
-                <td align="right" style="color:{COLOR_PRIMARY}; font-size:13px; font-weight:600; font-family:{FONT_STACK_BODY};">{document_number}</td>
+                <td align="right" style="color:{COLOR_PRIMARY}; font-size:13px; font-weight:600; font-family:{FONT_STACK_BODY};">{_h(document_number)}</td>
               </tr>
               <tr>
                 <td style="padding-top:8px; color:{COLOR_MUTED}; font-size:13px; font-family:{FONT_STACK_BODY};">Total</td>
-                <td align="right" style="padding-top:8px; color:{COLOR_PRIMARY}; font-size:15px; font-weight:700; font-family:{FONT_STACK_BODY};">{total}</td>
+                <td align="right" style="padding-top:8px; color:{COLOR_PRIMARY}; font-size:15px; font-weight:700; font-family:{FONT_STACK_BODY};">{_h(total)}</td>
               </tr>
             </table>
           </td>

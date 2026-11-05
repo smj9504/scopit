@@ -261,7 +261,12 @@ async def create_estimate_from_tool(
     customer_zipcode = payload.get("customer_zipcode")
 
     if req.customer_id:
-        customer = db.query(Customer).filter(Customer.id == req.customer_id).first()
+        customer = db.query(Customer).filter(
+            Customer.id == req.customer_id,
+            Customer.company_id == current_user.company_id,
+        ).first()
+        if not customer:
+            raise HTTPException(status_code=400, detail="Customer not found")
         if customer:
             customer_name = customer.name
             customer_email = customer.email
@@ -460,7 +465,12 @@ async def create_invoice_from_tool(
     customer_zipcode = payload.get("customer_zipcode")
 
     if req.customer_id:
-        customer = db.query(Customer).filter(Customer.id == req.customer_id).first()
+        customer = db.query(Customer).filter(
+            Customer.id == req.customer_id,
+            Customer.company_id == current_user.company_id,
+        ).first()
+        if not customer:
+            raise HTTPException(status_code=400, detail="Customer not found")
         if customer:
             customer_name = customer.name
             customer_email = customer.email

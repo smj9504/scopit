@@ -93,4 +93,36 @@ export const useAuthStore = create<AuthState>()(
   )
 );
 
+// Keep every tab on the same session. Without this, signing out (or handing
+// the device to a customer for in-person signing, which clears storage) left
+// other open tabs signed in, and a token refresh there wrote the session back.
+// Also re-checks a page restored from the back/forward cache, whose memory
+// may still hold a session that has since been cleared.
+if (typeof window !== 'undefined') {
+  const syncFromStorage = () => {
+    const state = useAuthStore.getState();
+    // In-person signing hand-over: this tab deliberately runs with no tokens
+    // (isAuthenticated stays true so the signing page stays mounted). Other
+    // tabs signing out must not end the customer's visit.
+    if (state.isAuthenticated && !state.accessToken) return;
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem('scopit-auth');
+    } catch {
+      return;
+    }
+    if (!raw) {
+      if (state.accessToken || state.isAuthenticated) state.logout();
+      return;
+    }
+    void useAuthStore.persist.rehydrate();
+  };
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'scopit-auth' || event.key === null) syncFromStorage();
+  });
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) syncFromStorage();
+  });
+}
+
 export default useAuthStore;

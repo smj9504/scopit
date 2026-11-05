@@ -32,9 +32,10 @@ from fastapi import (
 )
 from pydantic import ValidationError
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from app.core.client_ip import get_client_ip
 from app.core.config import settings
 from app.core.database import get_db, get_db_context
 from app.core.dependencies import get_current_user, get_current_user_optional
@@ -50,6 +51,8 @@ from app.core.email import (
     FONT_STACK_MONO,
     email_service,
 )
+from app.core.images import ImageRejected
+from app.core.rate_limit import enforce_rate_limit
 from app.core.storage import get_storage
 from app.domains.auth.verification import generate_verification_code, hash_code
 from app.domains.tools.models import ToolFile
@@ -67,6 +70,12 @@ from app.domains.tools.modules.packing.lead_schemas import (
     LeadVerifyRequest,
     LeadVerifyResponse,
 )
+from app.domains.tools.modules.packing.photo_checks import (
+    check_photo,
+    extension_for,
+    media_type_for,
+    media_type_for_key,
+)
 from app.domains.tools.service import ToolSessionService
 from app.domains.user.models import User
 
@@ -75,7 +84,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 public_router = APIRouter()
 
-limiter = Limiter(key_func=get_remote_address)
+# Keyed on the visitor's real address: behind the host's proxy the socket
+# peer is the proxy, which would put every visitor in one bucket.
+limiter = Limiter(key_func=get_client_ip)
 
 # ============================================
 # CONSTANTS
@@ -84,6 +95,12 @@ limiter = Limiter(key_func=get_remote_address)
 MAX_ROOMS = settings.VISION_BATCH_MAX_ROOMS  # mirrors analyze-batch's own cap
 MAX_PHOTOS_PER_ROOM = 10
 MAX_PHOTO_BYTES = 8 * 1024 * 1024  # 8 MB
+# All photos in one submission. Photos are read and stored one at a time, so
+# this bounds storage per lead rather than memory.
+MAX_TOTAL_PHOTO_BYTES = 150 * 1024 * 1024
+# Verification-code emails one address can be sent per hour (each submit
+# sends one), so the form can't be used to flood someone's inbox.
+MAX_VERIFICATION_EMAILS_PER_HOUR = 3
 MAX_VERIFICATION_ATTEMPTS = 5
 VERIFICATION_CODE_EXPIRY_MINUTES = 15
 LEAD_INITIAL_EXPIRY_HOURS = 24
@@ -129,21 +146,18 @@ def _get_active_lead(db: Session, token: str) -> PackingLead:
     return lead
 
 
-def _ext_for_upload(content_type: Optional[str], filename: Optional[str]) -> str:
-    ct = (content_type or "").lower()
-    mapped = {"image/png": ".png", "image/webp": ".webp"}.get(ct)
-    if mapped:
-        return mapped
-    if filename and "." in filename:
-        ext = "." + filename.rsplit(".", 1)[-1].lower()
-        if ext in (".png", ".webp", ".jpg", ".jpeg"):
-            return ext
-    return ".jpg"
-
-
 def _media_type_for_key(key: str) -> str:
-    ext = key.rsplit(".", 1)[-1].lower() if "." in key else "jpg"
-    return {"png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
+    return media_type_for_key(key)
+
+
+def _delete_keys_quietly(keys: list) -> None:
+    """Best-effort removal of photos written for a submission that failed."""
+    storage = get_storage()
+    for key in keys:
+        try:
+            storage.delete(key)
+        except Exception:
+            logger.warning("packing lead submit: failed to clean up %s", key)
 
 
 def _build_lead_verification_email_html(code: str, expires_in_minutes: int) -> str:
@@ -576,10 +590,12 @@ async def _run_analysis(lead_id) -> None:
                 lead.status = PackingLeadStatus.FAILED.value
                 lead.error_message = "Photo analysis failed for every room."
             db.commit()
-        except Exception as exc:  # noqa: BLE001 -- must never crash the worker
+        except Exception:  # noqa: BLE001 -- must never crash the worker
+            # Details go to the log only: error_message is returned by the
+            # public status endpoint.
             logger.exception("packing lead analysis failed for lead %s", lead_id)
             lead.status = PackingLeadStatus.FAILED.value
-            lead.error_message = str(exc)
+            lead.error_message = "Something went wrong while analyzing your photos. Please retry."
             db.commit()
 
         # Best-effort "your estimate is ready" email so a visitor who closed
@@ -641,20 +657,39 @@ async def submit_lead(
             detail=f"Expected {total_expected} photo(s) across rooms, received {len(photos)}",
         )
 
-    photo_payloads: list = []
+    too_large_total = HTTPException(
+        status_code=400,
+        detail=(
+            "Your photos add up to more than "
+            f"{MAX_TOTAL_PHOTO_BYTES // (1024 * 1024)}MB. "
+            "Please remove a few photos or use smaller ones."
+        ),
+    )
+
+    def _too_large(f) -> HTTPException:
+        return HTTPException(
+            status_code=400,
+            detail=f"Photo '{f.filename}' exceeds the {MAX_PHOTO_BYTES // (1024 * 1024)}MB limit",
+        )
+
+    # Size caps from the multipart part sizes, before any photo is read.
+    declared_total = 0
     for f in photos:
-        content = await f.read()
-        if len(content) > MAX_PHOTO_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Photo '{f.filename}' exceeds the {MAX_PHOTO_BYTES // (1024 * 1024)}MB limit",
-            )
-        content_type = f.content_type or ""
-        if not content_type.startswith("image/"):
-            raise HTTPException(
-                status_code=400, detail=f"File '{f.filename}' is not a supported image type",
-            )
-        photo_payloads.append((content, content_type, f.filename))
+        if f.size is not None:
+            if f.size > MAX_PHOTO_BYTES:
+                raise _too_large(f)
+            declared_total += f.size
+    if declared_total > MAX_TOTAL_PHOTO_BYTES:
+        raise too_large_total
+
+    # Each submit emails a verification code to the given address.
+    enforce_rate_limit(
+        f"lead-email:{data.contact_email.lower()}",
+        MAX_VERIFICATION_EMAILS_PER_HOUR,
+        3600,
+        "Too many verification codes have been sent to this email address. "
+        "Please check your inbox (and spam folder), or try again in an hour.",
+    )
 
     lead_id = uuid.uuid4()
     token = secrets.token_urlsafe(32)
@@ -662,50 +697,81 @@ async def submit_lead(
 
     storage = get_storage()
     rooms_input: list = []
-    idx = 0
-    for room in data.rooms:
-        keys: list = []
-        for _ in range(room.photo_count):
-            content, content_type, filename = photo_payloads[idx]
-            idx += 1
-            ext = _ext_for_upload(content_type, filename)
-            key = f"leads/packing/{lead_id}/{uuid.uuid4()}{ext}"
-            storage.write(key, content, content_type=content_type or "image/jpeg")
-            keys.append(key)
-        rooms_input.append({"room_name": room.room_name, "photo_keys": keys})
-
+    written_keys: list = []
     code = generate_verification_code()
-    lead = PackingLead(
-        id=lead_id,
-        token=token,
-        idempotency_key=data.idempotency_key,
-        contact_email=data.contact_email,
-        contact_phone=data.contact_phone,
-        company_name=data.company_name,
-        company_phone=data.company_phone,
-        company_address_line1=data.company_address_line1,
-        company_address_line2=data.company_address_line2,
-        company_city=data.company_city,
-        company_state=data.company_state,
-        company_zipcode=data.company_zipcode,
-        property_address_line1=data.property_address_line1,
-        property_address_line2=data.property_address_line2,
-        property_city=data.property_city,
-        property_state=data.property_state,
-        property_zipcode=data.property_zipcode,
-        rooms_input=rooms_input,
-        status=PackingLeadStatus.PENDING_VERIFICATION.value,
-        verification_code_hash=hash_code(code),
-        verification_attempts=0,
-        verification_expires_at=now + timedelta(minutes=VERIFICATION_CODE_EXPIRY_MINUTES),
-        expires_at=now + timedelta(hours=LEAD_INITIAL_EXPIRY_HOURS),
-    )
-    db.add(lead)
     try:
+        # Photos are checked and stored one at a time, so at most one is held
+        # in memory. Anything written is removed again if the submission
+        # fails later (bad photo, failed insert).
+        idx = 0
+        total_read = 0
+        for room in data.rooms:
+            keys: list = []
+            for _ in range(room.photo_count):
+                f = photos[idx]
+                idx += 1
+                content = await f.read()
+                if len(content) > MAX_PHOTO_BYTES:
+                    raise _too_large(f)
+                total_read += len(content)
+                if total_read > MAX_TOTAL_PHOTO_BYTES:
+                    raise too_large_total
+                content_type = f.content_type or ""
+                if not content_type.startswith("image/"):
+                    raise HTTPException(
+                        status_code=400, detail=f"File '{f.filename}' is not a supported image type",
+                    )
+                # Real format and pixel count from the header; the stored
+                # extension/content type come from that, not the client.
+                try:
+                    info = check_photo(content, max_bytes=MAX_PHOTO_BYTES)
+                except ImageRejected as exc:
+                    raise HTTPException(
+                        status_code=400, detail=f"Photo '{f.filename}': {exc}",
+                    )
+                key = f"leads/packing/{lead_id}/{uuid.uuid4()}{extension_for(info)}"
+                await run_in_threadpool(
+                    storage.write, key, content, content_type=media_type_for(info),
+                )
+                written_keys.append(key)
+                keys.append(key)
+                del content
+            rooms_input.append({"room_name": room.room_name, "photo_keys": keys})
+
+        lead = PackingLead(
+            id=lead_id,
+            token=token,
+            idempotency_key=data.idempotency_key,
+            contact_email=data.contact_email,
+            contact_phone=data.contact_phone,
+            company_name=data.company_name,
+            company_phone=data.company_phone,
+            company_address_line1=data.company_address_line1,
+            company_address_line2=data.company_address_line2,
+            company_city=data.company_city,
+            company_state=data.company_state,
+            company_zipcode=data.company_zipcode,
+            property_address_line1=data.property_address_line1,
+            property_address_line2=data.property_address_line2,
+            property_city=data.property_city,
+            property_state=data.property_state,
+            property_zipcode=data.property_zipcode,
+            rooms_input=rooms_input,
+            status=PackingLeadStatus.PENDING_VERIFICATION.value,
+            verification_code_hash=hash_code(code),
+            verification_attempts=0,
+            verification_expires_at=now + timedelta(minutes=VERIFICATION_CODE_EXPIRY_MINUTES),
+            expires_at=now + timedelta(hours=LEAD_INITIAL_EXPIRY_HOURS),
+        )
+        db.add(lead)
         db.commit()
+    except HTTPException:
+        await run_in_threadpool(_delete_keys_quietly, written_keys)
+        raise
     except Exception:
-        # Race: another concurrent request with the same idempotency_key won.
         db.rollback()
+        await run_in_threadpool(_delete_keys_quietly, written_keys)
+        # Race: another concurrent request with the same idempotency_key won.
         existing = (
             db.query(PackingLead)
             .filter(PackingLead.idempotency_key == data.idempotency_key)
@@ -716,16 +782,12 @@ async def submit_lead(
         raise
 
     try:
-        _send_lead_verification_email(data.contact_email, code)
+        await run_in_threadpool(_send_lead_verification_email, data.contact_email, code)
     except Exception:
         logger.exception("Failed to send packing lead verification email")
 
-    # Best-effort internal notification -- a new visitor just came in. Must
-    # never block or fail the visitor's own submission.
-    try:
-        _send_lead_notification_email(lead, len(rooms_input), len(photos))
-    except Exception:
-        logger.exception("Failed to send packing lead notification email")
+    # The internal "new lead" notification is sent from verify-email, once
+    # the visitor has proven the address is theirs.
 
     return LeadSubmitResponse(token=token)
 
@@ -741,6 +803,12 @@ async def verify_lead_email(
 ):
     lead = _get_active_lead(db, token)
     now = _now()
+
+    # The code is single-use. Once verified, report where the lead stands
+    # instead of starting (and not counting) another analysis run -- retries
+    # go through /retry, which is capped.
+    if lead.verified_at is not None:
+        return LeadVerifyResponse(status=lead.status, error_message=lead.error_message)
 
     if lead.verification_attempts >= MAX_VERIFICATION_ATTEMPTS:
         raise HTTPException(
@@ -760,10 +828,24 @@ async def verify_lead_email(
         raise HTTPException(status_code=400, detail="Invalid or expired code.")
 
     lead.verified_at = now
+    lead.verification_code_hash = None  # single use
     lead.expires_at = now + timedelta(days=LEAD_VERIFIED_EXPIRY_DAYS)
     db.commit()
 
     result = _start_or_defer_analysis(db, lead, background_tasks)
+
+    # Best-effort internal notification, sent only for verified leads so an
+    # unverified submission can't make us email the team. Must never block
+    # or fail the visitor's own flow.
+    try:
+        rooms = lead.rooms_input or []
+        await run_in_threadpool(
+            _send_lead_notification_email,
+            lead, len(rooms), sum(len(r.get("photo_keys") or []) for r in rooms),
+        )
+    except Exception:
+        logger.exception("Failed to send packing lead notification email")
+
     return LeadVerifyResponse(**result)
 
 
@@ -928,6 +1010,18 @@ async def claim_lead(
             return LeadClaimResponse(tool_session_id=str(lead.claimed_tool_session_id))
         raise HTTPException(
             status_code=409, detail="This estimate has already been claimed.",
+        )
+
+    # The lead holds the requester's contact details and home photos: only
+    # the account registered with the verified email may take it.
+    if (current_user.email or "").strip().lower() != (lead.contact_email or "").strip().lower():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This estimate was requested with a different email address. "
+                "Please log in (or sign up) with the email you used on the "
+                "estimate form to open it."
+            ),
         )
 
     if lead.status != PackingLeadStatus.READY.value:

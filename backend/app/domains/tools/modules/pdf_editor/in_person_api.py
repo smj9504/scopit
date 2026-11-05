@@ -4,12 +4,18 @@ Scopit - In-person signing API  (prefix: /api/tools/pdf-editor/sign/in-person)
 For signing on the company's own phone or tablet with the signer there. See
 in_person.py for what a visit asks for and in_person_service.py for what
 signing saves.
+
+The employee's steps (documents, form, handoff) run on their own session.
+POST /handoff trades it for a kiosk token, and the signer's steps
+(/kiosk/...) accept that token only: this visit's documents and customer,
+with the company's answers fixed as they were handed over.
 """
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -19,12 +25,25 @@ from app.domains.tools.modules.pdf_editor.in_person import clean_email, role_lab
 from app.domains.tools.modules.pdf_editor.in_person_service import (
     MAX_DOCUMENTS,
     InPersonSignService,
+    KioskVisit,
+    kiosk_ended,
 )
 from app.domains.user.models import User
 
 router = APIRouter()
 
 _gate = require_tool_access("pdf_editor")
+_kiosk_bearer = HTTPBearer(auto_error=False)
+
+
+def _kiosk(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_kiosk_bearer),
+    db: Session = Depends(get_db),
+) -> KioskVisit:
+    """The handed-over visit a kiosk token names; never an employee's session"""
+    if not credentials:
+        raise kiosk_ended()
+    return InPersonSignService(db).kiosk_visit(credentials.credentials)
 
 
 # ── Requests ─────────────────────────────────────────────────────────────────
@@ -89,8 +108,39 @@ class EmailRequest(BaseModel):
     emails: list[str] = Field(..., min_length=1, max_length=5)
 
 
+class HandoffRequest(Subject):
+    document_ids: list[UUID] = Field(..., min_length=1, max_length=MAX_DOCUMENTS)
+    answers: dict[str, Optional[str]] = {}
+
+
+# The signer's requests name no documents or customer, and their answers only
+# count for the signer's own fields: the kiosk token decides the rest.
+
+
+class KioskPreviewRequest(BaseModel):
+    document_id: UUID
+    answers: dict[str, Optional[str]] = {}
+    today: Optional[str] = None
+
+
+class KioskSignRequest(BaseModel):
+    answers: dict[str, Optional[str]] = {}
+    today: Optional[str] = None
+    signers: list[Signer] = []
+    marks: dict[str, Mark] = {}
+    consent_agreed: bool = False
+    consent_text: Optional[str] = None
+
+
 def _new_customer(data: Subject) -> Optional[dict]:
     return data.new_customer.model_dump() if data.new_customer and not data.customer_id else None
+
+
+def _clean_emails(values: list[str]) -> list[str]:
+    emails = list(dict.fromkeys(e for e in (clean_email(x) for x in values) if e))
+    if not emails:
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    return emails
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -185,13 +235,75 @@ async def email_signed_copies(
     current_user: User = Depends(_gate),
 ):
     """Email a visit's signed PDFs together, one message per address"""
-    emails = list(dict.fromkeys(e for e in (clean_email(x) for x in data.emails) if e))
-    if not emails:
-        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    emails = _clean_emails(data.emails)
     sent = InPersonSignService(db).esign.email_signed_copies(
         current_user.company_id,
         list(dict.fromkeys(data.request_ids)),
         emails,
         actor_email=current_user.email,
     )
+    return {"emails": sent}
+
+
+# ── Handing the device over ──────────────────────────────────────────────────
+
+
+@router.post("/handoff")
+async def hand_over(
+    data: HandoffRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """The employee hands the device to the signer: checks the visit and
+    returns the kiosk token the signer's part runs on, with what it shows"""
+    return InPersonSignService(db).handoff(
+        company_id=current_user.company_id,
+        user=current_user,
+        document_ids=data.document_ids,
+        answers=data.answers,
+        customer_id=data.customer_id,
+        new_customer=_new_customer(data),
+    )
+
+
+@router.post("/kiosk/preview")
+async def kiosk_preview(
+    data: KioskPreviewRequest,
+    db: Session = Depends(get_db),
+    visit: KioskVisit = Depends(_kiosk),
+):
+    """One of the handed-over documents filled in, as a PDF. Nothing is saved."""
+    pdf = InPersonSignService(db).kiosk_preview(visit, data.document_id, data.answers, data.today)
+    return Response(content=pdf, media_type="application/pdf", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/kiosk/sign", status_code=201)
+async def kiosk_sign(
+    data: KioskSignRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    visit: KioskVisit = Depends(_kiosk),
+):
+    """The signer signs the handed-over documents"""
+    return InPersonSignService(db).kiosk_sign(
+        visit,
+        answers=data.answers,
+        today=data.today,
+        signers=[s.model_dump() for s in data.signers],
+        marks={role: mark.model_dump() for role, mark in data.marks.items()},
+        consent_agreed=data.consent_agreed,
+        consent_text=data.consent_text,
+        ip=request.client.host if request.client else "",
+        user_agent=request.headers.get("user-agent", ""),
+    )
+
+
+@router.post("/kiosk/email")
+async def kiosk_email(
+    data: EmailRequest,
+    db: Session = Depends(get_db),
+    visit: KioskVisit = Depends(_kiosk),
+):
+    """Email the signer the documents they just signed, in one message per address"""
+    sent = InPersonSignService(db).kiosk_email(visit, data.request_ids, _clean_emails(data.emails))
     return {"emails": sent}

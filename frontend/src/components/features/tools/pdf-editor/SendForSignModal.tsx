@@ -149,6 +149,10 @@ const EXPIRY_OPTIONS = [
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Match the server's limits (pdf_editor/schemas.py SignRequestCreate)
+const MAX_CC_BCC = 10;
+const MAX_SUBJECT_LENGTH = 200;
+const MAX_MESSAGE_LENGTH = 5000;
 
 /** "signer_1" -> "Signer 1" -- field templates store role as a slug. */
 function formatRoleLabel(role: string): string {
@@ -451,6 +455,10 @@ export default function SendForSignModal({
       );
       return;
     }
+    if (deliveryMethod === 'email_request' && ccEmails.length + bccEmails.length > MAX_CC_BCC) {
+      message.error(`Add at most ${MAX_CC_BCC} Cc/Bcc addresses in total`);
+      return;
+    }
     setCreatingDraft(true);
     try {
       // Going Back from step 3 and reviewing again must not leave the first
@@ -472,7 +480,7 @@ export default function SendForSignModal({
         })),
         customerId: customer?.customerId,
         deliveryMethod,
-        senderEmail: user?.email,
+        // The sender's address is always the signed-in user's (set server-side)
         senderName: user?.fullName || user?.email,
         emailSubject: emailSubject || undefined,
         emailMessage: emailMessage || undefined,
@@ -824,7 +832,7 @@ export default function SendForSignModal({
       )}
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textPrimary, fontFamily: fonts.body, marginBottom: 4 }}>Subject</label>
-        <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} style={{ fontFamily: fonts.body }} />
+        <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} maxLength={MAX_SUBJECT_LENGTH} style={{ fontFamily: fonts.body }} />
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: 'block', fontSize: fontSizes.sm, color: colors.textPrimary, fontFamily: fonts.body, marginBottom: 4 }}>
@@ -833,6 +841,7 @@ export default function SendForSignModal({
         <TextArea
           value={emailMessage}
           onChange={(e) => setEmailMessage(e.target.value)}
+          maxLength={MAX_MESSAGE_LENGTH}
           autoSize={{ minRows: 3, maxRows: 8 }}
           style={{ fontFamily: fonts.body }}
         />

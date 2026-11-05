@@ -15,6 +15,7 @@ import VerifyEmailStep from '@/components/auth/VerifyEmailStep';
 import { useResumePendingAction } from '@/hooks/useResumePendingAction';
 import { usePendingActionStore } from '@/stores/pendingActionStore';
 import type { VerifyEmailResponse } from '@/types/auth';
+import { googleSignInUrl } from '@/utils/googleSignIn';
 
 interface RegisterForm {
   email: string;
@@ -59,7 +60,7 @@ const RegisterPage: React.FC = () => {
     setGoogleWaking(false);
     try {
       await warmupBackend(() => setGoogleWaking(true));
-      window.location.href = `${API_URL}/auth/google`;
+      window.location.href = googleSignInUrl(API_URL);
     } catch {
       message.error('The server is taking longer than usual to start. Please try again in a moment.');
       setGoogleLoading(false);

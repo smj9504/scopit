@@ -4,7 +4,7 @@ Scopit - Settings Schemas
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 
 # ===================
 # EstimateStatusConfig Schemas
@@ -24,12 +24,14 @@ class EstimateStatusConfigCreate(EstimateStatusConfigBase):
 
 
 class EstimateStatusConfigUpdate(BaseModel):
+    # is_active is deliberately not updatable here: deactivating goes through
+    # DELETE, which refuses the system "converted" status and the default /
+    # last remaining status. (Extra fields are ignored.)
     label: Optional[str] = None
     color: Optional[str] = None
     bg_color: Optional[str] = None
     is_default: Optional[bool] = None
     order_index: Optional[int] = None
-    is_active: Optional[bool] = None
 
 
 class EstimateStatusConfigResponse(EstimateStatusConfigBase):
@@ -67,12 +69,14 @@ class InvoiceStatusConfigCreate(InvoiceStatusConfigBase):
 
 
 class InvoiceStatusConfigUpdate(BaseModel):
+    # is_active is deliberately not updatable here: deactivating goes through
+    # DELETE, which refuses the system "converted" status and the default /
+    # last remaining status. (Extra fields are ignored.)
     label: Optional[str] = None
     color: Optional[str] = None
     bg_color: Optional[str] = None
     is_default: Optional[bool] = None
     order_index: Optional[int] = None
-    is_active: Optional[bool] = None
 
 
 class InvoiceStatusConfigResponse(InvoiceStatusConfigBase):
@@ -135,7 +139,8 @@ class LineItemCategoryListResponse(BaseModel):
 # ===================
 
 class ReorderRequest(BaseModel):
-    item_ids: List[str]
+    # The settings page sends {"ids": [...]}; accept the documented name too.
+    item_ids: List[str] = Field(validation_alias=AliasChoices("item_ids", "ids"), max_length=500)
 
 
 # ===================

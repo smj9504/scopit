@@ -8,6 +8,7 @@ endpoints for the PDF Editor tool.
 """
 import base64
 import io
+import logging
 import tempfile
 from typing import Optional
 from uuid import UUID
@@ -25,6 +26,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.safe_text import content_disposition
 from app.core.storage import get_storage
 from app.domains.tools.dependencies import require_tool_access
 from app.domains.tools.modules.pdf_editor.field_registry import get_available_fields
@@ -48,6 +50,8 @@ from app.domains.tools.modules.pdf_editor.schemas import (
 )
 from app.domains.tools.modules.pdf_editor.service import PdfEditorService
 from app.domains.user.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 _gate = require_tool_access("pdf_editor")
@@ -383,9 +387,7 @@ async def download_document(
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_name}"',
-        },
+        headers={"Content-Disposition": content_disposition(safe_name)},
     )
 
 
@@ -467,9 +469,10 @@ async def get_page_image(
         finally:
             os.unlink(tmp_path)
     except Exception as exc:
+        logger.exception("Rendering page %s of document %s failed", page_num, document_id)
         raise HTTPException(
             status_code=503,
-            detail=f"Page rendering is unavailable: {exc}",
+            detail="This page couldn't be shown right now. Please try again.",
         ) from exc
 
     if not images:
@@ -810,9 +813,7 @@ async def protect_document(
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{base} (protected).pdf"',
-        },
+        headers={"Content-Disposition": content_disposition(f"{base} (protected).pdf")},
     )
 
 
@@ -862,9 +863,7 @@ async def flatten_document(
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{flat_name}"',
-        },
+        headers={"Content-Disposition": content_disposition(flat_name)},
     )
 
 

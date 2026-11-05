@@ -11,9 +11,12 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+LOGO_DATA_URL_RE = re.compile(r"^data:image/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=\s]+$")
+# ~2 MB of image as base64
+MAX_LOGO_DATA_URL_CHARS = 2 * 1024 * 1024 * 4 // 3 + 100
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_manager
 from app.domains.company.models import Company
 from app.domains.user.models import User
 
@@ -153,6 +156,19 @@ class CompanyUpdate(BaseModel):
             raise ValueError('Color must be a 6-digit hex value, e.g. #111827')
         return v
 
+    @field_validator('logo_url')
+    @classmethod
+    def validate_logo(cls, v):
+        # The logo is rendered into PDFs, which only load inline images
+        # (see core/pdf_generator.py), so accept an inline image or nothing.
+        if v is None or v == "":
+            return v
+        if not LOGO_DATA_URL_RE.match(v):
+            raise ValueError('Logo must be an uploaded PNG, JPEG, GIF or WebP image')
+        if len(v) > MAX_LOGO_DATA_URL_CHARS:
+            raise ValueError('Logo image is too large (max 2 MB)')
+        return v
+
 
 # ===================
 # API Endpoints
@@ -175,7 +191,7 @@ async def get_company(
 @router.put("", response_model=CompanyResponse)
 async def update_company(
     data: CompanyUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """Update company settings"""

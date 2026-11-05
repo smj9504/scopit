@@ -103,11 +103,15 @@ api.interceptors.response.use(
     isRefreshing = true;
 
     try {
+      // The API takes and returns snake_case. (This used to send
+      // `refreshToken`/read `accessToken`, so every refresh failed and users
+      // were signed out whenever the access token expired.)
       const response = await axios.post(`${API_URL}/auth/refresh`, {
-        refreshToken,
+        refresh_token: refreshToken,
       });
 
-      const { accessToken } = response.data;
+      const accessToken: string = response.data.access_token;
+      if (!accessToken) throw new Error('Refresh response had no access token');
 
       // Update store with new token
       useAuthStore.getState().setAccessToken(accessToken);

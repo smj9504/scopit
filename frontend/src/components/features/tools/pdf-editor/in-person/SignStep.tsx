@@ -12,6 +12,8 @@
  * A signer draws their signature (and initials) once: the first line opens
  * the pad, and every other line of theirs, on any document, takes the same
  * mark with a tap -- the same mark the signed PDF puts on all of them.
+ *
+ * This runs on the handed-over device, on the visit's kiosk token only.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, Input, Skeleton } from 'antd';
@@ -20,19 +22,17 @@ import { useQuery } from '@tanstack/react-query';
 import * as pdfjsLib from 'pdfjs-dist';
 import '../pdfWorker';
 import { getErrorMessage } from '@/services/api';
-import { useAuthStore } from '@/stores/authStore';
 import SignatureCaptureModal, { type SignMode, useSignatureFonts } from '../SignatureCaptureModal';
 import {
   CONSENT_TEXT,
-  inPersonApi,
   type Answers,
   type FormDocument,
   type InPersonForm,
   type Mark,
   type SignLine,
   type SignedVisit,
-  type Subject,
 } from './inPersonApi';
+import { isKioskEnded, type KioskClient } from './kioskApi';
 import { ActionBar } from './ui';
 
 interface RenderedPage {
@@ -90,7 +90,7 @@ interface CapturedMark {
 const DocumentPages: React.FC<{
   doc: FormDocument;
   active: boolean;
-  subject: Subject;
+  client: KioskClient;
   answers: Answers;
   today: string;
   lineText: (line: SignLine, compact?: boolean) => string;
@@ -99,20 +99,26 @@ const DocumentPages: React.FC<{
   disabled: boolean;
   onLine: (line: SignLine) => void;
   onState: (state: PreviewState) => void;
-}> = ({ doc, active, subject, answers, today, lineText, markOf, flash, disabled, onLine, onState }) => {
+  onEnded: () => void;
+}> = ({ doc, active, client, answers, today, lineText, markOf, flash, disabled, onLine, onState, onEnded }) => {
   const preview = useQuery({
-    queryKey: ['in-person-preview', doc.id, subject, answers, today],
-    queryFn: async () => renderPdf(await inPersonApi.preview(subject, doc.id, answers, today)),
+    queryKey: ['in-person-kiosk-preview', client.key, doc.id, answers, today],
+    queryFn: async () => renderPdf(await client.preview(doc.id, answers, today)),
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    retry: 1,
+    retry: (count, error) => count < 1 && !isKioskEnded(error),
   });
 
   const state: PreviewState = preview.isSuccess ? 'ready' : preview.isError ? 'failed' : 'loading';
   const report = useRef(onState);
   report.current = onState;
   useEffect(() => { report.current(state); }, [state]);
+  const ended = useRef(onEnded);
+  ended.current = onEnded;
+  useEffect(() => {
+    if (preview.isError && isKioskEnded(preview.error)) ended.current();
+  }, [preview.isError, preview.error]);
 
   return (
     <section hidden={!active} aria-label={doc.name}>
@@ -167,22 +173,24 @@ const DocumentPages: React.FC<{
 
 interface SignStepProps {
   form: InPersonForm;
-  subject: Subject;
+  /** The visit's kiosk-token client */
+  client: KioskClient;
   answers: Answers;
   today: string;
-  /** Which document is on screen; it lives in the URL so Back steps through them */
+  /** Who handed over the device, for "That's me" on a line they sign */
+  staff: { name: string; email: string } | null;
+  /** Which document is on screen */
   docIndex: number;
   onDoc: (index: number) => void;
-  isPhone: boolean;
-  onBack: () => void;
   onSigned: (result: SignedVisit) => void;
+  /** The kiosk token stopped working */
+  onEnded: () => void;
 }
 
 const SignStep: React.FC<SignStepProps> = ({
-  form, subject, answers, today, docIndex, onDoc, isPhone, onBack, onSigned,
+  form, client, answers, today, staff, docIndex, onDoc, onSigned, onEnded,
 }) => {
   useSignatureFonts();
-  const user = useAuthStore((s) => s.user);
   const { documents, signers } = form;
   const several = documents.length > 1;
   const current = Math.min(Math.max(docIndex, 0), documents.length - 1);
@@ -276,21 +284,23 @@ const SignStep: React.FC<SignStepProps> = ({
           ...(initials ? { initials: initials.image } : {}),
         };
       });
-      const result = await inPersonApi.sign({
-        subject,
-        documentIds: documents.map((doc) => doc.id),
+      const result = await client.sign({
         answers,
         today,
         signers: signers.map(({ role }, index) => ({
           role,
           name: (names[role] ?? '').trim(),
-          email: me === role ? user?.email : index === 0 ? customerEmail || undefined : undefined,
+          email: me === role ? staff?.email : index === 0 ? customerEmail || undefined : undefined,
         })),
         marks: byRole,
         consentText,
       });
       onSigned(result);
     } catch (err) {
+      if (isKioskEnded(err)) {
+        onEnded();
+        return;
+      }
       setSubmitError(getErrorMessage(err) || "Couldn't save the signatures. Check your connection and try again.");
       setSubmitting(false);
     }
@@ -390,7 +400,7 @@ const SignStep: React.FC<SignStepProps> = ({
           key={doc.id}
           doc={doc}
           active={index === current}
-          subject={subject}
+          client={client}
           answers={answers}
           today={today}
           lineText={lineText}
@@ -399,6 +409,7 @@ const SignStep: React.FC<SignStepProps> = ({
           disabled={submitting}
           onLine={(line) => tapLine(doc, line)}
           onState={(state) => setStates((prev) => (prev[doc.id] === state ? prev : { ...prev, [doc.id]: state }))}
+          onEnded={onEnded}
         />
       ))}
 
@@ -415,12 +426,12 @@ const SignStep: React.FC<SignStepProps> = ({
                   <label id={`${id}-label`} className="ip-signer-role" htmlFor={id}>
                     {signers.length > 1 ? `${signer.label}'s full name` : 'Full name'}
                   </label>
-                  {user?.fullName && me !== signer.role && !name && (
+                  {staff?.name && me !== signer.role && !name && (
                     <Button
                       type="link"
                       size="small"
                       onClick={() => {
-                        setNames((prev) => ({ ...prev, [signer.role]: user.fullName }));
+                        setNames((prev) => ({ ...prev, [signer.role]: staff.name }));
                         setMe(signer.role);
                       }}
                     >
@@ -437,7 +448,7 @@ const SignStep: React.FC<SignStepProps> = ({
                   onChange={(e) => {
                     const value = e.target.value;
                     setNames((prev) => ({ ...prev, [signer.role]: value }));
-                    if (me === signer.role && value.trim() !== user?.fullName) setMe(null);
+                    if (me === signer.role && value.trim() !== staff?.name) setMe(null);
                   }}
                 />
                 <div className="ip-marks">
@@ -472,7 +483,6 @@ const SignStep: React.FC<SignStepProps> = ({
       )}
 
       <ActionBar text={guide.text}>
-        {isPhone && <Button size="large" disabled={submitting} onClick={onBack}>Back</Button>}
         {guide.button}
       </ActionBar>
 

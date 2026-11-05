@@ -1727,8 +1727,11 @@ export const PhotoAITab: React.FC<PhotoAITabProps> = ({
         // keys analysis and reports can't re-fetch them later — so say so
         // rather than failing silently at some later step.
         console.error('Photo upload failed', err);
+        // The server explains rejected photos (e.g. too large, not an image).
+        const reason = (err as any)?.response?.data?.detail;
         message.warning(
-          'Photos added, but could not be saved to storage. They may not persist.',
+          'Photos added, but could not be saved to storage. They may not persist.' +
+            (typeof reason === 'string' ? ` ${reason}` : ''),
         );
       });
 

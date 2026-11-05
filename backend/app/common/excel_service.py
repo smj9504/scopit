@@ -4,6 +4,7 @@ Shared service for generating Excel templates and parsing uploaded Excel files
 for both estimates and invoices.
 """
 from decimal import Decimal, InvalidOperation
+import zipfile
 from io import BytesIO
 from typing import Literal
 
@@ -26,6 +27,27 @@ COLUMNS = [
 ]
 
 VALID_UNITS = ["EA", "SF", "LF", "SQ", "HR", "DAY", "LOT"]
+
+# Import limits. An .xlsx is a zip of XML: a few MB upload can declare
+# hundreds of MB of sheet data, and openpyxl builds every cell in memory.
+MAX_IMPORT_UNCOMPRESSED_BYTES = 40 * 1024 * 1024
+MAX_IMPORT_ROWS = 5000
+
+
+def _check_xlsx_size(file_bytes: bytes) -> None:
+    try:
+        with zipfile.ZipFile(BytesIO(file_bytes)) as zf:
+            total = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Excel file. Please upload a valid .xlsx file.",
+        )
+    if total > MAX_IMPORT_UNCOMPRESSED_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="This spreadsheet is too large to import. Please split it into smaller files.",
+        )
 
 
 def generate_template(document_type: Literal["estimate", "invoice"]) -> BytesIO:
@@ -67,6 +89,7 @@ def parse_excel_file(file_bytes: bytes) -> dict:
             "total_items": int,
         }
     """
+    _check_xlsx_size(file_bytes)
     try:
         wb = load_workbook(BytesIO(file_bytes), data_only=True)
     except Exception:
@@ -229,6 +252,11 @@ def _parse_items_sheet(ws) -> dict:
     max_col = max(col_map.values())
 
     # Parse data rows
+    if ws.max_row - header_row > MAX_IMPORT_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many rows to import (max {MAX_IMPORT_ROWS}).",
+        )
     for row_idx in range(header_row + 1, ws.max_row + 1):
         row_values = [ws.cell(row=row_idx, column=c).value for c in range(1, max_col + 1)]
         if all(v is None or str(v).strip() == "" for v in row_values):

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.dependencies import get_superuser
 from app.domains.tools.dependencies import require_tool_access
 
 from .indexer import ItemIndex
@@ -128,7 +129,8 @@ async def search_items(
 
 @router.post("/reindex")
 async def force_reindex(
-    current_user=Depends(_gate),
+    # Rebuilds the shared index for every company (CPU/RAM heavy): staff only.
+    current_user=Depends(get_superuser),
 ):
     """Force a full re-index of all JSON data files."""
     _ensure_enabled()

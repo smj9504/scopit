@@ -1,7 +1,7 @@
 """
 Scopit - Tool Models
 """
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -33,6 +33,26 @@ class ToolSession(Base):
     __table_args__ = (
         # Composite index for common query: sessions per company + tool
         # Defined via Index import if needed, but (company_id, tool_id) individual indexes suffice
+    )
+
+
+class AIUsageEvent(Base):
+    """One billable AI call (or batch), counted against a company's daily quota.
+
+    Rows are written before the model is called, so a crash mid-analysis
+    still counts. See app/domains/tools/usage.py.
+    """
+    __tablename__ = "ai_usage_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    tool_id = Column(String(50), nullable=False)
+    units = Column(Integer, nullable=False)  # rooms sent to the vision model
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_ai_usage_events_company_created", "company_id", "created_at"),
     )
 
 

@@ -18,6 +18,23 @@ import type {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
 
+/**
+ * The server's error message for a failed file export, or `fallback`.
+ * Export requests use responseType 'blob', so an error body (e.g. a 429
+ * "too many exports" or a 400 about a photo) arrives as a Blob, not JSON.
+ */
+export async function exportErrorMessage(err: unknown, fallback: string): Promise<string> {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  try {
+    const parsed = data instanceof Blob ? JSON.parse(await data.text()) : data;
+    const detail = (parsed as { detail?: unknown })?.detail;
+    if (typeof detail === 'string' && detail) return detail;
+  } catch {
+    /* not JSON — use the fallback */
+  }
+  return fallback;
+}
+
 export const packingApi = {
   // ── Quick Estimate ────────────────────────────────────────────────────────
   quickEstimate: async (data: QuickEstimateRequest): Promise<EstimateResponse> => {
@@ -159,12 +176,6 @@ export const packingApi = {
       { timeout: 120_000 },
     );
     return response.data.photo_keys;
-  },
-
-  getPhotoUrl: (key: string): string => {
-    const token = useAuthStore.getState().accessToken;
-    const base = `${API_URL}/tools/packing/photos/${key}`;
-    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   },
 
   /** Fetch a photo as blob URL (authenticated). Use for <img src>. */

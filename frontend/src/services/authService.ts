@@ -2,6 +2,7 @@
  * Scopit - Auth Service
  */
 import api from './api';
+import { useAuthStore } from '@/stores/authStore';
 import type {
   LoginRequest,
   LoginResponse,
@@ -71,6 +72,32 @@ export const authService = {
       code: data.code,
     });
     // Convert snake_case to camelCase
+    return {
+      accessToken: response.data.access_token,
+      refreshToken: response.data.refresh_token,
+      user: {
+        id: response.data.user.id,
+        email: response.data.user.email,
+        fullName: response.data.user.full_name || '',
+        phone: response.data.user.phone,
+        avatarUrl: response.data.user.avatar_url,
+        companyId: response.data.user.company_id || '',
+        role: response.data.user.role,
+        isActive: response.data.user.is_active,
+        isSuperuser: response.data.user.is_superuser,
+        defaultPdfTemplate: response.data.user.default_pdf_template || 'classic',
+        hasPassword: response.data.user.has_password,
+        createdAt: response.data.user.created_at,
+      },
+    };
+  },
+
+  /**
+   * Redeem the one-time code from the Google sign-in callback for tokens.
+   * `state` must be the value this tab generated before leaving for Google.
+   */
+  googleExchange: async (code: string, state: string): Promise<LoginResponse> => {
+    const response = await api.post<any>('/auth/google/exchange', { code, state });
     return {
       accessToken: response.data.access_token,
       refreshToken: response.data.refresh_token,
@@ -162,19 +189,27 @@ export const authService = {
    * Change password
    */
   changePassword: async (data: { currentPassword: string; newPassword: string }): Promise<void> => {
-    await api.post('/auth/me/change-password', {
+    const response = await api.post<any>('/auth/me/change-password', {
       current_password: data.currentPassword,
       new_password: data.newPassword,
     });
+    // Changing the password signs out every other device; keep this one
+    // signed in with the fresh tokens the server returns.
+    if (response.data?.access_token && response.data?.refresh_token) {
+      useAuthStore.getState().setTokens(response.data.access_token, response.data.refresh_token);
+    }
   },
 
   /**
    * Set a password for an OAuth account that doesn't have one yet
    */
   setPassword: async (data: { newPassword: string }): Promise<void> => {
-    await api.post('/auth/me/set-password', {
+    const response = await api.post<any>('/auth/me/set-password', {
       new_password: data.newPassword,
     });
+    if (response.data?.access_token && response.data?.refresh_token) {
+      useAuthStore.getState().setTokens(response.data.access_token, response.data.refresh_token);
+    }
   },
 
   /**

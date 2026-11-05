@@ -6,6 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_
@@ -16,7 +17,10 @@ CURRENCY_PRECISION = Decimal('0.01')
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.email import email_service
+from app.core.config import settings as app_settings
+from app.core.email import clean_recipients, email_service
+from app.core.rate_limit import enforce_rate_limit
+from app.core.safe_text import content_disposition
 from app.core.pdf_generator import (
     DEFAULT_TEMPLATE,
     format_currency,
@@ -54,10 +58,10 @@ class StatusUpdateRequest(BaseModel):
 
 
 class SendInvoiceRequest(BaseModel):
-    to_email: Optional[str] = Field(default=None, alias="toEmail")
-    cc_emails: List[str] = Field(default_factory=list, alias="ccEmails")
-    message: Optional[str] = None
-    template: Optional[str] = None
+    to_email: Optional[str] = Field(default=None, alias="toEmail", max_length=320)
+    cc_emails: List[str] = Field(default_factory=list, alias="ccEmails", max_length=50)
+    message: Optional[str] = Field(default=None, max_length=5000)
+    template: Optional[str] = Field(default=None, max_length=50)
 
     model_config = {"populate_by_name": True}
 
@@ -549,14 +553,15 @@ async def download_invoice_excel_template():
 @router.post("/import-excel")
 async def parse_invoice_excel(
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
 ):
     """Parse uploaded Excel file and return preview data for invoice import"""
     from app.common.excel_service import parse_excel_file
 
-    if not file.filename.endswith((".xlsx", ".xls")):
+    if not (file.filename or "").lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Please upload an Excel file (.xlsx)")
 
-    contents = await file.read()
+    contents = await file.read(5 * 1024 * 1024 + 1)  # never buffer more than the limit
     if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB.")
 
@@ -609,8 +614,23 @@ async def create_invoice(
     customer_state = data.customer_state
     customer_zipcode = data.customer_zipcode
 
+    if data.estimate_id:
+        # Only link an estimate this company owns
+        from app.domains.estimate.models import Estimate as _Estimate
+        linked = db.query(_Estimate.id).filter(
+            _Estimate.id == data.estimate_id,
+            _Estimate.company_id == current_user.company_id,
+        ).first()
+        if not linked:
+            raise HTTPException(status_code=400, detail="Estimate not found")
+
     if data.customer_id:
-        customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
+        customer = db.query(Customer).filter(
+            Customer.id == data.customer_id,
+            Customer.company_id == current_user.company_id,
+        ).first()
+        if not customer:
+            raise HTTPException(status_code=400, detail="Customer not found")
         if customer:
             customer_name = customer.name
             customer_email = customer.email
@@ -724,7 +744,12 @@ async def update_invoice(
     customer_zipcode = data.customer_zipcode
 
     if data.customer_id:
-        customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
+        customer = db.query(Customer).filter(
+            Customer.id == data.customer_id,
+            Customer.company_id == current_user.company_id,
+        ).first()
+        if not customer:
+            raise HTTPException(status_code=400, detail="Customer not found")
         if customer:
             customer_name = customer.name
             customer_email = customer.email
@@ -1040,14 +1065,25 @@ async def send_invoice(
             detail="Email sending is not configured. Contact support.",
         )
 
+    to_email, cc_emails = clean_recipients(to_email, data.cc_emails)
+    # Shared per-company budget for customer-facing email (also used by e-sign)
+    enforce_rate_limit(
+        f"email-send:{current_user.company_id}",
+        app_settings.EMAIL_SENDS_PER_COMPANY_PER_HOUR,
+        3600,
+        "You've sent a lot of emails in the last hour. Please try again later.",
+    )
+
     # Generate the PDF exactly as the download endpoint does
     template_name = data.template or current_user.default_pdf_template or DEFAULT_TEMPLATE
     pdf_data = _prepare_invoice_pdf_data(invoice, company, db)
-    pdf_bytes = generate_invoice_pdf(pdf_data, template_name)
+    # PDF rendering and SMTP are blocking; keep them off the event loop
+    pdf_bytes = await run_in_threadpool(generate_invoice_pdf, pdf_data, template_name)
 
     customer_name = invoice.customer.name if invoice.customer else (invoice.customer_name or "Customer")
 
-    sent = email_service.send_document_email(
+    sent = await run_in_threadpool(
+        email_service.send_document_email,
         to_email=to_email,
         document_type="invoice",
         document_number=invoice.invoice_number or "",
@@ -1059,7 +1095,7 @@ async def send_invoice(
         sender_name=current_user.full_name,
         sender_email=current_user.email,
         message=data.message,
-        cc_emails=data.cc_emails,
+        cc_emails=cc_emails,
     )
 
     if not sent:
@@ -1461,7 +1497,8 @@ async def get_invoice_pdf(
     pdf_data = _prepare_invoice_pdf_data(invoice, company, db)
 
     # Generate PDF
-    pdf_bytes = generate_invoice_pdf(pdf_data, template_name)
+    # PDF rendering and SMTP are blocking; keep them off the event loop
+    pdf_bytes = await run_in_threadpool(generate_invoice_pdf, pdf_data, template_name)
 
     # Build filename with address
     customer_name = invoice.customer.name if invoice.customer else (invoice.customer_name or "Customer")
@@ -1483,7 +1520,7 @@ async def get_invoice_pdf(
         content=pdf_bytes.read(),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": content_disposition(filename)
         }
     )
 
@@ -1677,7 +1714,7 @@ async def get_payment_receipt_pdf(
     receipt_data = _prepare_receipt_pdf_data(invoice, payment, company, previously_paid, db)
 
     # Generate PDF
-    pdf_bytes = generate_receipt_pdf(receipt_data, template_name)
+    pdf_bytes = await run_in_threadpool(generate_receipt_pdf, receipt_data, template_name)
 
     # Build filename
     customer_name = invoice.customer.name if invoice.customer else (invoice.customer_name or "Customer")
@@ -1690,6 +1727,6 @@ async def get_payment_receipt_pdf(
         content=pdf_bytes.read(),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": content_disposition(filename)
         }
     )

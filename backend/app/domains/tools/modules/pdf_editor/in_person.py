@@ -4,7 +4,9 @@ Scopit - In-person signing: what a visit asks for
 Signing in person skips sending a link. Someone at the company picks the
 customer and one or more documents on their own phone or tablet, fills in
 what the documents need, and hands the device to the signer. Nothing is saved
-until the signer signs.
+until the signer signs. Handing over signs the employee out on the device:
+the signer's part runs on a kiosk token that fixes what the company filled in
+(see in_person_service.py).
 
 The documents' field mappings say what to ask:
 - a field filled from the customer's record is asked with the record's value
@@ -174,6 +176,23 @@ def clean_answers(answers: Optional[dict], questions: Iterable[dict]) -> dict[st
         value = given.get(key, question.get("value"))
         cleaned[key] = str(value).strip() if value is not None else ""
     return cleaned
+
+
+def handed_over_answers(
+    questions: Iterable[dict], fixed: dict, given: Optional[dict]
+) -> dict[str, str]:
+    """The answers once the device is handed to the signer: what the company
+    filled in stays exactly as it was handed over (`fixed`); only a signer's
+    own fields ("Signer fills in") may come from the device (`given`)."""
+    given = given or {}
+    merged: dict[str, str] = {}
+    for question in questions:
+        key = question["key"]
+        if question.get("role") and key in given:
+            merged[key] = given[key]
+        elif key in fixed:
+            merged[key] = fixed[key]
+    return merged
 
 
 def is_checked(value: Optional[str]) -> bool:
