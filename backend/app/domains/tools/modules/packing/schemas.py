@@ -140,9 +140,19 @@ class RoomOutput(BaseModel):
 # ESTIMATE REQUEST/RESPONSE
 # ============================================
 
+_PACK_OUT_DAYS_DESC = (
+    "Days the pack-out visit is split over, as the estimator schedules it; "
+    "omit to size it by 8-hr workdays. Each day after the first adds crew "
+    "time for setup and end-of-day securing."
+)
+_PACK_BACK_DAYS_DESC = "As pack_out_days, for the pack-back visit."
+
+
 class QuickEstimateRequest(BaseModel):
     rooms: List[RoomInput]
     crew_size: int = Field(default=4, ge=2, le=6)
+    pack_out_days: Optional[int] = Field(default=None, ge=1, le=30, description=_PACK_OUT_DAYS_DESC)
+    pack_back_days: Optional[int] = Field(default=None, ge=1, le=30, description=_PACK_BACK_DAYS_DESC)
     storage_months: int = Field(default=1, ge=0, le=12)
     staging_type: StagingType = Field(default=StagingType.OFF_SITE)
     include_packback: bool = Field(default=True)
@@ -204,14 +214,19 @@ class EstimateResponse(BaseModel):
     crew_size: int
     # Scheduling / logistics quantities the editor can adjust by hand.
     # work_days = workdays the longest site visit spans: pack-out and pack-back
-    # are separate visits, each ceil(its elapsed crew hours / 8-hr workday).
-    # Reported so the editor can offer per-work-day van billing, which is an
-    # opt-in and NOT applied here.
+    # are separate visits, each the estimator's day count when set
+    # (pack_out_days / pack_back_days) or else ceil(its elapsed crew work
+    # hours / 8-hr workday). Reported so the editor can offer per-work-day van
+    # billing, which is an opt-in and NOT applied here.
+    # pack_out_days / pack_back_days are the estimator-set day counts (None =
+    # sized from the hours); the editor changes them after calculation.
     # truck_trips is the moving-van DY quantity, driven by load capacity alone
     # (0 for on-site jobs). truck_capacity_trips records that same calculated
     # figure permanently: the editor overwrites truck_trips when the user opts
     # in, and needs an untouched anchor to restore from when they opt back out.
     work_days: int = 1
+    pack_out_days: Optional[int] = None
+    pack_back_days: Optional[int] = None
     truck_trips: int = 0
     truck_capacity_trips: int = 0
 
@@ -352,6 +367,8 @@ class RoomContentInput(BaseModel):
 class RoomsEstimateRequest(BaseModel):
     rooms: List[RoomContentInput]
     crew_size: int = Field(default=4, ge=2, le=6)
+    pack_out_days: Optional[int] = Field(default=None, ge=1, le=30, description=_PACK_OUT_DAYS_DESC)
+    pack_back_days: Optional[int] = Field(default=None, ge=1, le=30, description=_PACK_BACK_DAYS_DESC)
     storage_months: int = Field(default=1, ge=0, le=12)
     staging_type: StagingType = Field(default=StagingType.OFF_SITE)
     include_packback: bool = Field(default=True)

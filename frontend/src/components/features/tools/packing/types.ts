@@ -80,6 +80,9 @@ export interface CustomSpecialItem {
 export interface QuickEstimateRequest {
   rooms: RoomInput[];
   crew_size: number;
+  /** Days to split the pack-out / pack-back visit over; omit to size by 8-hr workdays. */
+  pack_out_days?: number | null;
+  pack_back_days?: number | null;
   storage_months: number;
   staging_type: StagingType;
   include_packback: boolean;
@@ -141,8 +144,14 @@ export interface EstimateResponse {
   total_hours: number;
   crew_size: number;
   /** Workdays the longest site visit spans: pack-out and pack-back are
-   * separate visits, each ceil(its elapsed crew hours / 8-hr workday). */
+   * separate visits, each the estimator's day count when set, else
+   * ceil(its elapsed crew work hours / 8-hr workday). */
   work_days?: number;
+  /** Estimator-set day count of the pack-out visit (null/absent = sized from
+   * its hours). Every day after the first bills a multi-day setup line. */
+  pack_out_days?: number | null;
+  /** As pack_out_days, for the pack-back visit. */
+  pack_back_days?: number | null;
   /** Moving-van DY quantity as calculated (load capacity only). 0 for on-site
    * jobs. The editor overwrites this when the user opts into per-work-day
    * billing. */
@@ -250,6 +259,9 @@ export type MaterialsMode = 'pct_of_labor' | 'itemized';
 export interface ContentEstimateRequest {
   rooms: ContentRoomInput[];
   crew_size: number;
+  /** Days to split the pack-out / pack-back visit over; omit to size by 8-hr workdays. */
+  pack_out_days?: number | null;
+  pack_back_days?: number | null;
   storage_months: number;
   staging_type: StagingType;
   include_packback: boolean;

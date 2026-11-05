@@ -131,41 +131,138 @@ function sumCrewElapsedHours(lines: SectionDetailLine[]): number {
     .reduce((s, l) => s + l.qty, 0);
 }
 
+// Mirrors of the backend's scheduling constants (service.py).
 const WORKDAY_HOURS = 8;
+/** Crew hours each day after the first adds to a visit (DAY_RESTART_HOURS). */
+const DAY_RESTART_HOURS = 0.5;
+/** The backend's MULTI_DAY_LINE_NAME: the line billing a visit's added days. */
+const MULTI_DAY_LINE_NAME = 'Multi-Day Setup & Securing';
+/** Sections whose crew lines are each visit's on-site work. Reassembly is
+ * billed in its own section but happens on the pack-back visit. */
+const PACK_OUT_VISIT_SECTIONS = ['Pack-Out Labor'];
+const PACK_BACK_VISIT_SECTIONS = ['Pack-Back Labor', 'Furniture Assembly'];
+/** The labor section that carries each visit's multi-day line. */
+const VISIT_LABOR_SECTION = { out: 'Pack-Out Labor', back: 'Pack-Back Labor' } as const;
+type Visit = keyof typeof VISIT_LABOR_SECTION;
+
+type SectionDetails = Record<string, { lines: SectionDetailLine[] }>;
+type ScheduleSource = Pick<EstimateResponse, 'section_details' | 'pack_out_days' | 'pack_back_days'>;
+
+function isMultiDayLine(line: SectionDetailLine): boolean {
+  return line.name === MULTI_DAY_LINE_NAME;
+}
 
 function workDaysFor(hours: number): number {
   return Math.max(1, Math.ceil(hours / WORKDAY_HOURS));
 }
 
-/** Elapsed crew hours and workdays of each site visit. Pack-out and pack-back
- * are separate visits (pack-back follows the repairs, often weeks later), so
- * each is scheduled on its own hours — never their sum, and never
- * person-hours: a 4-person crew on site for 6 hrs is one 6-hr day. Mirrors the
- * backend's site_visit_hours() / visit_work_days(). */
-function visitSchedule(
-  sectionDetails: Record<string, { lines: SectionDetailLine[] }> | undefined,
-) {
+/** Workdays one visit takes: the estimator's figure when set, otherwise
+ * enough 8-hr days for its hours; none for a visit with no hours. Mirrors the
+ * backend's visit_days(). */
+function visitDays(hours: number, override?: number | null): number {
+  if (hours <= 0) return 0;
+  if (override) return Math.max(1, Math.round(override));
+  return workDaysFor(hours);
+}
+
+/** Crew hours a visit's added days bill (the backend's restart_hours()). */
+function restartHours(days: number): number {
+  return Math.round(Math.max(0, days - 1) * DAY_RESTART_HOURS * 2) / 2;
+}
+
+/** Work hours, day count and on-site hours of each site visit. Pack-out and
+ * pack-back are separate visits (pack-back follows the repairs, often weeks
+ * later), so each is scheduled on its own hours — never their sum, and never
+ * person-hours: a 4-person crew on site for 6 hrs is one 6-hr day. The
+ * multi-day line is left out of the work: it follows from the day count.
+ * Mirrors the backend's site_visit_hours() / visit_days(). */
+function visitSchedule(source: ScheduleSource | null | undefined) {
+  const details = source?.section_details;
   const round1 = (n: number) => Math.round(n * 10) / 10;
-  const poHours = round1(sumCrewElapsedHours(sectionDetails?.['Pack-Out Labor']?.lines ?? []));
-  const pbHours = round1(sumCrewElapsedHours(sectionDetails?.['Pack-Back Labor']?.lines ?? []));
-  const poDays = workDaysFor(poHours);
-  const pbDays = pbHours > 0 ? workDaysFor(pbHours) : 0;
-  return { poHours, pbHours, poDays, pbDays, multiDay: poDays > 1 || pbDays > 1 };
+  const workHours = (sections: string[]) =>
+    round1(
+      sections.reduce(
+        (s, name) =>
+          s + sumCrewElapsedHours((details?.[name]?.lines ?? []).filter((l) => !isMultiDayLine(l))),
+        0,
+      ),
+    );
+  const poHours = workHours(PACK_OUT_VISIT_SECTIONS);
+  const pbHours = workHours(PACK_BACK_VISIT_SECTIONS);
+  const poDays = Math.max(1, visitDays(poHours, source?.pack_out_days));
+  const pbDays = visitDays(pbHours, source?.pack_back_days);
+  return {
+    poHours,
+    pbHours,
+    poDays,
+    pbDays,
+    /** The day counts the hours alone give — what "Auto" stands for. */
+    poAutoDays: workDaysFor(poHours),
+    pbAutoDays: pbHours > 0 ? workDaysFor(pbHours) : 0,
+    /** Crew hours on site across both visits: the work plus the added days' setup. */
+    onSiteHours: round1(poHours + pbHours + restartHours(poDays) + restartHours(pbDays)),
+    multiDay: poDays > 1 || pbDays > 1,
+  };
 }
 
 /** The van-days a per-work-day van line bills: the van on the pack-back trip
  * is there for the pack-back days, every other van for the pack-out days. */
-function vanWorkDays(
-  sectionDetails: Record<string, { lines: SectionDetailLine[] }> | undefined,
-): (section: string) => number {
-  const { poDays, pbDays } = visitSchedule(sectionDetails);
+function vanWorkDays(source: ScheduleSource | null | undefined): (section: string) => number {
+  const { poDays, pbDays } = visitSchedule(source);
   return (section) => (section === 'Transport Back' ? Math.max(1, pbDays) : poDays);
 }
 
 /** Scheduling notes are regenerated from the lines; every other note
  * (exclusions, material markup) is carried over untouched. */
 function isSchedulingNote(note: string): boolean {
-  return note.startsWith('Scheduling:') || /scheduled over \d+ days/i.test(note);
+  return note.startsWith('Scheduling:') || /scheduled (over \d+ days|in 1 day)/i.test(note);
+}
+
+/** Bring each visit's multi-day line in line with its day count: added,
+ * resized or removed as the days change. A line already there keeps its rate
+ * (a crew re-price, or the estimator's own edit); a new one takes the crew
+ * rate of the visit's work lines. Mirrors the backend's apply_visit_schedule(). */
+function syncMultiDayLines(
+  details: SectionDetails,
+  crewSize: number,
+  days: Pick<EstimateResponse, 'pack_out_days' | 'pack_back_days'>,
+): SectionDetails {
+  const { poDays, pbDays } = visitSchedule({ section_details: details, ...days });
+  const crew = Math.max(1, crewSize);
+  const next = { ...details };
+  const visits: [string, number][] = [
+    [VISIT_LABOR_SECTION.out, poDays],
+    [VISIT_LABOR_SECTION.back, pbDays],
+  ];
+  for (const [section, dayCount] of visits) {
+    const sd = next[section];
+    if (!sd) continue;
+    const existing = sd.lines.find(isMultiDayLine);
+    const qty = restartHours(dayCount);
+    if (qty <= 0) {
+      if (existing) next[section] = { lines: sd.lines.filter((l) => !isMultiDayLine(l)) };
+      continue;
+    }
+    const rate =
+      existing?.rate ?? sd.lines.find((l) => isCrewLaborLine(l) && !isMultiDayLine(l))?.rate;
+    if (rate == null) continue;
+    const amount = Math.round(rate * qty * 100) / 100;
+    const added = dayCount - 1;
+    const desc =
+      `${dayCount}-day visit: morning setup & end-of-day securing, ` +
+      `${added} added day${added > 1 ? 's' : ''}`;
+    const detail =
+      `${crew}-person crew (${desc}) · ${qty} hr × ${crew} crew × ` +
+      `${fmtMoney(Math.round((rate / crew) * 100) / 100)}/hr = ${fmtMoney(amount)}`;
+    if (existing && existing.qty === qty && existing.amount === amount && existing.detail === detail) {
+      continue;
+    }
+    const line: SectionDetailLine = { name: MULTI_DAY_LINE_NAME, qty, unit: 'HR', rate, detail, amount };
+    next[section] = {
+      lines: existing ? sd.lines.map((l) => (isMultiDayLine(l) ? line : l)) : [...sd.lines, line],
+    };
+  }
+  return next;
 }
 
 /** Check if material_details are individual items (not already category-grouped). */
@@ -206,53 +303,83 @@ function groupMaterialDetails(
   return lines;
 }
 
-/** Regenerate scheduling notes from current section_details + crew size. */
+/** One decimal with halves rounded up — the backend's _fmt_hrs(). JS and
+ * Python disagree on exact ties (3.25 → "3.3" vs "3.2"), so both use
+ * floor(x*10 + 0.5) and a regenerated note reads exactly as the calculated one. */
+function fmtHrs(n: number): string {
+  return (Math.floor(n * 10 + 0.5) / 10).toFixed(1);
+}
+
+/** Regenerate scheduling notes from the current lines, crew size and day
+ * counts. The per-visit notes mirror the backend's schedule_notes() word for
+ * word; the "Scheduling:" summary is the editor's own. */
 function generateSchedulingNotes(
-  sectionDetails: Record<string, { lines: SectionDetailLine[] }> | undefined,
+  source: ScheduleSource | null | undefined,
   crewSize: number,
 ): string[] {
   const notes: string[] = [];
   const crewN = Math.max(1, crewSize);
-  const { poHours, pbHours } = visitSchedule(sectionDetails);
-  const totalElapsed = Math.round((poHours + pbHours) * 10) / 10;
+  const s = visitSchedule(source);
+  const totalElapsed = s.onSiteHours;
 
   if (totalElapsed <= 0) return notes;
 
   const parts: string[] = [];
-  if (poHours > 0) parts.push(`pack-out ${poHours} hrs`);
-  if (pbHours > 0) parts.push(`pack-back ${pbHours} hrs`);
+  if (s.poHours > 0) parts.push(`pack-out ${s.poHours} hrs`);
+  if (s.pbHours > 0) parts.push(`pack-back ${s.pbHours} hrs`);
+  const setup = restartHours(s.poDays) + restartHours(s.pbDays);
+  if (setup > 0) parts.push(`multi-day setup ${setup} hrs`);
   const totalManHrs = Math.round(totalElapsed * crewN * 10) / 10;
   notes.push(
     `Scheduling: ${parts.join(' + ')} = ${totalElapsed} elapsed hrs` +
       ` · crew of ${crewN} · ${totalManHrs} man-hrs total`,
   );
 
-  // One note per visit that runs past a workday, stated as a fact. Mirrors
-  // the backend's schedule_notes(); toFixed(1) keeps the text byte-identical
-  // to Python's round(x, 1), so regenerating it on an edit doesn't reformat
-  // "13.0 hrs" to "13 hrs".
-  const visits: [string, number][] = [['Pack-out', poHours], ['Pack-back', pbHours]];
-  for (const [visit, hours] of visits) {
-    if (hours <= WORKDAY_HOURS) continue;
-    const days = workDaysFor(hours);
-    const perDay = Math.round((hours / days) * 10) / 10;
-    notes.push(
-      `${visit} scheduled over ${days} days — ${hours.toFixed(1)} hrs on site ` +
-        `(${crewN}-person crew) exceeds a standard ${WORKDAY_HOURS}-hr workday. ` +
-        `Approx. ${perDay.toFixed(1)} hrs/day.`,
-    );
+  // One note per visit that spans more than a workday, or that the estimator
+  // squeezed into fewer days than its hours fit. Whether a day overruns is
+  // judged on the work alone, so the setup time never flags an auto-sized
+  // schedule.
+  const visits: [string, number, number, number | null | undefined][] = [
+    ['Pack-out', s.poHours, s.poDays, source?.pack_out_days],
+    ['Pack-back', s.pbHours, s.pbDays, source?.pack_back_days],
+  ];
+  for (const [visit, hours, days, override] of visits) {
+    if (days === 0 || (days === 1 && hours <= WORKDAY_HOURS)) continue;
+    const restart = restartHours(days);
+    const when = days > 1 ? `scheduled over ${days} days` : 'scheduled in 1 day';
+    const setBy = override ? ' (set by estimator)' : '';
+    let onSite = `${fmtHrs(hours)} hrs`;
+    if (restart) onSite += ` + ${fmtHrs(restart)} hr setup & securing`;
+    let note =
+      `${visit} ${when}${setBy} — ${onSite} on site ` +
+      `(${crewN}-person crew), approx. ${fmtHrs((hours + restart) / days)} hrs/day.`;
+    if (hours / days > WORKDAY_HOURS) {
+      const crewNeeded = Math.ceil((hours * crewN) / (days * WORKDAY_HOURS));
+      note +=
+        ` Exceeds a standard ${WORKDAY_HOURS}-hr workday — about a ` +
+        `${crewNeeded}-person crew would fit it in ${days} day${days > 1 ? 's' : ''}.`;
+    }
+    notes.push(note);
   }
 
   return notes;
 }
 
-/** Recompute section/subtotal/O&P/grand-total from edited section_details.
+/** Fresh scheduling notes followed by every other note, kept as they were. */
+function mergeSchedulingNotes(prev: EstimateResponse, source: ScheduleSource): string[] {
+  return [
+    ...generateSchedulingNotes(source, prev.crew_size),
+    ...(prev.notes ?? []).filter((n) => !isSchedulingNote(n)),
+  ];
+}
+
+/** Recompute section/subtotal/O&P/grand-total from edited section_details,
+ * after settling the schedule: each visit's multi-day line follows its day
+ * count, and the hours, work days and scheduling notes follow the lines.
  * Every mutation path funnels through this so the derived money never drifts
  * from the lines actually displayed. */
-function recalcFromDetails(
-  prev: EstimateResponse,
-  details: Record<string, { lines: SectionDetailLine[] }>,
-): EstimateResponse {
+function recalcFromDetails(prev: EstimateResponse, edited: SectionDetails): EstimateResponse {
+  const details = syncMultiDayLines(edited, prev.crew_size, prev);
   const sections = { ...prev.sections };
   for (const [name, sd] of Object.entries(details)) {
     if (name in sections) {
@@ -262,6 +389,13 @@ function recalcFromDetails(
   const subtotal = Object.values(sections).reduce((s, v) => s + v, 0);
   const opAmount = prev.include_op ? subtotal * (prev.op_rate / 100) : 0;
   const contingencyAmount = prev.include_contingency ? subtotal * (prev.contingency_rate / 100) : 0;
+  const source: ScheduleSource = { ...prev, section_details: details };
+  const schedule = visitSchedule(source);
+  // Debris hauling runs after the packing, so it adds to the time on site
+  // (the backend's total_hours counts it the same way).
+  const debrisHours = (details['Debris Hauling']?.lines ?? [])
+    .filter((l) => l.unit === 'HR')
+    .reduce((s, l) => s + l.qty, 0);
   return {
     ...prev,
     sections,
@@ -270,11 +404,18 @@ function recalcFromDetails(
     op_amount: opAmount,
     contingency_amount: contingencyAmount,
     grand_total: subtotal + opAmount + contingencyAmount + (prev.supplements_total || 0),
-    notes: [
-      ...generateSchedulingNotes(details, prev.crew_size),
-      ...(prev.notes ?? []).filter((n) => !isSchedulingNote(n)),
-    ],
+    total_hours: Math.round((schedule.onSiteHours + debrisHours) * 10) / 10,
+    work_days: Math.max(1, schedule.poDays, schedule.pbDays),
+    notes: mergeSchedulingNotes(prev, source),
   };
+}
+
+/** Set one visit's day count, or clear it (null) to size it from its hours
+ * again. The multi-day line, hours and notes follow in recalcFromDetails. */
+function applyVisitDays(prev: EstimateResponse, visit: Visit, days: number | null): EstimateResponse {
+  const key = visit === 'out' ? 'pack_out_days' : 'pack_back_days';
+  const value = days != null && days >= 1 ? Math.round(days) : null;
+  return recalcFromDetails({ ...prev, [key]: value }, { ...(prev.section_details ?? {}) });
 }
 
 /** True for a crew-priced labor line: qty is elapsed hours and rate is
@@ -303,7 +444,11 @@ function rebuildCrewDetail(
   amount: number,
 ): string {
   // Pull the parenthesised task description out of the canonical prefix.
-  const desc = detail.match(/^\s*\d+-person crew \(([^)]*)\)/)?.[1];
+  // Anchored on the " · N hr ×" breakdown that follows it, because the
+  // description can itself hold parentheses: the carry lines' floor note
+  // reads "1st fl: 2 room(s), ~0.5 hr base carry (×1.00)", which a stop at
+  // the first ")" cut down to "1st fl: 2 room(s" on every crew-size change.
+  const desc = detail.match(/^\s*\d+-person crew \((.*)\) · [\d.]+ hr × /)?.[1];
   if (desc == null) return detail;
   const perPerson = crew > 0 ? crewRate / crew : crewRate;
   return (
@@ -409,28 +554,39 @@ function calculatedTruckLine(result: EstimateResponse): TruckBaseline | null {
   };
 }
 
-/** Scale every crew-labor HR line so total elapsed hours hit `targetHours`.
- * Rate per line is unchanged — only qty (elapsed hours) and amount move, so
- * the mix between pack-out categories is preserved. */
+/** After a change that can move the day count: if the van was being billed
+ * per work day, keep it in step with the new days. Without this, dropping to
+ * one day hides the switch (it only shows for multi-day jobs) while leaving
+ * the inflated van quantity stranded with no visible control to undo it. */
+function keepVanInStep(wasPerWorkDay: boolean, next: EstimateResponse): EstimateResponse {
+  if (!wasPerWorkDay) return next;
+  if (visitSchedule(next).multiDay) return applyTruckQty(next, vanWorkDays(next));
+  const original = calculatedTruckLine(next);
+  return original ? applyTruckQty(next, original.qty, original) : next;
+}
+
+/** Scale the visits' crew work lines so the on-site hours (work plus the
+ * added days' setup) hit `targetHours`. Rate per line is unchanged — only qty
+ * (elapsed hours) and amount move, so the mix between categories is
+ * preserved. The multi-day line is not scaled: it follows the day count,
+ * which recalcFromDetails re-derives from the new hours. */
 function applyTotalHours(
   prev: EstimateResponse,
   targetHours: number,
 ): EstimateResponse {
   const details = { ...(prev.section_details ?? {}) };
-  const laborSections = ['Pack-Out Labor', 'Pack-Back Labor'];
-  const current =
-    Math.round(
-      laborSections.reduce((s, n) => s + sumCrewElapsedHours(details[n]?.lines ?? []), 0) * 10,
-    ) / 10;
-  if (current <= 0 || targetHours <= 0) return prev;
-  const factor = targetHours / current;
+  const before = visitSchedule(prev);
+  const work = before.poHours + before.pbHours;
+  const setup = before.onSiteHours - work;
+  if (work <= 0 || targetHours <= 0) return prev;
+  const factor = Math.max(0.5, targetHours - setup) / work;
 
-  for (const name of laborSections) {
+  for (const name of [...PACK_OUT_VISIT_SECTIONS, ...PACK_BACK_VISIT_SECTIONS]) {
     const sd = details[name];
     if (!sd) continue;
     details[name] = {
       lines: sd.lines.map((l) => {
-        if (!isCrewLaborLine(l)) return l;
+        if (!isCrewLaborLine(l) || isMultiDayLine(l)) return l;
         // Keep hours on the half-hour grid the backend's rh() enforces.
         const qty = Math.max(0.5, Math.round(l.qty * factor * 2) / 2);
         const amount = Math.round(l.rate * qty * 100) / 100;
@@ -440,15 +596,8 @@ function applyTotalHours(
     };
   }
 
-  const next = recalcFromDetails(prev, details);
-  const newTotal =
-    Math.round(
-      laborSections.reduce(
-        (s, n) => s + sumCrewElapsedHours(next.section_details?.[n]?.lines ?? []),
-        0,
-      ) * 10,
-    ) / 10;
-  return { ...next, total_hours: newTotal };
+  // recalcFromDetails re-derives total_hours, the days and the notes.
+  return recalcFromDetails(prev, details);
 }
 
 /** Re-price crew-labor lines for a new crew size.
@@ -1172,7 +1321,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   useEffect(() => {
     if (!result) return;
     if (!result.notes || result.notes.length === 0) {
-      const seeded = generateSchedulingNotes(result.section_details, result.crew_size);
+      const seeded = generateSchedulingNotes(result, result.crew_size);
       if (seeded.length > 0) {
         setResult((prev) => prev ? { ...prev, notes: seeded } : prev);
       }
@@ -1203,10 +1352,10 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   // that forgets to call generateSchedulingNotes.
   const schedulingSummary = useMemo(() => {
     if (!result) return null;
-    const note = generateSchedulingNotes(result.section_details, result.crew_size)
+    const note = generateSchedulingNotes(result, result.crew_size)
       .find((n) => n.startsWith('Scheduling:'));
     return note ? note.replace(/^Scheduling:\s*/, '') : null;
-  }, [result?.section_details, result?.crew_size]);
+  }, [result?.section_details, result?.crew_size, result?.pack_out_days, result?.pack_back_days]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Schedule & logistics (editable) ───────────────────────────────────────
   // Read straight off the current lines so hand-edits to a labor or van line
@@ -1221,10 +1370,10 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   }, [result?.section_details, result?.truck_trips]);
 
   const schedule = useMemo(
-    () => visitSchedule(result?.section_details),
-    [result?.section_details],
+    () => visitSchedule(result),
+    [result?.section_details, result?.pack_out_days, result?.pack_back_days], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const currentLaborHours = Math.round((schedule.poHours + schedule.pbHours) * 10) / 10;
+  const currentLaborHours = schedule.onSiteHours;
   const plural = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
   const workDaysLabel =
     schedule.pbHours > 0
@@ -1237,12 +1386,12 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
   // and nothing else — can never show a switch that contradicts the estimate.
   const vanPerWorkDay = useMemo(() => {
     if (!schedule.multiDay) return false;
-    const daysFor = vanWorkDays(result?.section_details);
+    const daysFor = vanWorkDays(result);
     const vans = Object.entries(result?.section_details ?? {}).flatMap(([name, sd]) =>
       sd.lines.filter(isTruckLine).map((l) => l.qty === daysFor(name)),
     );
     return vans.length > 0 && vans.every(Boolean);
-  }, [schedule.multiDay, result?.section_details]);
+  }, [schedule.multiDay, result?.section_details, result?.pack_out_days, result?.pack_back_days]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTruckQtyChange = useCallback((val: number | null) => {
     if (val == null || val < 0) return;
@@ -1260,7 +1409,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     markDirty();
     setResult((prev) => {
       if (!prev) return prev;
-      if (checked) return applyTruckQty(prev, vanWorkDays(prev.section_details));
+      if (checked) return applyTruckQty(prev, vanWorkDays(prev));
       // Switching off rebuilds the calculated line from the capacity figure the
       // backend reported, so it restores correctly no matter what happened in
       // between (undo, redo, a session reload).
@@ -1275,22 +1424,68 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
     if (val == null || val <= 0) return;
     pushHistory();
     markDirty();
-    setResult((prev) => {
-      if (!prev) return prev;
-      const wasPerWorkDay = vanPerWorkDay;
-      const next = applyTotalHours(prev, val);
-      if (!wasPerWorkDay) return next;
-      // Per-work-day billing was on, and the day count just moved — keep the
-      // van in step with it. Without this a drop below 8 hrs hides the switch
-      // (it only shows for multi-day jobs) while leaving the inflated quantity
-      // stranded on the estimate with no visible control to undo it.
-      if (visitSchedule(next.section_details).multiDay) {
-        return applyTruckQty(next, vanWorkDays(next.section_details));
-      }
-      const original = calculatedTruckLine(next);
-      return original ? applyTruckQty(next, original.qty, original) : next;
-    });
+    setResult((prev) => (prev ? keepVanInStep(vanPerWorkDay, applyTotalHours(prev, val)) : prev));
   }, [pushHistory, markDirty, setResult, vanPerWorkDay]);
+
+  // Days a visit is split over: blank (null) sizes it from its hours, a
+  // number is the estimator's schedule. Each added day bills a setup line.
+  const handleVisitDaysChange = useCallback((visit: Visit, val: number | null) => {
+    if (val != null && val < 1) return;
+    pushHistory();
+    markDirty();
+    setResult((prev) =>
+      prev ? keepVanInStep(vanPerWorkDay, applyVisitDays(prev, visit, val)) : prev,
+    );
+  }, [pushHistory, markDirty, setResult, vanPerWorkDay]);
+
+  const renderVisitDaysRow = (
+    visit: Visit,
+    label: string,
+    value: number | null | undefined,
+    autoDays: number,
+  ) => (
+    <Row justify="space-between" align="middle" style={{ marginBottom: 10 }}>
+      <Col>
+        <Space size={4}>
+          <Text style={{ fontSize: 13 }}>{label}</Text>
+          <Tooltip
+            title={
+              `Days this visit is split over. Blank = Auto: enough 8-hr workdays for its ` +
+              `hours (${plural(autoDays)} now). Each day after the first adds ` +
+              `${DAY_RESTART_HOURS} hr of crew time for setup and end-of-day securing.`
+            }
+          >
+            <InfoCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
+          </Tooltip>
+        </Space>
+      </Col>
+      <Col>
+        <Space size={8}>
+          {value != null && (
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0, height: 'auto', fontSize: 12 }}
+              onClick={() => handleVisitDaysChange(visit, null)}
+            >
+              Use auto
+            </Button>
+          )}
+          <InputNumber
+            size="small"
+            min={1}
+            max={30}
+            precision={0}
+            value={value ?? null}
+            placeholder={`Auto (${autoDays})`}
+            onChange={(val) => handleVisitDaysChange(visit, val)}
+            style={{ width: 92 }}
+            aria-label={label}
+          />
+        </Space>
+      </Col>
+    </Row>
+  );
 
   const handleCrewSizeChange = useCallback((val: number | null) => {
     if (val == null || val < 1) return;
@@ -1396,30 +1591,25 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         const finalDetail = (unit === 'HR' || prevLine?.unit === 'HR') && detail
           ? rebuildHourDetail(detail, qty, prev.crew_size, rate, newAmount)
           : detail;
-        lines[lineIndex] = { ...prevLine, name, detail: finalDetail, qty, unit, rate, amount: newAmount };
+        // The multi-day line is found by its name, so it keeps it: renamed,
+        // it would no longer be recognised and a second one would be added.
+        // Its hours follow the day count; its rate is the estimator's to set.
+        const finalName = prevLine && isMultiDayLine(prevLine) ? prevLine.name : name;
+        lines[lineIndex] = { ...prevLine, name: finalName, detail: finalDetail, qty, unit, rate, amount: newAmount };
         details[sectionName] = { lines };
+        // Re-totals every section, settles the schedule (hours, days, the
+        // multi-day line) and keeps the non-scheduling notes.
+        return recalcFromDetails(prev, details);
       }
 
-      // Recalculate section total
-      const sectionTotal = hasMaterialDetails
-        ? newMaterialDetails!.reduce((sum, m) => sum + m.total, 0)
-        : details[sectionName]?.lines.reduce((sum: number, l: any) => sum + l.amount, 0) ?? 0;
+      // Materials kept in material_details: that list's total is the section's.
+      const sectionTotal = newMaterialDetails!.reduce((sum, m) => sum + m.total, 0);
       const newSections = { ...prev.sections, [sectionName]: sectionTotal };
       const subtotal = Object.values(newSections).reduce((s, v) => s + v, 0);
       const opAmount = prev.include_op ? subtotal * (prev.op_rate / 100) : 0;
       const contingencyAmount = prev.include_contingency
         ? subtotal * (prev.contingency_rate / 100)
         : 0;
-
-      // Recompute total elapsed hours (Rooms/Hours/Crew stat) from the crew lines —
-      // qty on a crew-labor HR line is already elapsed hours, summed across every
-      // crew-tagged line in the section (Content mode splits Pack-Out/Pack-Back
-      // into several category lines, not one "Crew Labor" line).
-      const newTotalHours = Math.round(
-        (sumCrewElapsedHours(details['Pack-Out Labor']?.lines ?? []) +
-          sumCrewElapsedHours(details['Pack-Back Labor']?.lines ?? [])) *
-          10,
-      ) / 10;
 
       return {
         ...prev,
@@ -1430,8 +1620,9 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
         op_amount: opAmount,
         contingency_amount: contingencyAmount,
         grand_total: subtotal + opAmount + contingencyAmount + (prev.supplements_total || 0),
-        total_hours: newTotalHours,
-        notes: generateSchedulingNotes(details, prev.crew_size),
+        // Used to be the scheduling notes alone, dropping the exclusion and
+        // material-markup notes on every material edit.
+        notes: mergeSchedulingNotes(prev, { ...prev, section_details: details }),
       };
     });
 
@@ -1442,6 +1633,15 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
 
   const handleDeleteLine = useCallback(
     (sectionName: string, lineIndex: number) => {
+      // The multi-day line is derived from the day count and would be put
+      // straight back, so point at the control that actually removes it.
+      const target = result?.section_details?.[sectionName]?.lines[lineIndex];
+      if (target && isMultiDayLine(target)) {
+        message.info(
+          'This line follows the visit’s day count. Set the days to 1 under Schedule & Logistics to remove it.',
+        );
+        return;
+      }
       pushHistory();
       markDirty();
       setResult((prev) => {
@@ -1466,25 +1666,9 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           if (!details[sectionName]) return prev;
           const lines = [...details[sectionName].lines];
           lines.splice(lineIndex, 1);
-          sectionTotal = lines.reduce((sum, l) => sum + l.amount, 0);
-
-          const newSections = { ...prev.sections, [sectionName]: sectionTotal };
-          const subtotal = Object.values(newSections).reduce((s, v) => s + v, 0);
-          const opAmount = prev.include_op ? subtotal * (prev.op_rate / 100) : 0;
-          const contingencyAmount = prev.include_contingency
-            ? subtotal * (prev.contingency_rate / 100)
-            : 0;
-          const updatedDetails = { ...details, [sectionName]: { lines } };
-          return {
-            ...prev,
-            sections: newSections,
-            section_details: updatedDetails,
-            subtotal,
-            op_amount: opAmount,
-            contingency_amount: contingencyAmount,
-            grand_total: subtotal + opAmount + contingencyAmount + (prev.supplements_total || 0),
-            notes: generateSchedulingNotes(updatedDetails, prev.crew_size),
-          };
+          // Re-totals, settles the schedule and keeps the non-scheduling notes
+          // (this path used to replace every note with the scheduling ones).
+          return recalcFromDetails(prev, { ...details, [sectionName]: { lines } });
         }
 
         // Update section total and recalculate for material_details path
@@ -1511,11 +1695,11 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
           op_amount: opAmount,
           contingency_amount: contingencyAmount,
           grand_total: subtotal + opAmount + contingencyAmount + (prev.supplements_total || 0),
-          notes: generateSchedulingNotes(details, prev.crew_size),
+          notes: mergeSchedulingNotes(prev, { ...prev, section_details: details }),
         };
       });
     },
-    [setResult, markDirty, pushHistory],
+    [result?.section_details, setResult, markDirty, pushHistory],
   );
 
   // ── Add line handlers ──────────────────────────────────────────────────────
@@ -2348,7 +2532,7 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
               <Col>
                 <Space size={4}>
                   <Text style={{ fontSize: 13 }}>On-Site Hours</Text>
-                  <Tooltip title="Total elapsed crew hours. Changing this scales every crew-labor line proportionally.">
+                  <Tooltip title="Total elapsed crew hours on site, including any multi-day setup. Changing this scales every crew work line proportionally.">
                     <InfoCircleOutlined style={{ fontSize: 11, color: colors.textMuted, cursor: 'help' }} />
                   </Tooltip>
                 </Space>
@@ -2370,6 +2554,13 @@ export const EstimateEditorModal: React.FC<EstimateEditorModalProps> = ({
                 </Space>
               </Col>
             </Row>
+
+            {/* Days per visit: blank sizes it by 8-hr workdays; a number is the
+                estimator's schedule (a one-day job split for access or the
+                client, or a long one squeezed into fewer days). */}
+            {renderVisitDaysRow('out', 'Pack-Out Days', result.pack_out_days, schedule.poAutoDays)}
+            {schedule.pbHours > 0 &&
+              renderVisitDaysRow('back', 'Pack-Back Days', result.pack_back_days, schedule.pbAutoDays)}
 
             {/* Crew size */}
             <Row justify="space-between" align="middle" style={{ marginBottom: 10 }}>

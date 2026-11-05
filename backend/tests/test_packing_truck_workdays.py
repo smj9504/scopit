@@ -221,9 +221,12 @@ def test_schedule_note_states_the_schedule_without_promising_pricing():
     those days — that is an opt-in the estimator has not necessarily made."""
     [note] = schedule_notes(13.0, 4.0, 4)
     assert note.startswith("Pack-out scheduled over 2 days")
-    assert "13.0 hrs" in note
+    assert "13.0 hrs + 0.5 hr setup & securing" in note
     assert "4-person crew" in note
-    assert "6.5 hrs/day" in note
+    # The day length includes the second day's setup: (13.0 + 0.5) / 2.
+    assert "6.8 hrs/day" in note
+    # Auto-sized to fit, so it is not flagged as an overrun.
+    assert "Exceeds" not in note
     # The old phrasings both misstated the estimate: one framed a resolved
     # schedule as an open problem, the other promised pricing that is opt-in.
     assert "Recommend scheduling" not in note
@@ -233,8 +236,8 @@ def test_schedule_note_states_the_schedule_without_promising_pricing():
 def test_schedule_note_per_day_divides_total():
     [note] = schedule_notes(80.6, 0, 4)
     assert "scheduled over 11 days" in note
-    assert "80.6 hrs" in note
-    assert f"{round(80.6 / 11, 1)} hrs/day" in note
+    assert "80.6 hrs + 5.0 hr setup & securing" in note
+    assert f"{(80.6 + 10 * 0.5) / 11:.1f} hrs/day" in note
 
 
 def test_each_visit_is_scheduled_on_its_own_hours():

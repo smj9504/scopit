@@ -52,6 +52,27 @@ def _solo_detail(desc: str, hrs: float, rate: float, amt: float) -> str:
 # that is an explicit opt-in in the editor rather than an automatic markup.
 WORKDAY_HOURS = 8
 
+# Elapsed crew time each day after the first adds to a site visit: putting the
+# staging area and floor protection back out in the morning, and securing a
+# half-packed home at the end of the day. The first day's setup is already
+# part of the work hours; only the restarts are extra.
+DAY_RESTART_HOURS = 0.5
+MULTI_DAY_LINE_NAME = "Multi-Day Setup & Securing"
+
+# Pack-back (unpack, place, reassemble) relative to the pack-out work. There is
+# no wrapping, but every piece is still handled, carried to its room and set
+# in place, which industry rules of thumb put at 50-70% of the packing time.
+# It is ADDED to the pack-out, never carved out of it: the pack-out visit is
+# the same work whether or not the crew comes back to unpack. Splitting one
+# fixed total 62/38 between the phases made ordering a pack-back shrink the
+# pack-out by 38% and left the unpacking unpaid.
+PACK_BACK_LABOR_RATIO = 0.6
+
+# Sections whose crew lines are each visit's on-site work. Reassembly happens
+# on the pack-back visit even though it is billed in its own section.
+PACK_OUT_VISIT_SECTIONS = ("Pack-Out Labor",)
+PACK_BACK_VISIT_SECTIONS = ("Pack-Back Labor", "Furniture Assembly")
+
 
 def work_days_for(total_hours: float) -> int:
     """Number of workdays an elapsed-hours figure spans (minimum 1)."""
@@ -60,24 +81,50 @@ def work_days_for(total_hours: float) -> int:
     return max(1, math.ceil(total_hours / WORKDAY_HOURS))
 
 
+def visit_days(hours: float, override: Optional[int] = None) -> int:
+    """Workdays one site visit takes.
+
+    The estimator's figure when they set one -- a job that fits one long day
+    may still have to be split for access, occupants or the client's schedule
+    -- otherwise enough 8-hr workdays for its hours. A visit with no hours (no
+    pack-back ordered) takes no days.
+    """
+    if hours <= 0:
+        return 0
+    if override:
+        return max(1, int(override))
+    return work_days_for(hours)
+
+
 def site_visit_hours(section_details: Dict[str, Any]) -> Tuple[float, float]:
-    """Elapsed crew hours of the pack-out visit and of the pack-back visit.
+    """Elapsed crew work hours of the pack-out visit and of the pack-back visit.
 
     Read off the crew lines (built by _crew_detail, so their detail carries
     "-person crew") -- the same lines the editor sums -- so the backend's day
     count and the editor's agree. Single-person lines (supervisor, inventory)
-    work alongside the crew and add no time on site.
+    work alongside the crew and add no time on site. The multi-day setup line
+    is left out: it follows from the day count, so counting it would let it
+    feed the figure it is derived from.
     """
-    def crew_hours(section: str) -> float:
-        lines = (section_details.get(section) or {}).get("lines", [])
-        return round(sum(
-            ln.get("qty", 0) for ln in lines
-            if "-person crew" in (ln.get("detail") or "")
-        ), 1)
-    return crew_hours("Pack-Out Labor"), crew_hours("Pack-Back Labor")
+    def crew_hours(sections: Tuple[str, ...]) -> float:
+        total = 0.0
+        for section in sections:
+            for ln in (section_details.get(section) or {}).get("lines", []):
+                if (
+                    "-person crew" in (ln.get("detail") or "")
+                    and ln.get("name") != MULTI_DAY_LINE_NAME
+                ):
+                    total += ln.get("qty", 0)
+        return round(total, 1)
+    return crew_hours(PACK_OUT_VISIT_SECTIONS), crew_hours(PACK_BACK_VISIT_SECTIONS)
 
 
-def visit_work_days(pack_out_hours: float, pack_back_hours: float) -> int:
+def visit_work_days(
+    pack_out_hours: float,
+    pack_back_hours: float,
+    pack_out_days: Optional[int] = None,
+    pack_back_days: Optional[int] = None,
+) -> int:
     """Workdays the longest single site visit spans.
 
     Pack-out and pack-back are separate visits -- pack-back follows the
@@ -85,32 +132,128 @@ def visit_work_days(pack_out_hours: float, pack_back_hours: float) -> int:
     Adding them together made a 6-hr pack-out and a 4-hr pack-back read as
     one job running into a second day.
     """
-    return max(work_days_for(pack_out_hours), work_days_for(pack_back_hours))
+    return max(
+        1,
+        visit_days(pack_out_hours, pack_out_days),
+        visit_days(pack_back_hours, pack_back_days),
+    )
+
+
+def restart_hours(days: int) -> float:
+    """Elapsed crew hours the days after the first add to a visit."""
+    return rh(max(0, days - 1) * DAY_RESTART_HOURS)
+
+
+def multi_day_line(days: int, crew: int, per_person_rate: float) -> Optional[Dict[str, Any]]:
+    """Crew line for the restarts of a visit split over several days.
+
+    None for a one-day visit. A crew line like the work it supports, so the
+    editor re-prices it with the crew size like any other.
+    """
+    if days <= 1:
+        return None
+    added = days - 1
+    hrs = restart_hours(days)
+    crew_rate = round(per_person_rate * crew, 2)
+    amt = round(hrs * crew_rate, 2)
+    desc = (
+        f"{days}-day visit: morning setup & end-of-day securing, "
+        f"{added} added day{'s' if added > 1 else ''}"
+    )
+    return {
+        "name": MULTI_DAY_LINE_NAME, "qty": hrs, "unit": "HR", "rate": crew_rate,
+        "detail": _crew_detail(desc, hrs, crew, per_person_rate, amt),
+        "amount": amt,
+    }
+
+
+def apply_visit_schedule(
+    section_details: Dict[str, Any],
+    crew: int,
+    per_person_rate: float,
+    pack_out_days: Optional[int] = None,
+    pack_back_days: Optional[int] = None,
+) -> Tuple[int, int]:
+    """Settle each visit's day count and bill the added days' restarts.
+
+    Replaces any multi-day line already on the labor sections, so it is safe
+    to run again after the lines change. Returns the (pack-out, pack-back) day
+    counts; pack-back is 0 when there is no pack-back visit.
+    """
+    po_hours, pb_hours = site_visit_hours(section_details)
+    po_days = visit_days(po_hours, pack_out_days)
+    pb_days = visit_days(pb_hours, pack_back_days)
+    for section, days in (("Pack-Out Labor", po_days), ("Pack-Back Labor", pb_days)):
+        detail = section_details.get(section)
+        if not detail:
+            continue
+        lines = [ln for ln in detail.get("lines", []) if ln.get("name") != MULTI_DAY_LINE_NAME]
+        line = multi_day_line(days, crew, per_person_rate)
+        if line:
+            lines.append(line)
+        detail["lines"] = lines
+    return po_days, pb_days
+
+
+def _fmt_hrs(hours: float) -> str:
+    """One-decimal hours, rounding halves up.
+
+    Python's format() rounds an exact tie (3.25) to even, "3.2", where the
+    editor's JS gives "3.3"; both sides use floor(x*10 + 0.5) so the note
+    text the editor regenerates matches the one calculated here.
+    """
+    return f"{math.floor(hours * 10 + 0.5) / 10:.1f}"
 
 
 def schedule_notes(
-    pack_out_hours: float, pack_back_hours: float, crew_size: int,
+    pack_out_hours: float,
+    pack_back_hours: float,
+    crew_size: int,
+    pack_out_days: Optional[int] = None,
+    pack_back_days: Optional[int] = None,
 ) -> List[str]:
-    """Scheduling note for each site visit that runs past one workday.
+    """Scheduling note for each site visit that spans more than one workday,
+    or that the estimator squeezed into fewer days than its hours fit.
 
-    Hours are elapsed crew time, never person-hours: a 4-person crew on site
-    for 6 hours is a 6-hour day, not 24 hours of schedule. Each visit is
-    scheduled on its own (see visit_work_days). The notes deliberately do NOT
-    claim the van is billed for those days: the moving van defaults to its
-    capacity-driven quantity, and billing it per work day is an explicit
-    opt-in the estimator makes in the editor.
+    Hours are elapsed crew work hours, never person-hours: a 4-person crew on
+    site for 6 hours is a 6-hour day, not 24 hours of schedule. Each visit is
+    scheduled on its own (see visit_work_days). The approximate day length
+    includes the added days' setup time; whether a day overruns is judged on
+    the work alone, so the restart time never tips an auto-sized schedule into
+    a warning. The notes deliberately do NOT claim the van is billed for those
+    days: the moving van defaults to its capacity-driven quantity, and billing
+    it per work day is an explicit opt-in the estimator makes in the editor.
+
+    Mirrored by generateSchedulingNotes() in EstimateEditorModal.tsx -- keep
+    the wording identical.
     """
     notes = []
-    for visit, hours in (("Pack-out", pack_out_hours), ("Pack-back", pack_back_hours)):
-        if hours <= WORKDAY_HOURS:
+    for visit, hours, override in (
+        ("Pack-out", pack_out_hours, pack_out_days),
+        ("Pack-back", pack_back_hours, pack_back_days),
+    ):
+        days = visit_days(hours, override)
+        if days == 0 or (days == 1 and hours <= WORKDAY_HOURS):
             continue
-        days = work_days_for(hours)
-        hrs = round(hours, 1)
-        notes.append(
-            f"{visit} scheduled over {days} days — {hrs} hrs on site "
-            f"({crew_size}-person crew) exceeds a standard {WORKDAY_HOURS}-hr "
-            f"workday. Approx. {round(hrs / days, 1)} hrs/day."
+        restart = restart_hours(days)
+        when =f"scheduled over {days} days" if days > 1 else "scheduled in 1 day"
+        set_by = " (set by estimator)" if override else ""
+        on_site = f"{_fmt_hrs(hours)} hrs"
+        if restart:
+            on_site += f" + {_fmt_hrs(restart)} hr setup & securing"
+        per_day = (hours + restart) / days
+        note = (
+            f"{visit} {when}{set_by} — {on_site} on site "
+            f"({crew_size}-person crew), approx. {_fmt_hrs(per_day)} hrs/day."
         )
+        if hours / days > WORKDAY_HOURS:
+            crew_needed = math.ceil(hours * crew_size / (days * WORKDAY_HOURS))
+            note += (
+                f" Exceeds a standard {WORKDAY_HOURS}-hr workday — about a "
+                f"{crew_needed}-person crew would fit it in "
+                f"{days} day{'s' if days > 1 else ''}."
+            )
+        notes.append(note)
     return notes
 
 
@@ -134,6 +277,37 @@ def rh(x: float) -> float:
     max(0.5, rh(x)) themselves.
     """
     return round(x * 2) / 2
+
+
+def allocate_half_hours(parts: Dict[str, float], minimum: float = 0.5) -> Dict[str, float]:
+    """Round each part to the half hour so the parts add up to their rounded total.
+
+    Rounding each part on its own drifts: five small labour tiers each rounded
+    to the nearest half hour lost about an hour between them on an ordinary
+    job, so the lines no longer added up to the work. Largest remainder keeps
+    the total exact on the half-hour grid and moves no part by more than half
+    an hour. The total is held to `minimum` so real labour never rounds away.
+    """
+    clean = {k: max(0.0, v) for k, v in parts.items()}
+    units = {k: math.floor(v * 2) for k, v in clean.items()}
+    total_units = max(round(sum(clean.values()) * 2), round(minimum * 2))
+    remainder = total_units - sum(units.values())
+    # sorted() is stable, so ties (and an all-zero job) go to the first tier.
+    by_fraction = sorted(clean, key=lambda k: clean[k] * 2 - units[k], reverse=True)
+    for i in range(max(0, remainder)):
+        units[by_fraction[i % len(by_fraction)]] += 1
+    return {k: u / 2 for k, u in units.items()}
+
+
+def _enum_str(value: Any, default: str = "") -> str:
+    """The plain value of a str-Enum field or a str one.
+
+    str() of a str-mixin Enum is "Floor.THIRD", not "3rd", so comparing that
+    against plain strings silently never matches.
+    """
+    if value is None:
+        return default
+    return value.value if hasattr(value, "value") else str(value)
 
 
 # ============================================
@@ -1078,8 +1252,10 @@ class EstimateCalculator:
         """
         overrides = overrides or {}
 
+        # Quick Estimate rooms carry these as str-Enums and Photo AI rooms as
+        # plain strings; compare plain values so both trigger alike.
         has_contamination = any(
-            getattr(r, "contamination", "clean") not in ("clean", "Clean")
+            _enum_str(getattr(r, "contamination", None), "clean").lower() != "clean"
             for r in rooms
         )
         # Count unique item LINES, not quantity
@@ -1089,11 +1265,11 @@ class EstimateCalculator:
                 if getattr(item, "is_high_value", False):
                     hv_count += 1
         has_upper_floor = any(
-            str(getattr(r, "floor", "1st")) in {"3rd", "4th+"}
+            _enum_str(getattr(r, "floor", None), "1st") in {"3rd", "4th+"}
             for r in rooms
         )
         has_heavy_density = any(
-            str(getattr(r, "density", "normal")) in {"heavy", "extreme"}
+            _enum_str(getattr(r, "density", None), "normal") in {"heavy", "extreme"}
             for r in rooms
         )
 
@@ -1146,6 +1322,19 @@ class EstimateCalculator:
             code = "2934"
         fallback = DEFAULT_PRICES[code]["price"]
         return code, self.get_price(code) or fallback
+
+    def truck_line_name(self, code: str) -> str:
+        """Display name of the van select_truck() picked.
+
+        The van lines used to be labelled "26' Moving Van" whatever size was
+        selected, so a small job billed at the 14' rate under a 26' name. The
+        editor finds the van line by "moving van" in its name, so a catalog
+        row renamed to something else falls back to the standard name.
+        """
+        name = getattr(self.prices.get(code), "name", None) or ""
+        if "moving van" not in name.lower():
+            name = DEFAULT_PRICES[code]["name"]
+        return name
 
     def estimate_storage_sf_from_rooms(
         self, rooms: List[RoomInput]
@@ -1770,18 +1959,17 @@ class EstimateCalculator:
             preset = self.presets.get(room.preset)
             if preset:
                 specialty_person_hours += room_ph * (1 - 1 / self._hint_labor_mult(room, preset))
-        # total_hours = ELAPSED time (what the client actually experiences on-site)
-        total_hours = person_hours_total / request.crew_size if request.crew_size > 0 else person_hours_total
-
-        # Pack-out/pack-back split (elapsed hours). Round the pack-out share and
-        # take the remainder for pack-back so the two always sum to the total
-        # the header shows — rounding each independently let them drift apart.
-        _packback_share = 0.38 if request.include_packback else 0.0
-        total_hours_rounded = max(0.5, rh(total_hours))
+        # Person-hours are the PACK-OUT work; divided by the crew they give the
+        # elapsed time of the pack-out visit. Pack-back is further work on a
+        # later visit, sized off the pack-out and added on top of it (see
+        # PACK_BACK_LABOR_RATIO) -- the pack-out is the same whether or not
+        # the crew comes back to unpack.
+        pack_out_elapsed = person_hours_total / request.crew_size if request.crew_size > 0 else person_hours_total
+        pack_out_hours = max(0.5, rh(pack_out_elapsed))
         pack_back_hours = (
-            rh(total_hours_rounded * _packback_share) if request.include_packback else 0
+            max(0.5, rh(pack_out_hours * PACK_BACK_LABOR_RATIO))
+            if request.include_packback else 0
         )
-        pack_out_hours = max(0.5, round(total_hours_rounded - pack_back_hours, 2))
         # The displayed total is the sum of the displayed parts.
         total_hours = round(pack_out_hours + pack_back_hours, 2)
 
@@ -1811,12 +1999,19 @@ class EstimateCalculator:
         # Transport & Storage costs depend on staging type
         is_on_site = request.staging_type == StagingType.ON_SITE
         quick_num_rooms = len(request.rooms)
-        quick_loading_hours = max(2.0, quick_num_rooms * 0.5)
-        loading_cost = request.crew_size * quick_loading_hours * labor_rate
+        # Loading is work, sized in person-hours like the packing and divided
+        # by the crew. It used to be fixed ELAPSED hours billed x crew, so the
+        # same house cost twice as much to load with 6 movers as with 3. The
+        # per-room allowances are calibrated on the default 4-person crew,
+        # which therefore prices exactly as before.
+        quick_loading_person_hours = max(2.0, quick_num_rooms * 0.5) * self.QUICK_REFERENCE_CREW
+        quick_loading_hours = max(0.5, rh(quick_loading_person_hours / crew))
+        loading_cost = crew * quick_loading_hours * labor_rate
 
         # On-site: no truck, just crew moving contents within the property
-        quick_on_site_hours = max(1.5, quick_num_rooms * 0.35)
-        on_site_moving_fee = request.crew_size * quick_on_site_hours * labor_rate
+        quick_on_site_person_hours = max(1.5, quick_num_rooms * 0.35) * self.QUICK_REFERENCE_CREW
+        quick_on_site_hours = max(0.5, rh(quick_on_site_person_hours / crew))
+        on_site_moving_fee = crew * quick_on_site_hours * labor_rate
 
         # Storage costs (per SF) - always calculate SF for display
         storage_sf = self.estimate_storage_sf_from_rooms(
@@ -1833,7 +2028,8 @@ class EstimateCalculator:
             )
 
         # Smart truck selection based on job size
-        _, truck_rate = self.select_truck(storage_sf)
+        truck_code, truck_rate = self.select_truck(storage_sf)
+        truck_name = self.truck_line_name(truck_code)
         # Truck trips: large van holds ~500 SF
         quick_capacity_trips = max(
             1, math.ceil(storage_sf / 500)
@@ -1932,7 +2128,6 @@ class EstimateCalculator:
         )
         _po_specialized_elapsed = rh(pack_out_hours * _specialty_share)
         _po_crew_elapsed = max(0.5, round(pack_out_hours - _po_specialized_elapsed, 2))
-        _po_inventory_hours = max(1.0, rh(total_hours * 0.06))  # 1 person, not crew
 
         crew_labor_rate = round(labor_rate * crew, 2)
 
@@ -1966,7 +2161,7 @@ class EstimateCalculator:
         if not is_on_site:
             _loading_amt = round(quick_loading_hours * crew_labor_rate, 2)
             _t_out_lines = [
-                {"name": "26' Moving Van", "qty": quick_truck_trips, "unit": "DY",
+                {"name": truck_name, "qty": quick_truck_trips, "unit": "DY",
                  "rate": round(truck_rate, 2),
                  "detail": quick_truck_note,
                  "amount": round(truck_rate * quick_truck_trips, 2)},
@@ -1976,7 +2171,7 @@ class EstimateCalculator:
                  "amount": _loading_amt},
             ]
             _t_back_lines = [
-                {"name": "26' Moving Van", "qty": quick_truck_trips, "unit": "DY",
+                {"name": truck_name, "qty": quick_truck_trips, "unit": "DY",
                  "rate": round(truck_rate, 2),
                  "detail": quick_truck_note,
                  "amount": round(truck_rate * quick_truck_trips, 2)},
@@ -2051,6 +2246,14 @@ class EstimateCalculator:
             else:
                 section_details["Storage"] = {"lines": []}
 
+        # Each site visit's day count -- the estimator's, or enough 8-hr days
+        # for its hours -- with the added days' restarts billed on its labor
+        # section. Before the reconcile below, which picks the line up.
+        po_days, pb_days = apply_visit_schedule(
+            section_details, crew, labor_rate,
+            request.pack_out_days, request.pack_back_days,
+        )
+
         # Reconcile ALL section totals from their detail lines so there is
         # no rounding drift between independent calculations.
         for sec_name, sec_detail in section_details.items():
@@ -2075,9 +2278,16 @@ class EstimateCalculator:
 
         # Workday scheduling: each site visit on its own elapsed crew hours
         po_visit_hours, pb_visit_hours = site_visit_hours(section_details)
-        quick_work_days = visit_work_days(po_visit_hours, pb_visit_hours)
+        quick_work_days = max(1, po_days, pb_days)
+        # On-site total: the work plus the added days' restarts, i.e. every
+        # crew line on the two labor sections, so the lines add up to it.
+        total_hours = (
+            po_visit_hours + pb_visit_hours
+            + restart_hours(po_days) + restart_hours(pb_days)
+        )
         quick_notes: list[str] = schedule_notes(
             po_visit_hours, pb_visit_hours, request.crew_size,
+            request.pack_out_days, request.pack_back_days,
         )
         # Non-transportable content the customer selected produces no line at
         # all, so say so rather than letting it vanish off the estimate.
@@ -2095,6 +2305,8 @@ class EstimateCalculator:
             total_hours=round(total_hours, 1),
             crew_size=request.crew_size,
             work_days=quick_work_days,
+            pack_out_days=request.pack_out_days,
+            pack_back_days=request.pack_back_days if request.include_packback else None,
             truck_trips=quick_truck_trips if not is_on_site else 0,
             truck_capacity_trips=quick_capacity_trips if not is_on_site else 0,
             sections=sections,
@@ -2140,6 +2352,10 @@ class EstimateCalculator:
         "large": 5.5,    # standard bedroom, living room, kitchen — ~1.4 hr elapsed
         "xlarge": 9.0,   # master bedroom, basement, garage — ~2.25 hr elapsed
     }
+
+    # Crew size Quick Estimate's per-room loading allowances were set for;
+    # they are converted to person-hours at this size (see calculate_estimate).
+    QUICK_REFERENCE_CREW = 4
 
     CONTENT_TYPE_MODIFIERS = {
         "fragile_heavy":    0.40,   # dishes, glass → careful wrapping adds ~40%
@@ -3729,10 +3945,12 @@ class EstimateCalculator:
         # --- Labor tiers ---
         # classify_labor_hours returns PERSON-HOURS (single-worker equivalent).
         # Divide by crew_size to get ELAPSED hours (crew works in parallel).
+        # These are the PACK-OUT work; pack-back is sized off them below.
         person_hours = self.classify_labor_hours(request.rooms)
         crew = request.crew_size
-        labor_hours = {k: round(v / crew, 1) for k, v in person_hours.items()}
-        total_labor_hours = sum(labor_hours.values())
+        # Elapsed hours per tier, left unrounded: rounding happens once, when
+        # the tiers are allocated to lines, so the lines add up to the work.
+        labor_hours = {k: v / crew for k, v in person_hours.items()}
 
         # Every crew tier bills at the standard content-manipulation rate. The
         # extra care fragile, high-value and electronic items need is already
@@ -3772,35 +3990,29 @@ class EstimateCalculator:
             special_item_cost += custom.price
             special_item_lines.append({"name": custom.name, "unit": "EA", "price": custom.price})
 
-        # Pack-out / pack-back split
-        # Pack-out is more labor-intensive: inventory, assessment, wrapping, packing, documenting
-        # Pack-back is simpler: unload, place, unpack (no inventory/wrapping needed)
-        # The two fractions must sum to 1.0, or the difference is work that is
-        # scheduled and performed but billed to nobody. Without a pack-back
-        # phase all of the labour is pack-out; this used to read 0.85, quietly
-        # dropping 15% while total_hours still reported the full duration.
-        packout_fraction = 0.62 if request.include_packback else 1.0
-        packback_fraction = 0.38 if request.include_packback else 0.0
-
-        po_standard = labor_hours["standard"] * packout_fraction
-        po_fragile = labor_hours["fragile"] * packout_fraction
-        po_specialty = labor_hours["specialty"] * packout_fraction
-        po_furniture = labor_hours["furniture_disassembly"] * packout_fraction
-        po_appliance = labor_hours["appliance"] * packout_fraction
+        # Pack-out carries ALL of the work tiers. Pack-back is a separate,
+        # later visit sized off them (PACK_BACK_LABOR_RATIO) and added on top:
+        # the packing is the same work whether or not the crew comes back to
+        # unpack. This used to split one fixed total 62/38 between the
+        # phases, so ordering a pack-back cut the pack-out by 38% and the
+        # unpacking was never paid for.
+        #
+        # Each tier is a line rounded to the half hour; allocate_half_hours
+        # keeps the lines summing to the rounded total. Rounding each tier on
+        # its own lost or gained up to half an hour per line.
+        po_alloc = allocate_half_hours(labor_hours)
+        po_standard_hrs = po_alloc["standard"]
+        po_fragile_hrs = po_alloc["fragile"]
+        po_specialty_hrs = po_alloc["specialty"]
+        po_furniture_hrs = po_alloc["furniture_disassembly"]
+        po_appliance_hrs = po_alloc["appliance"]
+        total_labor_hours = sum(po_alloc.values())
 
         # Inventory & documentation: 1 person does this, not full crew
         inventory_hours = rh(total_labor_hours * 0.05) if total_labor_hours > 2 else 0.5
-        # Supervisor: 1 person, not full crew. Sized on the pack-out share of
-        # the hours only; pack-back adds its own supervisor for its share, so
-        # sizing this one on the total supervised the pack-back hours twice.
-        supervisor_hours = max(0.5, rh(total_labor_hours * packout_fraction * 0.10))
-
-        # Pack-out elapsed hours — no artificial minimums that inflate small jobs
-        po_standard_hrs = max(0.5, rh(po_standard))
-        po_fragile_hrs = rh(po_fragile) if labor_hours["fragile"] > 0 else 0
-        po_specialty_hrs = rh(po_specialty) if labor_hours["specialty"] > 0 else 0
-        po_furniture_hrs = rh(po_furniture) if labor_hours["furniture_disassembly"] > 0 else 0
-        po_appliance_hrs = rh(po_appliance) if labor_hours["appliance"] > 0 else 0
+        # Supervisor: 1 person, not full crew, sized on the pack-out work;
+        # pack-back carries its own supervisor for its own hours.
+        supervisor_hours = max(0.5, rh(total_labor_hours * 0.10))
 
         # Cost = elapsed hours × crew × rate (for crew tasks)
         # Inventory & supervisor are single-person tasks (× 1, not × crew)
@@ -3878,7 +4090,8 @@ class EstimateCalculator:
             )
 
         # Smart truck selection based on job size
-        _, truck_rate = self.select_truck(storage_sf)
+        truck_code, truck_rate = self.select_truck(storage_sf)
+        truck_name = self.truck_line_name(truck_code)
 
         # Debris hauling — count DISPOSABLE materials only.
         # Reusable materials (blankets, bubble wrap rolls, shrink wrap, corner protectors)
@@ -3919,7 +4132,6 @@ class EstimateCalculator:
         # Truck trips: 26' van holds ~500 SF worth of contents. Quantity is
         # capacity-driven only; per-work-day billing is an editor opt-in.
         capacity_trips = max(1, math.ceil(storage_sf / 500)) if storage_sf > 0 else 1
-        total_hours_calc = total_labor_hours + debris_hours
         truck_trips = capacity_trips
         truck_note = truck_qty_note(capacity_trips)
 
@@ -3932,30 +4144,26 @@ class EstimateCalculator:
 
         sections["Debris Hauling"] = round(debris_cost, 2)
 
+        pb_total_hours = 0.0
         if request.include_packback:
-            pb_standard = labor_hours["standard"] * packback_fraction
-            pb_furniture = labor_hours["furniture_disassembly"] * packback_fraction
-            pb_appliance = labor_hours["appliance"] * packback_fraction
-            # Fragile/specialty unpacking: simpler than packing (no wrapping) but still careful
-            # ~60% of pack-out fragile/specialty time for careful unwrapping and placement
-            # No extra haircut here. These carried an additional * 0.6, so
-            # fragile and specialty summed to 0.62 + 0.228 = 0.848 across the
-            # two phases — 15% of the two most expensive tiers was billed on
-            # neither side. Every tier now splits by the same fractions, which
-            # sum to 1.0.
-            pb_fragile = labor_hours["fragile"] * packback_fraction
-            pb_specialty = labor_hours["specialty"] * packback_fraction
-            pb_supervisor = rh(total_labor_hours * packback_fraction * 0.10) if total_labor_hours > 2 else 0.5
+            # Every tier unpacks at the same fraction of its packing time
+            # (PACK_BACK_LABOR_RATIO), fragile and specialty included: no
+            # wrapping, but the same careful handling and placement. Allocated
+            # jointly so the lines -- furniture reassembly among them, billed
+            # in its own section -- add up to the pack-back work.
+            pb_alloc = allocate_half_hours(
+                {k: v * PACK_BACK_LABOR_RATIO for k, v in labor_hours.items()}
+            )
+            pb_standard_hrs = pb_alloc["standard"]
+            pb_fragile_hrs = pb_alloc["fragile"]
+            pb_specialty_hrs = pb_alloc["specialty"]
+            pb_appliance_hrs = pb_alloc["appliance"]
+            # Furniture assembly is separate from standard pack-back
+            pb_furniture_hrs = pb_alloc["furniture_disassembly"]
+            pb_total_hours = sum(pb_alloc.values())
+            pb_supervisor = max(0.5, rh(pb_total_hours * 0.10))
             # Inventory verification: check items against pack-out inventory list
             pb_inventory = rh(inventory_hours * 0.5) if inventory_hours > 0 else 0
-
-            # Pack-back is simpler but still needs care for fragile/specialty items
-            pb_standard_hrs = max(0.5, rh(pb_standard))
-            pb_fragile_hrs = rh(pb_fragile) if labor_hours["fragile"] > 0 else 0
-            pb_specialty_hrs = rh(pb_specialty) if labor_hours["specialty"] > 0 else 0
-            pb_appliance_hrs = rh(pb_appliance) if labor_hours["appliance"] > 0 else 0
-            # Furniture assembly is separate from standard pack-back
-            pb_furniture_hrs = rh(pb_furniture) if labor_hours["furniture_disassembly"] > 0 else 0
 
             pb_crew_hrs = (
                 pb_standard_hrs + pb_fragile_hrs + pb_specialty_hrs + pb_appliance_hrs
@@ -3994,10 +4202,11 @@ class EstimateCalculator:
         contingency_amount = subtotal * (request.contingency_rate / 100) if request.include_contingency else 0
         grand_total = subtotal + op_amount + supplements_total + contingency_amount
 
-        # total_hours = elapsed time the crew actually spends on site.
-        # Supervisor & inventory work concurrently with packing crew,
-        # so they do NOT add to elapsed time — only debris hauling is
-        # sequential. (Computed above, where it drives the work-day count.)
+        # total_hours = elapsed time the crew actually spends on site, across
+        # both visits. Supervisor & inventory work concurrently with packing
+        # crew, so they do NOT add to elapsed time — only debris hauling is
+        # sequential.
+        total_hours_calc = total_labor_hours + pb_total_hours + debris_hours
 
         # material_details uses hybrid category lines (computed above)
         material_details = mat_details_legacy
@@ -4098,7 +4307,7 @@ class EstimateCalculator:
         # plain elapsed hours at the per-person rate, unchanged by this refactor.
         def _transport_out_lines(trips, t_rate):
             return [
-                {"name": "26' Moving Van", "qty": trips, "unit": "DY",
+                {"name": truck_name, "qty": trips, "unit": "DY",
                  "rate": round(t_rate, 2),
                  "detail": truck_note,
                  "amount": round(t_rate * trips, 2)},
@@ -4114,7 +4323,7 @@ class EstimateCalculator:
 
         def _transport_back_lines(trips, t_rate):
             return [
-                {"name": "26' Moving Van", "qty": trips, "unit": "DY",
+                {"name": truck_name, "qty": trips, "unit": "DY",
                  "rate": round(t_rate, 2),
                  "detail": truck_note,
                  "amount": round(t_rate * trips, 2)},
@@ -4219,6 +4428,14 @@ class EstimateCalculator:
              "amount": round(debris_cost, 2)},
         ]}
 
+        # Each site visit's day count -- the estimator's, or enough 8-hr days
+        # for its hours -- with the added days' restarts billed on its labor
+        # section. Before the reconcile below, which picks the line up.
+        po_days, pb_days = apply_visit_schedule(
+            section_details, crew, labor_rate,
+            request.pack_out_days, request.pack_back_days,
+        )
+
         # Reconcile ALL section totals from their detail lines so there is
         # no rounding drift between independent calculations.
         for sec_name, sec_detail in section_details.items():
@@ -4232,8 +4449,12 @@ class EstimateCalculator:
 
         # Workday scheduling: each site visit on its own elapsed crew hours
         po_visit_hours, pb_visit_hours = site_visit_hours(section_details)
-        work_days = visit_work_days(po_visit_hours, pb_visit_hours)
-        notes: list[str] = schedule_notes(po_visit_hours, pb_visit_hours, crew)
+        work_days = max(1, po_days, pb_days)
+        total_hours_calc += restart_hours(po_days) + restart_hours(pb_days)
+        notes: list[str] = schedule_notes(
+            po_visit_hours, pb_visit_hours, crew,
+            request.pack_out_days, request.pack_back_days,
+        )
         # Non-transportable content the customer selected produces no line at
         # all, so say so rather than letting it vanish off the estimate.
         notes.extend(exclusion_notes_for(request.rooms, self.presets))
@@ -4250,6 +4471,8 @@ class EstimateCalculator:
             total_hours=round(total_hours_calc, 1),
             crew_size=request.crew_size,
             work_days=work_days,
+            pack_out_days=request.pack_out_days,
+            pack_back_days=request.pack_back_days if request.include_packback else None,
             truck_trips=truck_trips if not is_on_site else 0,
             truck_capacity_trips=capacity_trips if not is_on_site else 0,
             sections=sections,
@@ -4332,9 +4555,10 @@ def validate_estimate_output(section_details: Dict[str, Any]) -> List[str]:
 
     for line_name, sections in section_lines.items():
         if len(sections) > 1:
-            # Skip generic names that legitimately appear in multiple sections
-            generic_names = {"26' Moving Van", "Supervision", "Supervisor/Foreman"}
-            if line_name not in generic_names:
+            # Skip generic names that legitimately appear in multiple sections:
+            # the van on each trip, and per-visit supervision and restarts.
+            generic_names = {"Supervision", "Supervisor/Foreman", MULTI_DAY_LINE_NAME}
+            if line_name not in generic_names and "moving van" not in line_name.lower():
                 warnings.append(
                     f"Line '{line_name}' appears in multiple sections: {sections}"
                 )

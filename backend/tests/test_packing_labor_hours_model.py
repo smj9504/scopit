@@ -105,10 +105,10 @@ def test_hours_come_from_the_documented_person_hour_table(calc):
     )
     assert per_room_ph >= base_ph, "multipliers must never reduce below base"
 
-    # The estimate bills what the per-room model computes, give or take the
-    # half-hour rounding on elapsed time.
+    # The pack-out bills what the per-room model computes, give or take the
+    # half-hour rounding on elapsed time. (Pack-back is further work on top.)
     result = _quick(calc, crew=4)
-    assert result.total_hours * 4 == pytest.approx(per_room_ph, abs=2.0)
+    assert _crew_line_hours(result, "Pack-Out Labor") * 4 == pytest.approx(per_room_ph, abs=2.0)
 
 
 def test_more_rooms_means_more_hours(calc):
@@ -226,39 +226,40 @@ def _content(calc, include_packback):
     ))
 
 
-def test_disabling_packback_does_not_discard_labor(calc):
-    """packout 0.85 / packback 0.0 left 15% of the work billed to nobody.
+def test_pack_out_is_the_same_work_with_or_without_pack_back(calc):
+    """Pack-back is extra work (unpacking), not a re-billing of the pack-out.
 
-    Pinned against the two-phase job rather than merely "greater than": with
-    0.85 the pack-out share is still larger than the 0.62 two-phase share, so
-    a direction-only assertion passes with the bug in place. What must hold is
-    that the SUM of the phases is the same either way — the work does not
-    shrink because it is all done in one visit.
+    Both phases used to split one fixed total 62/38, so ordering a pack-back
+    cut the pack-out visit by 38% and the unpacking was never paid for. The
+    packing is identical whether or not the crew returns to unpack, so the
+    pack-out bills the same lines either way.
     """
     with_pb = _content(calc, True)
     without = _content(calc, False)
 
-    # Pack-back is extra work (unpacking), not a re-billing of the pack-out
-    # hours, so the two jobs legitimately differ in total. What must hold is
-    # that the pack-out phase itself bills the same hours either way: the
-    # packing is identical whether or not the crew returns to unpack. With
-    # packout 0.85 the one-phase job billed a SMALLER pack-out than the
-    # two-phase job, which is backwards.
-    #
-    # Compared as a ratio of each job's own reported duration so the debris
-    # hours folded into total_hours (billed in their own section) cancel.
-    two_phase = _crew_line_hours(with_pb, "Pack-Out Labor")
-    one_phase = _crew_line_hours(without, "Pack-Out Labor")
-    assert one_phase > two_phase, (
-        f"one-phase pack-out bills {one_phase} crew hours vs {two_phase} when "
-        f"a pack-back phase exists — the packing work did not shrink"
+    assert (
+        with_pb.section_details["Pack-Out Labor"]["lines"]
+        == without.section_details["Pack-Out Labor"]["lines"]
     )
-    # Not pinned to the theoretical 1/0.62 = 1.61x: each tier line is rounded
-    # to the half hour independently, and across four-plus lines that pulls the
-    # realised ratio well below the arithmetic one (1.30x on this fixture).
-    # The direction above is what distinguishes 1.0 from 0.85; asserting the
-    # exact ratio would only encode the rounding of one particular fixture.
+    assert with_pb.sections["Pack-Out Labor"] == without.sections["Pack-Out Labor"]
     assert _crew_line_hours(without, "Pack-Back Labor") == 0
+    assert _crew_line_hours(with_pb, "Pack-Back Labor") > 0
+
+
+def test_quick_pack_out_is_the_same_work_with_or_without_pack_back(calc):
+    with_pb = _quick(calc)
+    without = calc.calculate_estimate(QuickEstimateRequest(
+        rooms=[RoomInput(preset=p) for p in ROOMS],
+        crew_size=4, include_packback=False,
+        staging_type=StagingType.OFF_SITE, storage_months=1,
+    ))
+    assert (
+        _crew_line_hours(with_pb, "Pack-Out Labor")
+        == _crew_line_hours(without, "Pack-Out Labor")
+    )
+    assert with_pb.sections["Pack-Out Labor"] == without.sections["Pack-Out Labor"]
+    # ...and the pack-back is added on top of it, not taken out of it.
+    assert with_pb.total_hours > without.total_hours
 
 
 def test_packout_share_is_whole_when_there_is_no_packback(calc):
@@ -267,43 +268,40 @@ def test_packout_share_is_whole_when_there_is_no_packback(calc):
     assert without.sections["Pack-Out Labor"] > 0
 
 
-def test_every_tier_splits_by_the_same_phase_fractions(calc):
-    """Fragile and specialty carried an extra x0.6 the other tiers did not.
+def _content_labor_lines(result):
+    """Crew WORK hours of each Photo AI visit, pack-back reassembly included
+    and the multi-day setup line (which follows from the day count) left out."""
+    from app.domains.tools.modules.packing.service import site_visit_hours
 
-    Asserted on the source fractions rather than through a rendered estimate:
-    the tier hours are rounded to the half hour per line, which on a normal job
-    swallows a 15% difference on the smaller tiers and lets the defect through
-    unnoticed.
+    return site_visit_hours(result.section_details)
+
+
+def test_pack_back_is_sized_off_the_pack_out(calc):
+    """Every tier unpacks at the same fraction of its packing time.
+
+    Fragile and specialty used to carry an extra x0.6 the other tiers did
+    not. Checked on the whole job: with the tiers allocated so the lines sum
+    to the rounded total, the pack-back is PACK_BACK_LABOR_RATIO of the
+    pack-out to within the half-hour grid.
     """
-    import inspect
+    from app.domains.tools.modules.packing.service import PACK_BACK_LABOR_RATIO
 
-    source = inspect.getsource(EstimateCalculator.calculate_estimate_from_content)
-    for tier in ("pb_fragile", "pb_specialty"):
-        line = next(
-            ln for ln in source.splitlines()
-            if ln.strip().startswith(f"{tier} =")
-        )
-        assert "* 0.6" not in line, (
-            f"{tier} applies an extra haircut the other tiers do not: {line.strip()}"
-        )
+    po, pb = _content_labor_lines(_content(calc, True))
+    assert pb == pytest.approx(po * PACK_BACK_LABOR_RATIO, abs=0.5)
 
 
-def test_phase_fractions_sum_to_one(calc):
-    """Anything the two phases do not add up to is work billed to nobody."""
-    import inspect
+def test_content_tier_lines_sum_to_the_rounded_work(calc):
+    """Rounding each tier line on its own drifted: five small tiers rounded
+    to the half hour separately lost about an hour of real work."""
+    from app.domains.tools.modules.packing.service import rh
 
-    source = inspect.getsource(EstimateCalculator.calculate_estimate_from_content)
-    packout = next(
-        ln for ln in source.splitlines() if "packout_fraction =" in ln
-    )
-    packback = next(
-        ln for ln in source.splitlines() if "packback_fraction =" in ln
-    )
-    # Both branches of each ternary, paired up.
-    for phase_line, other in ((packout, packback), (packback, packout)):
-        assert "0.85" not in phase_line, (
-            f"phase fractions do not sum to 1.0: {phase_line.strip()} / {other.strip()}"
-        )
+    rooms = _content_rooms()
+    for room in rooms:
+        calc.enrich_items_for_estimate(room.items)
+    person_hours = calc.classify_labor_hours(rooms)
+    expected = rh(sum(person_hours.values()) / 4)
+    po, _ = _content_labor_lines(_content(calc, False))
+    assert po == pytest.approx(expected, abs=0.01)
 
 
 def test_content_path_reports_hours_it_also_bills(calc):

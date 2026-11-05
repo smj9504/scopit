@@ -184,17 +184,20 @@ def test_quick_pack_out_supervisor_ignores_pack_back_hours(calc):
     assert lines["Supervisor/Foreman"]["qty"] == max(1.0, rh(po_hours * 0.1))
 
 
-def test_photo_ai_pack_out_supervisor_shrinks_with_pack_back(calc):
+def test_photo_ai_pack_out_supervisor_ignores_pack_back(calc):
+    """Pack-back carries its own supervisor; the pack-out one is sized on
+    pack-out work alone, which ordering a pack-back does not change."""
     items = _mixed_items() * 4
     with_pb = _content(calc, items, crew_size=2, include_packback=True)
     without_pb = _content(calc, items, crew_size=2, include_packback=False)
 
-    def sv(result):
+    def sv(result, section):
         return next(
-            ln["qty"] for ln in result.section_details["Pack-Out Labor"]["lines"]
+            ln["qty"] for ln in result.section_details[section]["lines"]
             if ln["name"] == "Supervision"
         )
-    assert sv(with_pb) < sv(without_pb)
+    assert sv(with_pb, "Pack-Out Labor") == sv(without_pb, "Pack-Out Labor")
+    assert sv(with_pb, "Pack-Back Labor") > 0
 
 
 # ── Floor weighs the carry, not the packing ──────────────────────────
