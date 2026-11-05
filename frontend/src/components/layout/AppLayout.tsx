@@ -14,6 +14,7 @@ import {
   DashboardOutlined,
   LeftOutlined,
   RightOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '@/stores/authStore';
 import { colors, fonts, shadows } from '@/styles/theme';
@@ -21,6 +22,7 @@ import { HeaderNavProvider, useHeaderNav } from '@/hooks/useHeaderNav';
 import { FocusModeProvider } from '@/hooks/useFocusMode';
 import { useIsMobile, useIsNarrow } from '@/hooks/useIsMobile';
 import { StrokeIcon, GridIcon, ORDERED_TOOL_META } from '@/components/features/tools/toolMeta';
+import ContactSupportModal from '@/components/support/ContactSupportModal';
 
 const { Sider, Content, Header } = Layout;
 
@@ -129,6 +131,7 @@ const HeaderBackNav: React.FC = () => {
 const AppLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
@@ -539,58 +542,80 @@ const AppLayout: React.FC = () => {
               <HeaderBackNav />
             </div>
 
-            {/* Right side - User menu */}
-            <Dropdown menu={{ items: userMenuItems }} trigger={['click']}>
-              <button
-                type="button"
-                aria-label="Account menu"
+            {/* Right side - Help + User menu */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: useDrawer ? 0 : 8 }}>
+              {/* Help: message the Scopit team from any page. Icon-only in the
+                  drawer layouts, where the header is narrow. */}
+              <Button
+                type="text"
+                icon={<QuestionCircleOutlined aria-hidden style={{ fontSize: 18 }} />}
+                onClick={() => setSupportOpen(true)}
+                aria-label={useDrawer ? 'Help: contact Scopit' : undefined}
+                aria-haspopup="dialog"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  cursor: 'pointer',
-                  padding: '6px 10px',
+                  height: 44,
+                  minWidth: 44,
+                  padding: useDrawer ? 0 : '0 12px',
                   borderRadius: 10,
-                  border: 0,
-                  background: 'transparent',
-                  font: 'inherit',
-                  transition: 'background 0.15s ease',
-                  minHeight: 44,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = colors.bgSunken;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
+                  color: colors.textSecondary,
+                  fontWeight: 500,
+                  fontSize: 14,
                 }}
               >
-                <Avatar
+                {useDrawer ? null : 'Help'}
+              </Button>
+              <Dropdown menu={{ items: userMenuItems }} trigger={['click']}>
+                <button
+                  type="button"
+                  aria-label="Account menu"
                   style={{
-                    background: colors.primary,
-                    color: colors.textWhite,
-                    width: 32,
-                    height: 32,
-                    lineHeight: '32px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    cursor: 'pointer',
+                    padding: '6px 10px',
+                    borderRadius: 10,
+                    border: 0,
+                    background: 'transparent',
+                    font: 'inherit',
+                    transition: 'background 0.15s ease',
+                    minHeight: 44,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = colors.bgSunken;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
                   }}
                 >
-                  {user?.fullName?.charAt(0).toUpperCase() || 'U'}
-                </Avatar>
-                {!useDrawer && (
-                  <span
+                  <Avatar
                     style={{
-                      fontWeight: 500,
-                      fontSize: 14,
-                      color: colors.textPrimary,
+                      background: colors.primary,
+                      color: colors.textWhite,
+                      width: 32,
+                      height: 32,
+                      lineHeight: '32px',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      flexShrink: 0,
                     }}
                   >
-                    {user?.fullName || 'User'}
-                  </span>
-                )}
-              </button>
-            </Dropdown>
+                    {user?.fullName?.charAt(0).toUpperCase() || 'U'}
+                  </Avatar>
+                  {!useDrawer && (
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        fontSize: 14,
+                        color: colors.textPrimary,
+                      }}
+                    >
+                      {user?.fullName || 'User'}
+                    </span>
+                  )}
+                </button>
+              </Dropdown>
+            </div>
           </Header>
 
           {/* Content */}
@@ -694,6 +719,8 @@ const AppLayout: React.FC = () => {
           })}
         </nav>
       )}
+
+      <ContactSupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />
     </Layout>
   );
 };

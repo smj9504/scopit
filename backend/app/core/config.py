@@ -146,6 +146,16 @@ class Settings(BaseSettings):
     # verified, or a first Google sign-in). Empty string disables the notice.
     SIGNUP_NOTIFY_EMAIL: str = "mjbuildworks@gmail.com"
 
+    # ===================
+    # Support inquiries (in-app Help form)
+    # ===================
+    # Internal address that receives each message a user sends from the app.
+    # The email's Reply-To is the user, so replying answers them directly.
+    # Empty string disables the email; messages are still saved and listed
+    # in the admin console (/admin/inquiries).
+    SUPPORT_NOTIFY_EMAIL: str = "mjbuildworks@gmail.com"
+    SUPPORT_INQUIRIES_PER_USER_PER_HOUR: int = 10
+
     class Config:
         env_file = ".env.local"
         case_sensitive = True

@@ -57,6 +57,7 @@ const AdminDashboardPage = lazy(() => import('@/pages/admin/AdminDashboardPage')
 const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'));
 const AdminUserDetailPage = lazy(() => import('@/pages/admin/AdminUserDetailPage'));
 const AdminAnalyticsPage = lazy(() => import('@/pages/admin/AdminAnalyticsPage'));
+const AdminInquiriesPage = lazy(() => import('@/pages/admin/AdminInquiriesPage'));
 
 // Create QueryClient
 const queryClient = new QueryClient({
@@ -242,6 +243,7 @@ const router = createBrowserRouter(
         <Route path="dashboard" element={<AdminDashboardPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="users/:id" element={<AdminUserDetailPage />} />
+        <Route path="inquiries" element={<AdminInquiriesPage />} />
         <Route path="analytics" element={<AdminAnalyticsPage />} />
       </Route>
 

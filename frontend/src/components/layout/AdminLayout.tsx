@@ -13,6 +13,7 @@ import {
   SettingOutlined,
   MenuOutlined,
   CloseOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '@/stores/authStore';
 import { useIsMobile, useIsNarrow } from '@/hooks/useIsMobile';
@@ -45,6 +46,11 @@ const AdminLayout: React.FC = () => {
       key: '/admin/users',
       icon: <UserOutlined />,
       label: 'Users',
+    },
+    {
+      key: '/admin/inquiries',
+      icon: <MessageOutlined />,
+      label: 'Inquiries',
     },
     {
       key: '/admin/analytics',

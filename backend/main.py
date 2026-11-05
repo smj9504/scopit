@@ -26,6 +26,8 @@ from app.domains.estimate.api import router as estimate_router
 from app.domains.invoice.api import router as invoice_router
 from app.domains.line_item.api import router as line_item_router
 from app.domains.settings.api import router as settings_router
+from app.domains.support.api import admin_router as support_admin_router
+from app.domains.support.api import router as support_router
 from app.domains.tools.api import router as tools_router
 from app.domains.tools.modules.item_recommender.api import router as item_recommender_router
 from app.domains.tools.modules.packing.api import router as packing_router
@@ -122,6 +124,8 @@ app.include_router(invoice_router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(settings_router, prefix="/api/settings", tags=["Settings"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
+app.include_router(support_router, prefix="/api/support", tags=["Support"])
+app.include_router(support_admin_router, prefix="/api/admin/inquiries", tags=["Admin"])
 app.include_router(tools_router, prefix="/api/tools", tags=["Tools"])
 app.include_router(roof_analyzer_router, prefix="/api/tools/roof-analyzer", tags=["Roof Analyzer"])
 app.include_router(packing_router, prefix="/api/tools/packing", tags=["Packing Estimator"])

@@ -9,6 +9,9 @@ import type {
   AdminUserDetail,
   GeographyAnalytics,
   OccupationAnalytics,
+  AdminInquiry,
+  AdminInquiryListResponse,
+  InquiryStatus,
 } from '@/types/admin';
 
 // Transform snake_case to camelCase for frontend
@@ -74,6 +77,21 @@ const transformLoginLog = (data: any) => ({
   deviceType: data.device_type,
   browser: data.browser,
   os: data.os,
+});
+
+const transformInquiry = (data: any): AdminInquiry => ({
+  id: data.id,
+  userId: data.user_id,
+  email: data.email,
+  name: data.name,
+  companyName: data.company_name,
+  category: data.category,
+  message: data.message,
+  pageUrl: data.page_url,
+  userAgent: data.user_agent,
+  status: data.status,
+  createdAt: data.created_at,
+  resolvedAt: data.resolved_at,
 });
 
 export const adminService = {
@@ -170,6 +188,41 @@ export const adminService = {
       stats: response.data.stats,
       totalUsers: response.data.total_users,
     };
+  },
+
+  /**
+   * Get support inquiries, newest first
+   */
+  getInquiries: async (params?: {
+    status?: InquiryStatus;
+    page?: number;
+    limit?: number;
+  }): Promise<AdminInquiryListResponse> => {
+    const response = await api.get('/admin/inquiries', {
+      params: {
+        status: params?.status,
+        page: params?.page || 1,
+        limit: params?.limit || 20,
+      },
+    });
+    return {
+      items: response.data.items.map(transformInquiry),
+      total: response.data.total,
+      openCount: response.data.open_count,
+      page: response.data.page,
+      limit: response.data.limit,
+    };
+  },
+
+  /**
+   * Mark an inquiry resolved, or reopen it
+   */
+  setInquiryStatus: async (
+    inquiryId: string,
+    status: InquiryStatus
+  ): Promise<AdminInquiry> => {
+    const response = await api.patch(`/admin/inquiries/${inquiryId}`, { status });
+    return transformInquiry(response.data);
   },
 };
 

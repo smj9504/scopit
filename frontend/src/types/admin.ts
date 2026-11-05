@@ -109,3 +109,31 @@ export interface OccupationAnalytics {
   stats: OccupationStat[];
   totalUsers: number;
 }
+
+// Support inquiries (messages sent from the in-app Help form)
+
+export type InquiryStatus = 'open' | 'resolved';
+
+export interface AdminInquiry {
+  id: string;
+  userId: string | null;
+  email: string;
+  name: string | null;
+  companyName: string | null;
+  category: string;
+  message: string;
+  pageUrl: string | null;
+  userAgent: string | null;
+  status: InquiryStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export interface AdminInquiryListResponse {
+  items: AdminInquiry[];
+  total: number;
+  /** Open inquiries overall, whatever the filter. */
+  openCount: number;
+  page: number;
+  limit: number;
+}
