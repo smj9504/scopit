@@ -2024,7 +2024,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
       {/* Mode bars: edit / crop / redact */}
       {activeTool === 'edit_text' && !organizeOpen && (
-        <EditBar onDone={() => setActiveTool('select')} compact={isMobile} />
+        <EditBar
+          onDone={() => setActiveTool('select')}
+          compact={isMobile}
+          noText={!!textLayer && textLayer.runs.length === 0}
+        />
       )}
       {activeTool === 'crop' && !organizeOpen && (
         <CropBar
