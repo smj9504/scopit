@@ -4,12 +4,15 @@
  *
  * Targets "sign a contract in person / on-site e-signature for contractors"
  * search and AI-answer intent, framed for restoration contractors. Every claim
- * maps to the real PDF & E-Sign tool: Direct Link requests opened on the
- * contractor's own device (there is no separate kiosk mode), email requests,
- * user-uploaded forms with auto-fill from customer/company records, drawn or
- * typed signatures, consent + IP/device/timestamp audit trail, and a signed
- * PDF emailed to every party. Scopit ships no contract templates — copy says
- * "your own" forms on purpose.
+ * maps to the real PDF & E-Sign tool: Sign in Person (/app/sign-in-person) on
+ * the contractor's own device -- pick or add the customer, pick one or more
+ * mapped forms, answer only what isn't on record, hand over the device; the
+ * signer draws or types once and taps each line; nothing is saved until they
+ * finish; the signed PDFs are emailed from the finish screen, in one email.
+ * Also email requests (own link per signer, expiry, reminders, void, signed
+ * PDF to every party on completion), auto-fill from customer/company records,
+ * consent + IP/device/timestamp audit trail. Scopit ships no contract
+ * templates -- copy says "your own" forms on purpose.
  */
 import React from 'react';
 import PackingLandingLayout, {
@@ -23,12 +26,17 @@ const SECTIONS: LandingSection[] = [
   {
     h: 'Get the work authorization signed before you leave the driveway',
     body:
-      'On a water or fire loss the homeowner is standing right there — that’s the moment to get the work authorization signed, not two days later over email. Create a direct signing link in Scopit, open it on your phone or tablet, and hand the device over. The homeowner reviews the document and draws or types their signature on the screen. No app to install and no account to create.',
+      'On a water or fire loss the homeowner is standing right there — that’s the moment to get the work authorization signed, not two days later over email. Open Sign in Person in Scopit, pick the customer or add them on the spot, choose the forms, and hand over your phone or tablet. The homeowner reads each document with their details already filled in, then signs it on the screen. No link to send, no app to install and no account to create.',
   },
   {
     h: 'Your own forms, filled in from your records',
     body:
-      'Upload the PDFs you already use — work authorization, service contract, direction to pay, change order — and place the fields once. After that, the customer’s name, address, phone and email and your company details fill themselves in, so on-site you only pick the customer and hand over the device. You can also turn a Scopit estimate or invoice into a PDF and send it for signature.',
+      'Upload the PDFs you already use — work authorization, service contract, direction to pay, change order — and place the fields once. After that, the customer’s name, address, phone and email, your company details and the signing date fill themselves in. On-site, Scopit asks only for what isn’t on record yet, before you hand over the device. You can also turn a Scopit estimate or invoice into a PDF and send it for signature.',
+  },
+  {
+    h: 'Every form and every signer in one hand-off',
+    body:
+      'Pick the work authorization, the direction to pay and whatever else the job needs, and the homeowner signs them one after another. They draw or type their signature once, then tap each line to place it, and Scopit won’t finish until every line is signed. Two homeowners sign their own lines on the same device. Nothing is saved until they finish, so a half-signed form never lands in the job file.',
   },
   {
     h: 'Not on-site? Send the same document by email',
@@ -38,7 +46,7 @@ const SECTIONS: LandingSection[] = [
   {
     h: 'A record of who signed, and when',
     body:
-      'Each signer agrees to sign electronically before signing. Scopit records when the document was viewed and signed, along with the signer’s IP address and device, in an audit timeline on the request. When everyone has signed, the completed PDF is emailed to you and to every signer — ready for the job file or the carrier.',
+      'Each signer agrees to sign electronically before signing. Scopit records when the document was signed, along with the IP address and device, in an audit timeline on the request. After an in-person signing, email the homeowner every signed PDF in one email before you leave; an emailed request sends the completed PDF to you and every signer. Either way it’s ready for the job file or the carrier.',
   },
 ];
 
@@ -51,28 +59,32 @@ const STEPS: LandingStep[] = [
   {
     n: 2,
     h: 'Pick the customer',
-    body: 'Customer and company details fill in automatically. Add anything job-specific before sending.',
+    body: 'Pick an existing customer or add a new one. Their details and yours fill in; Scopit asks only for what’s missing.',
   },
   {
     n: 3,
     h: 'Hand over your device',
-    body: 'Open the direct signing link on your phone or tablet, or email it if the signer isn’t there.',
+    body: 'The homeowner reads each form, agrees to sign electronically, and signs every line on your phone or tablet.',
   },
   {
     n: 4,
-    h: 'Everyone gets the signed PDF',
-    body: 'The completed document is emailed to you and every signer, with the audit timeline kept in Scopit.',
+    h: 'Send the signed PDFs',
+    body: 'Each signed form is saved to the customer, and you can email the homeowner all their copies in one email.',
   },
 ];
 
 const FAQS: LandingFaq[] = [
   {
     q: 'Can a homeowner sign a contract in person on my phone or tablet?',
-    a: 'Yes. Create the signing request as a direct link, open it on your own phone or tablet, and hand it to the homeowner. They review the document, agree to sign electronically, and draw or type their signature on the screen.',
+    a: 'Yes. Open Sign in Person from the PDF Editor or the customer’s page, pick the forms, and hand over your device. The homeowner reads each document, agrees to sign electronically, draws or types their signature once, and taps each signature line to place it.',
   },
   {
     q: 'Does the homeowner need an account or an app?',
-    a: 'No. Signing happens in the web browser from the signing link — the homeowner doesn’t install anything or create an account.',
+    a: 'No. In person, they sign right on your phone or tablet. For an emailed request, they sign in their web browser from the link — nothing to install and no account to create.',
+  },
+  {
+    q: 'Can I add a new customer on-site?',
+    a: 'Yes. If the homeowner isn’t in Scopit yet, enter their name, email, phone and address during the visit. The customer is saved together with the signed documents when signing finishes.',
   },
   {
     q: 'Which documents can restoration contractors use?',
@@ -84,11 +96,11 @@ const FAQS: LandingFaq[] = [
   },
   {
     q: 'Can more than one person sign the same document?',
-    a: 'Yes. Add each signer — for example two homeowners, or a homeowner and a property manager — with their own role. Each gets their own link and fields, and the document is complete once everyone has signed.',
+    a: 'Yes. Each signer has their own role and fields. In person, two homeowners sign one after the other on the same device; by email, each gets their own link. The document is complete once everyone has signed.',
   },
   {
     q: 'What do I get after it’s signed?',
-    a: 'A completed PDF with the signatures and a date stamp, emailed to you and every signer and downloadable from Scopit, plus an audit timeline showing when the document was sent, viewed and signed.',
+    a: 'A completed PDF with the signatures and a date stamp, saved on the customer’s Signatures tab and downloadable from Scopit, plus an audit timeline of the signing. After an in-person signing you can email the homeowner every signed PDF in one email; an emailed request sends the completed PDF to you and every signer automatically.',
   },
   {
     q: 'How much does it cost?',
@@ -107,11 +119,11 @@ const InPersonContractSigningPage: React.FC = () => (
   <PackingLandingLayout
     path="/in-person-contract-signing"
     title="In-Person Contract Signing for Restoration | Scopit"
-    description="Get work authorizations signed on-site: open the signing link on your phone or tablet and hand it to the homeowner. No app or account needed."
+    description="Get work authorizations signed on-site: your forms fill in from your records and the homeowner signs on your phone or tablet. No app or account needed."
     breadcrumbName="In-Person Contract Signing"
     eyebrow="E-signature for restoration contractors"
     h1="Get contracts signed in person, on your phone or tablet"
-    subhead="Hand the homeowner your device at the loss and get the work authorization signed on the spot — your own forms, filled in from your records, with a signed PDF emailed to everyone."
+    subhead="Hand the homeowner your device at the loss and get the work authorization signed on the spot — your own forms, filled in from your records, with the signed PDF ready to email before you leave."
     sections={SECTIONS}
     steps={STEPS}
     stepsHeading="How on-site signing works"
