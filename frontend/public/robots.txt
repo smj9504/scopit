@@ -22,10 +22,12 @@ Disallow: /register
 # match that would otherwise also block "/registerSW.js" (a render resource).
 Allow: /registerSW.js
 Disallow: /forgot-password
+Disallow: /reset-password
 Disallow: /auth/callback
 
 # Per-customer e-signature links - private, unique tokens, never indexable
 Disallow: /sign/
+Disallow: /sign-in-person/
 
 # Per-customer packing-estimate token links - private, never indexable
 Disallow: /packing-estimate/verify/

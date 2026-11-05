@@ -351,6 +351,75 @@ class EmailService:
             text_content=text_content,
         )
 
+    def send_password_reset_email(
+        self,
+        to_email: str,
+        user_name: str,
+        reset_url: str,
+        expires_in_minutes: int = 30,
+    ) -> bool:
+        """Send a link to choose a new password (see /auth/forgot-password)."""
+        subject = f"Reset your {settings.APP_NAME} password"
+
+        body_html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  <tr>
+    <td>
+      <h1 style="margin:0 0 14px 0; font-family:{FONT_STACK_HEADING}; font-size:23px; font-weight:800; color:{COLOR_PRIMARY}; letter-spacing:-0.3px;">
+        Reset your password
+      </h1>
+      <p style="margin:0 0 24px 0; color:{COLOR_TEXT}; font-size:15px; line-height:1.65; font-family:{FONT_STACK_BODY};">
+        Hi {_h(user_name)}, we got a request to reset the password for your {settings.APP_NAME} account. Choose a new one with the button below.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding:0 0 20px 0;">
+      <a href="{_h(reset_url)}"
+         style="display:inline-block; background-color:{COLOR_PRIMARY}; color:#ffffff; text-decoration:none; padding:14px 34px; border-radius:8px; font-family:{FONT_STACK_HEADING}; font-size:15px; font-weight:700;">
+        Choose a new password
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding-bottom:28px;">
+      <p style="margin:0; color:{COLOR_MUTED}; font-size:13px; font-family:{FONT_STACK_BODY};">
+        This link works once and expires in {expires_in_minutes} minutes.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td style="border-top:1px solid {COLOR_BORDER}; padding-top:20px;">
+      <p style="margin:0; color:{COLOR_FAINT}; font-size:13px; line-height:1.6; font-family:{FONT_STACK_BODY};">
+        Didn't ask for this? You can ignore this email; your password won't change.
+      </p>
+    </td>
+  </tr>
+</table>
+"""
+
+        html_content = self._base_template(
+            title=subject,
+            preheader=f"Choose a new password. The link expires in {expires_in_minutes} minutes.",
+            body_html=body_html,
+        )
+
+        text_content = (
+            f"Reset your password\n\n"
+            f"Hi {user_name}, we got a request to reset the password for your "
+            f"{settings.APP_NAME} account. Choose a new one here:\n\n"
+            f"{reset_url}\n\n"
+            f"This link works once and expires in {expires_in_minutes} minutes.\n\n"
+            f"Didn't ask for this? You can ignore this email; your password won't change."
+        )
+
+        return self.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content,
+        )
+
     def send_welcome_email(self, to_email: str, user_name: str) -> bool:
         """
         Send welcome email to new user

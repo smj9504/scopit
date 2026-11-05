@@ -8,7 +8,7 @@ from typing import Optional
 from authlib.integrations.starlette_client import OAuth
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func
@@ -27,11 +27,15 @@ from app.core.email import email_service
 from app.core.rate_limit import enforce_rate_limit
 from app.core.security import (
     create_access_token,
+    PASSWORD_RESET_TTL_MINUTES,
     create_oauth_code,
+    create_password_reset_token,
     create_refresh_token,
     decode_token,
     get_password_hash,
     password_problem,
+    password_reset_matches,
+    password_reset_user_id,
     redeem_oauth_code,
     token_is_current,
     verify_password,
@@ -172,8 +176,8 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str
-    password: str
+    token: str = Field(..., max_length=4096)
+    password: str = Field(..., max_length=256)
 
 
 class RegisterResponse(BaseModel):
@@ -676,30 +680,70 @@ async def logout(current_user: User = Depends(get_current_user)):
     return MessageResponse(message="Logged out successfully")
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", response_model=MessageResponse)
 async def forgot_password(
-    data: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)
+    data: ForgotPasswordRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
-    """Request password reset email"""
+    """Email a password reset link.
+
+    The response is the same whether or not the account exists, and the email
+    goes out after the response, so neither the answer nor its timing tells
+    a caller which addresses have accounts.
+    """
     _limit_by_ip(request, "forgot-password", 10, 3600)
+    _limit_by_email(data.email, "forgot-password", 3, 3600)
 
     user = db.query(User).filter(User.email == data.email).first()
+    if user and user.is_active:
+        token = create_password_reset_token(user)
+        # In the fragment: browsers never send it to servers or in Referer.
+        reset_url = f"{settings.FRONTEND_URL}/reset-password#token={token}"
+        background_tasks.add_task(
+            email_service.send_password_reset_email,
+            to_email=user.email,
+            user_name=user.full_name or "there",
+            reset_url=reset_url,
+            expires_in_minutes=PASSWORD_RESET_TTL_MINUTES,
+        )
 
-    # Always return success to prevent email enumeration
-    if user:
-        # TODO: Send password reset email
-        pass
-
-    return MessageResponse(message="If the email exists, a reset link has been sent")
+    return MessageResponse(
+        message="If an account exists for that email, we've sent a link to reset the password."
+    )
 
 
-@router.post("/reset-password")
-async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
-    """Reset password with token"""
+_INVALID_RESET_LINK = "This reset link is invalid or has expired. Please request a new one."
 
-    # TODO: Verify token and reset password
 
-    return MessageResponse(message="Password reset successfully")
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(
+    data: ResetPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Set a new password from a reset link. Signs the account out everywhere."""
+    _limit_by_ip(request, "reset-password", 20, 3600)
+
+    parsed = password_reset_user_id(data.token)
+    if not parsed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_INVALID_RESET_LINK)
+    user_id, fingerprint = parsed
+    user = db.query(User).filter(User.id == user_id).first()
+    # The fingerprint changes once the password does, so each link works once.
+    if not user or not user.is_active or not password_reset_matches(user, fingerprint):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_INVALID_RESET_LINK)
+
+    _require_good_password(data.password)
+
+    user.hashed_password = get_password_hash(data.password)
+    user.token_version = (user.token_version or 0) + 1
+    # Opening the emailed link proves the address belongs to them.
+    user.is_verified = True
+    db.commit()
+
+    return MessageResponse(message="Your password has been reset. You can now sign in.")
 
 
 # ===================

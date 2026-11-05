@@ -101,10 +101,6 @@ export const useAuthStore = create<AuthState>()(
 if (typeof window !== 'undefined') {
   const syncFromStorage = () => {
     const state = useAuthStore.getState();
-    // In-person signing hand-over: this tab deliberately runs with no tokens
-    // (isAuthenticated stays true so the signing page stays mounted). Other
-    // tabs signing out must not end the customer's visit.
-    if (state.isAuthenticated && !state.accessToken) return;
     let raw: string | null = null;
     try {
       raw = localStorage.getItem('scopit-auth');

@@ -61,7 +61,7 @@ const ForgotPasswordPage: React.FC = () => {
               <Result
                 status="success"
                 title="Check your email"
-                subTitle="We've sent a password reset link to your email"
+                subTitle="If an account exists for that email, we've sent a link to reset the password. It expires in 30 minutes; check your spam folder if you don't see it."
                 extra={
                   <Link to="/login">
                     <Button type="primary" style={{ background: colors.primary }}>

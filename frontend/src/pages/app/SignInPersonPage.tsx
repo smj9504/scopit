@@ -13,11 +13,12 @@
  * entered. The visit is drafted to this tab's storage so a reload doesn't
  * lose it, and leaving once there's something to lose asks first.
  *
- * Handing over ends the employee's session on this device: the tokens leave
- * memory and storage, nothing fetched with them stays cached, and the
- * signer's part (KioskVisit) runs on a kiosk token that only reaches this
- * visit. No navigation leaves it; handing back loads the sign-in page fresh,
- * so the employee signs in again (and nothing of the visit stays in memory).
+ * Handing over ends the employee's session on this device: the visit and
+ * its kiosk token are saved to this tab's storage, the session leaves
+ * storage, and the signer's page (/sign-in-person/kiosk, KioskSigningPage)
+ * loads fresh, so nothing of the employee's stays in memory. That page runs
+ * only on the kiosk token, which reaches just this visit, and survives a
+ * reload. Handing back loads the sign-in page, so the employee signs in again.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, ConfigProvider, Modal, Skeleton } from 'antd';
@@ -33,7 +34,6 @@ import CustomerStep from '@/components/features/tools/pdf-editor/in-person/Custo
 import DocumentStep from '@/components/features/tools/pdf-editor/in-person/DocumentStep';
 import FieldsStep from '@/components/features/tools/pdf-editor/in-person/FieldsStep';
 import HandoffStep from '@/components/features/tools/pdf-editor/in-person/HandoffStep';
-import KioskVisit, { type KioskSession } from '@/components/features/tools/pdf-editor/in-person/KioskVisit';
 import { LoadError } from '@/components/features/tools/pdf-editor/in-person/ui';
 import {
   inPersonApi,
@@ -41,7 +41,11 @@ import {
   type Answers,
   type Subject,
 } from '@/components/features/tools/pdf-editor/in-person/inPersonApi';
-import { kioskClient } from '@/components/features/tools/pdf-editor/in-person/kioskApi';
+import {
+  IN_PERSON_DRAFT_KEY,
+  KIOSK_PATH,
+  saveKiosk,
+} from '@/components/features/tools/pdf-editor/in-person/kioskSession';
 import '@/components/features/tools/pdf-editor/in-person/inPerson.css';
 
 type Step = 'customer' | 'documents' | 'fields' | 'handoff';
@@ -53,10 +57,7 @@ interface Draft {
   sequence: string[] | null;
 }
 
-const DRAFT_KEY = 'scopit-in-person-draft';
-
-/** Where the employee picks the visit up again if it's handed back unsigned */
-const RESUME_PATH = '/app/sign-in-person?step=handoff';
+const DRAFT_KEY = IN_PERSON_DRAFT_KEY;
 
 const readDraft = (): Partial<Draft> => {
   try {
@@ -77,31 +78,6 @@ const writeDraft = (draft: Draft | null) => {
 
 const subjectName = (subject: Subject | null) =>
   subject?.kind === 'customer' ? subject.name : subject?.customer.name;
-
-/**
- * Take the employee's session off the device: the tokens leave memory and
- * storage. The store keeps saying "signed in" until the device is handed
- * back, so this page stays up (it's behind the signed-in routes); with no
- * token there's nothing it can reach.
- */
-const dropEmployeeSession = () => {
-  useAuthStore.getState().setTokens('', '');
-  useAuthStore.persist.clearStorage();
-};
-
-/**
- * To the sign-in page, as a fresh page load: nothing of the visit or the
- * employee's session survives in memory. The router reads the sign-in page's
- * state (where to go after, whose email) from the history entry.
- */
-const goToSignIn = (state: { returnTo: string; email?: string }) => {
-  useAuthStore.persist.clearStorage();
-  const entry = (window.history.state ?? {}) as Record<string, unknown>;
-  // reauth: "Continue with Google" must ask for the password, so a customer
-  // can't get in through a Google session already open in this browser.
-  window.history.replaceState({ ...entry, usr: { ...state, reauth: true } }, '', '/login');
-  window.location.reload();
-};
 
 const SignInPersonPage: React.FC = () => {
   useFocusMode(true);
@@ -130,21 +106,18 @@ const SignInPersonPage: React.FC = () => {
   // The device's date: an evening signing must not be dated tomorrow in UTC
   const today = useMemo(() => todayOnDevice(), []);
 
-  // Once handed over, the signer's part of the visit
-  const [kiosk, setKiosk] = useState<KioskSession | null>(null);
   const [handing, setHanding] = useState(false);
   const [handoffError, setHandoffError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (kiosk) return;
     writeDraft(subject ? { subject, documentIds, answers, sequence } : null);
-  }, [subject, documentIds, answers, sequence, kiosk]);
+  }, [subject, documentIds, answers, sequence]);
 
   // Opened for a customer: that customer is already picked
   const customerQuery = useQuery({
     queryKey: ['customer', presetCustomer],
     queryFn: () => customerService.getById(presetCustomer as string),
-    enabled: !!presetCustomer && !subject && !kiosk,
+    enabled: !!presetCustomer && !subject,
   });
   useEffect(() => {
     if (!customerQuery.data || subject) return;
@@ -173,7 +146,7 @@ const SignInPersonPage: React.FC = () => {
   const form = useQuery({
     queryKey: ['in-person-form', subject, documentIds],
     queryFn: () => inPersonApi.getForm(subject as Subject, documentIds),
-    enabled: !kiosk && !!subject && chosen && (step === 'fields' || step === 'handoff'),
+    enabled: !!subject && chosen && (step === 'fields' || step === 'handoff'),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
@@ -188,17 +161,10 @@ const SignInPersonPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions]);
 
-  // Something typed would be lost by leaving now; and once handed over, the
-  // signer can't navigate anywhere at all (the browser's Back included)
-  const inKiosk = useRef(false);
-  inKiosk.current = !!kiosk;
+  // Something typed would be lost by leaving now
   const blocker = useBlocker(({ currentLocation, nextLocation }) => (
-    inKiosk.current
-    || ((step === 'fields' || step === 'handoff') && currentLocation.pathname !== nextLocation.pathname)
+    (step === 'fields' || step === 'handoff') && currentLocation.pathname !== nextLocation.pathname
   ));
-  useEffect(() => {
-    if (kiosk && blocker.state === 'blocked') blocker.reset?.();
-  }, [kiosk, blocker]);
 
   const resetVisit = () => {
     setAnswers({});
@@ -221,26 +187,25 @@ const SignInPersonPage: React.FC = () => {
     setHandoffError(null);
     try {
       const handed = await inPersonApi.handoff(subject, documentIds, answers);
-      // From here the device is the signer's
+      if (!saveKiosk({ handoff: handed, today, returnTo, docIndex: 0 })) {
+        setHandoffError(
+          "This browser can't keep the signing on this tab (storage is off or full). "
+          + 'Turn off private browsing and try again.',
+        );
+        setHanding(false);
+        return;
+      }
+      // From here the device is the signer's: drop everything fetched with
+      // the employee's session, take the session out of storage, and load the
+      // signer's page fresh so nothing of it is left in memory either.
       await queryClient.cancelQueries();
       queryClient.clear();
-      dropEmployeeSession();
-      setKiosk({ ...handed, client: kioskClient(handed.token), today });
+      useAuthStore.persist.clearStorage();
+      window.location.replace(KIOSK_PATH);
     } catch (err) {
       setHandoffError(getErrorMessage(err) || "Couldn't hand over. Check your connection and try again.");
-    } finally {
       setHanding(false);
     }
-  };
-
-  const handBack = (signed: boolean) => {
-    if (signed) writeDraft(null);
-    goToSignIn({
-      // Signed: back where the visit was started. Not signed: back to the
-      // hand-over, with what was entered, to change it or hand over again.
-      returnTo: signed ? returnTo : RESUME_PATH,
-      email: kiosk?.staff.email,
-    });
   };
 
   // Each screen starts at the top; a long document leaves the page far down
@@ -251,14 +216,6 @@ const SignInPersonPage: React.FC = () => {
     lastScreen.current = screenKey;
     window.scrollTo(0, 0);
   }, [screenKey]);
-
-  if (kiosk) {
-    return (
-      <ConfigProvider componentSize="large">
-        <KioskVisit session={kiosk} onSigned={() => writeDraft(null)} onHandBack={handBack} />
-      </ConfigProvider>
-    );
-  }
 
   // What's been chosen so far, so whoever holds the device can see it's the right visit
   const docCount = documentIds.length;

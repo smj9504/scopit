@@ -15,6 +15,7 @@ const LandingPage = lazy(() => import('@/pages/public/LandingPage'));
 const LoginPage = lazy(() => import('@/pages/auth/LoginPage'));
 const RegisterPage = lazy(() => import('@/pages/auth/RegisterPage'));
 const ForgotPasswordPage = lazy(() => import('@/pages/auth/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage'));
 const OAuthCallbackPage = lazy(() => import('@/pages/auth/OAuthCallbackPage'));
 
 const AppLayout = lazy(() => import('@/components/layout/AppLayout'));
@@ -35,6 +36,7 @@ const SignInPersonPage = lazy(() => import('@/pages/app/SignInPersonPage'));
 
 // Public pages (no auth)
 const SignPage = lazy(() => import('@/pages/public/SignPage'));
+const KioskSigningPage = lazy(() => import('@/pages/public/KioskSigningPage'));
 const PackingDemoPage = lazy(() => import('@/pages/public/PackingDemoPage'));
 const PackingCalculatorPage = lazy(() => import('@/pages/public/PackingCalculatorPage'));
 const PackOutEstimatePage = lazy(() => import('@/pages/public/PackOutEstimatePage'));
@@ -160,10 +162,13 @@ const router = createBrowserRouter(
         }
       />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/auth/callback" element={<OAuthCallbackPage />} />
 
       {/* Public E-Sign Page (no auth required) */}
       <Route path="/sign/:token" element={<SignPage />} />
+      {/* In-person signing, the signer's part: runs on a kiosk token, no sign-in */}
+      <Route path="/sign-in-person/kiosk" element={<KioskSigningPage />} />
 
       {/* Public E-Sign SEO content page (no auth required) */}
       <Route path="/in-person-contract-signing" element={<InPersonContractSigningPage />} />

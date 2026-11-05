@@ -33,6 +33,7 @@ import {
   type SignedVisit,
 } from './inPersonApi';
 import { isKioskEnded, type KioskClient } from './kioskApi';
+import type { SignProgress } from './kioskSession';
 import { ActionBar } from './ui';
 
 interface RenderedPage {
@@ -185,10 +186,15 @@ interface SignStepProps {
   onSigned: (result: SignedVisit) => void;
   /** The kiosk token stopped working */
   onEnded: () => void;
+  /** Progress saved before a reload: names, drawn marks and where they're placed */
+  initialProgress?: SignProgress;
+  /** Called as the signer goes, so a reload can resume (consent is never kept) */
+  onProgress?: (progress: SignProgress) => void;
 }
 
 const SignStep: React.FC<SignStepProps> = ({
   form, client, answers, today, staff, docIndex, onDoc, onSigned, onEnded,
+  initialProgress, onProgress,
 }) => {
   useSignatureFonts();
   const { documents, signers } = form;
@@ -207,12 +213,19 @@ const SignStep: React.FC<SignStepProps> = ({
   ).trim();
   const customerEmail = (answers['customer.email'] || form.customer.email || '').trim();
   const [names, setNames] = useState<Record<string, string>>(
-    () => (signers[0] ? { [signers[0].role]: customerName } : {}),
+    () => initialProgress?.names ?? (signers[0] ? { [signers[0].role]: customerName } : {}),
   );
-  const [me, setMe] = useState<string | null>(null);
+  const [me, setMe] = useState<string | null>(initialProgress?.me ?? null);
+  // Agreeing is asked again after a reload rather than restored
   const [consent, setConsent] = useState(false);
-  const [marks, setMarks] = useState<Record<string, CapturedMark>>({});
-  const [placed, setPlaced] = useState<Record<string, boolean>>({});
+  const [marks, setMarks] = useState<Record<string, CapturedMark>>(initialProgress?.marks ?? {});
+  const [placed, setPlaced] = useState<Record<string, boolean>>(initialProgress?.placed ?? {});
+
+  const reportProgress = useRef(onProgress);
+  reportProgress.current = onProgress;
+  useEffect(() => {
+    reportProgress.current?.({ names, me, marks, placed });
+  }, [names, me, marks, placed]);
   const [pad, setPad] = useState<{ slot: string; role: string; type: 'signature' | 'initials'; line?: string } | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, PreviewState>>({});

@@ -119,6 +119,47 @@ def token_is_current(payload: TokenPayload, user) -> bool:
 
 
 # ===================
+# Password reset links
+# ===================
+# A reset link carries a signed, short-lived token that names the user and
+# fingerprints their current password hash and token_version. Setting a new
+# password changes both, so a link works once, and any password change made
+# another way (or a newer reset) also kills older links. No table needed.
+
+PASSWORD_RESET_TTL_MINUTES = 30
+
+
+def _password_fingerprint(user) -> str:
+    material = f"{user.hashed_password or ''}:{int(getattr(user, 'token_version', 0) or 0)}:{settings.SECRET_KEY}"
+    return hashlib.sha256(material.encode()).hexdigest()[:32]
+
+
+def create_password_reset_token(user) -> str:
+    to_encode = {
+        "sub": str(user.id),
+        "type": "password_reset",
+        "exp": datetime.utcnow() + timedelta(minutes=PASSWORD_RESET_TTL_MINUTES),
+        "pwf": _password_fingerprint(user),
+    }
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def password_reset_user_id(token: str) -> Optional[tuple[str, str]]:
+    """(user id, password fingerprint) from a valid, unexpired reset token; else None."""
+    try:
+        claims = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except (JWTError, ValueError):
+        return None
+    if claims.get("type") != "password_reset" or not claims.get("sub") or not claims.get("pwf"):
+        return None
+    return str(claims["sub"]), str(claims["pwf"])
+
+
+def password_reset_matches(user, fingerprint: str) -> bool:
+    return secrets.compare_digest(_password_fingerprint(user), fingerprint)
+
+
+# ===================
 # Google sign-in hand-off
 # ===================
 # After Google redirects back, the API sends the browser to the frontend with

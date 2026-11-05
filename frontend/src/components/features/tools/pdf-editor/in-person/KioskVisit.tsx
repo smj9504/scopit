@@ -5,13 +5,15 @@
  * on the visit's kiosk token (kioskApi.ts): the signer reads and signs this
  * visit's documents, emails themselves their copies, and hands the device
  * back. There's no way back to the employee's steps from here: no Back or
- * Exit, and the page holding this blocks every other navigation. Handing back
- * goes to the sign-in page.
+ * Exit, and the page holding this (KioskSigningPage) keeps the browser's Back
+ * on it. Progress is reported up so a reload resumes the visit
+ * (kioskSession.ts). Handing back goes to the sign-in page.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Modal } from 'antd';
 import type { InPersonForm, SignedVisit } from './inPersonApi';
 import type { Handoff, KioskClient } from './kioskApi';
+import type { SignProgress } from './kioskSession';
 import DoneStep from './DoneStep';
 import SignStep from './SignStep';
 
@@ -26,15 +28,25 @@ const visitName = (form: InPersonForm) =>
 
 const KioskVisit: React.FC<{
   session: KioskSession;
+  /** Where a reloaded visit was */
+  initialDocIndex?: number;
+  initialResult?: SignedVisit | null;
+  initialEnded?: boolean;
+  initialProgress?: SignProgress;
+  onDoc?: (index: number) => void;
+  onProgress?: (progress: SignProgress) => void;
   onSigned: (result: SignedVisit) => void;
   /** Give the device back; `signed` once the documents are */
   onHandBack: (signed: boolean) => void;
-}> = ({ session, onSigned, onHandBack }) => {
+}> = ({
+  session, initialDocIndex = 0, initialResult = null, initialEnded = false, initialProgress,
+  onDoc, onProgress, onSigned, onHandBack,
+}) => {
   const { form, answers, client, today, staff } = session;
   const company = session.companyName || 'the company';
-  const [docIndex, setDocIndex] = useState(0);
-  const [result, setResult] = useState<SignedVisit | null>(null);
-  const [ended, setEnded] = useState(false);
+  const [docIndex, setDocIndex] = useState(initialDocIndex);
+  const [result, setResult] = useState<SignedVisit | null>(initialResult);
+  const [ended, setEnded] = useState(initialEnded);
   const [confirming, setConfirming] = useState(false);
   const leaving = useRef(false);
 
@@ -43,7 +55,7 @@ const KioskVisit: React.FC<{
     onHandBack(!!result);
   };
 
-  // Reloading or closing the page ends the signing: ask first, until it's signed
+  // A reload resumes the visit, but closing the tab ends it: ask first, until it's signed
   useEffect(() => {
     if (result) return undefined;
     const warn = (event: BeforeUnloadEvent) => {
@@ -67,6 +79,11 @@ const KioskVisit: React.FC<{
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [docIndex, result, ended]);
+
+  const showDoc = (index: number) => {
+    setDocIndex(index);
+    onDoc?.(index);
+  };
 
   const wide = !result && !ended;
   const trail = [form.customer.name, visitName(form)].filter(Boolean).join(' · ');
@@ -104,7 +121,9 @@ const KioskVisit: React.FC<{
         today={today}
         staff={staff}
         docIndex={docIndex}
-        onDoc={setDocIndex}
+        onDoc={showDoc}
+        initialProgress={initialProgress}
+        onProgress={onProgress}
         onSigned={(signed) => {
           setResult(signed);
           onSigned(signed);
