@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Iterable, Optional
+from typing import Iterable, Optional
 
 from app.domains.tools.modules.pdf_editor.field_registry import (
     AVAILABLE_FIELD_REGISTRY,

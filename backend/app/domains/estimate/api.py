@@ -6,22 +6,20 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from starlette.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 # Currency precision constant
 CURRENCY_PRECISION = Decimal('0.01')
 
 from app.common.responses import BulkOperationResponse, MessageResponse
+from app.core.config import settings as app_settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.config import settings as app_settings
 from app.core.email import clean_recipients, email_service
-from app.core.rate_limit import enforce_rate_limit
-from app.core.safe_text import content_disposition
 from app.core.pdf_generator import (
     DEFAULT_TEMPLATE,
     format_currency,
@@ -30,6 +28,8 @@ from app.core.pdf_generator import (
     get_available_templates,
     get_template_info,
 )
+from app.core.rate_limit import enforce_rate_limit
+from app.core.safe_text import content_disposition
 from app.domains.company.models import Company
 from app.domains.estimate.models import (
     AdjustmentType,

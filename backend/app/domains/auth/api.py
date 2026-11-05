@@ -4,10 +4,9 @@ Scopit - Auth API Routes
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-
-from authlib.integrations.starlette_client import OAuth
 from urllib.parse import urlencode
 
+from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
@@ -26,8 +25,8 @@ from app.core.dependencies import get_current_user
 from app.core.email import email_service
 from app.core.rate_limit import enforce_rate_limit
 from app.core.security import (
-    create_access_token,
     PASSWORD_RESET_TTL_MINUTES,
+    create_access_token,
     create_oauth_code,
     create_password_reset_token,
     create_refresh_token,

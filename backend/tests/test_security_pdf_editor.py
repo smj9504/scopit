@@ -42,8 +42,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.rate_limit import limiter
 from app.domains.tools.modules.pdf_editor import api as editor_api
-from app.domains.tools.modules.pdf_editor import company_docs_api
-from app.domains.tools.modules.pdf_editor import sign_api
+from app.domains.tools.modules.pdf_editor import company_docs_api, sign_api
 from app.domains.tools.modules.pdf_editor import sign_service as sign_module
 from app.domains.tools.modules.pdf_editor.pdf_geometry import page_view
 from app.domains.tools.modules.pdf_editor.pdf_redact import apply_redactions

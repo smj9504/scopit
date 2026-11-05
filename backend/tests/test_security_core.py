@@ -27,7 +27,7 @@ from app.core.security import (
 )
 from app.domains.company.models import Company
 from app.domains.customer.models import Customer
-from app.domains.estimate.models import Estimate, EstimateItem, EstimateSection
+from app.domains.estimate.models import EstimateItem, EstimateSection
 from app.domains.settings.service import seed_default_settings
 from app.domains.user.models import User
 from main import app
@@ -315,8 +315,9 @@ def test_password_change_signs_out_other_sessions(db):
 
 def test_tokens_without_version_claim_keep_working(db):
     """Tokens issued before this change carry no `ver`; they count as version 0."""
-    from jose import jwt as jose_jwt
     from datetime import datetime, timedelta
+
+    from jose import jwt as jose_jwt
     _, user = _make_tenant(db)
     legacy = jose_jwt.encode(
         {"sub": str(user.id), "type": "access", "exp": datetime.utcnow() + timedelta(minutes=5)},

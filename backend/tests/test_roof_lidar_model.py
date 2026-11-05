@@ -145,7 +145,7 @@ def test_output_is_consistent_roofdata():
         assert line["length"] > 0
     for face in roof["faces"]:
         assert len(face["vertices"]) >= 3
-        assert face["lineIds"] and all(l in roof["lines"] for l in face["lineIds"])
+        assert face["lineIds"] and all(lid in roof["lines"] for lid in face["lineIds"])
         assert face["area"] > 0 and face["pitch"] == "6"
     # ridge points sit 2 m (6.56 ft) above the eave points
     zs = sorted(p["z"] for p in roof["points"].values())

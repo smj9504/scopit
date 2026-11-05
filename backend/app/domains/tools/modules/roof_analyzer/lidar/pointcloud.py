@@ -13,7 +13,6 @@ from typing import Optional
 import numpy as np
 from pyproj import Transformer
 from scipy import ndimage
-from scipy.spatial import cKDTree
 from shapely.geometry import Point, Polygon, box
 from shapely.ops import unary_union
 

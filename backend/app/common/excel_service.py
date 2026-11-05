@@ -3,8 +3,8 @@ Scopit - Excel Import/Export Service
 Shared service for generating Excel templates and parsing uploaded Excel files
 for both estimates and invoices.
 """
-from decimal import Decimal, InvalidOperation
 import zipfile
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Literal
 
