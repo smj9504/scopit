@@ -156,6 +156,8 @@ packages/
 parsed_json/
 packing_tool_export/
 eagleview_export/
+# Customer EagleView reports used to check LiDAR roof measurements (real addresses)
+EagleView/
 reference/
 moving_estimate/photo_analyze/mnt/
 

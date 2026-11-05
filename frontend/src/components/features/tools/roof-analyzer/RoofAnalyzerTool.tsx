@@ -4,7 +4,7 @@
  * and session-based history for uploaded files.
  */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Card, Button, Upload, Typography, Tabs, Empty, Modal, Input, Dropdown, Tooltip, Spin, App } from 'antd';
+import { Card, Button, Upload, Typography, Tabs, Empty, Modal, Input, Dropdown, Tooltip, Spin, App, Alert } from 'antd';
 import {
   UploadOutlined,
   HistoryOutlined,
@@ -15,6 +15,7 @@ import {
   CompressOutlined,
   FolderOpenOutlined,
   ExclamationCircleOutlined,
+  EnvironmentOutlined,
 } from '@ant-design/icons';
 import type { ToolComponentProps } from '../registry';
 import { colors, fonts, borderRadius } from '@/styles/theme';
@@ -35,6 +36,9 @@ import {
   segIntersectsRect,
 } from './eagleview-parser';
 import type { RoofData, Point2D } from './eagleview-parser';
+import LidarAddressModal from './LidarAddressModal';
+import { lidarToRoofData } from './lidarApi';
+import type { LidarMeasureResult, LidarSessionData } from './lidarApi';
 
 const { Text, Title } = Typography;
 
@@ -92,6 +96,10 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessionName, setSessionName] = useState('');
 
+  // Free-LiDAR measurement (by address)
+  const [lidarOpen, setLidarOpen] = useState(false);
+  const [lidarInfo, setLidarInfo] = useState<LidarMeasureResult | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const isPanning = useRef(false);
@@ -147,6 +155,7 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
         const parsed = parseEagleView(json);
         setData(parsed);
         setRawJson(json);
+        setLidarInfo(null);
         setFilename(file.name);
         setSelFaces(new Set());
         setSelLines(new Set());
@@ -178,17 +187,61 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
     return false; // prevent antd auto upload
   }, [createSession]);
 
+  const resetCanvas = useCallback(() => {
+    setSelFaces(new Set());
+    setSelLines(new Set());
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setAreaPoly([]);
+    setAreaPolyDone(false);
+    setAreaResult(null);
+  }, []);
+
+  // ── Measured from free LiDAR (by address) ──
+  const handleLidarMeasured = useCallback((result: LidarMeasureResult, address: string) => {
+    setLidarOpen(false);
+    setData(lidarToRoofData(result));
+    setRawJson(null);
+    setLidarInfo(result);
+    const name = `${address} (LiDAR)`;
+    setFilename(name);
+    resetCanvas();
+    const sessionData: LidarSessionData = { source: 'lidar', filename: name, address, lidar_result: result };
+    createSession.mutate(
+      { tool_id: 'roof_analyzer', name: address, data: sessionData as unknown as Record<string, unknown> },
+      {
+        onSuccess: (session) => {
+          setCurrentSessionId(session.id);
+          message.success('Roof measured and saved');
+        },
+      },
+    );
+  }, [createSession, resetCanvas, message]);
+
   // ── Load from history ──
   const loadSession = useCallback((session: any) => {
     try {
+      if (session.data?.source === 'lidar' && session.data?.lidar_result) {
+        const result = session.data.lidar_result as LidarMeasureResult;
+        setData(lidarToRoofData(result));
+        setRawJson(null);
+        setLidarInfo(result);
+        setFilename(session.data?.filename || session.name || 'LiDAR roof');
+        setCurrentSessionId(session.id);
+        resetCanvas();
+        setHistoryOpen(false);
+        message.success('Loaded: ' + (session.name || 'Untitled'));
+        return;
+      }
       const json = session.data?.eagleview_json;
       if (!json) {
-        message.error('No EagleView data in this session');
+        message.error('No roof data in this session');
         return;
       }
       const parsed = parseEagleView(json);
       setData(parsed);
       setRawJson(json);
+      setLidarInfo(null);
       setFilename(session.data?.filename || session.name || 'Loaded from history');
       setCurrentSessionId(session.id);
       setSelFaces(new Set());
@@ -203,14 +256,14 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
     } catch (err: any) {
       message.error('Failed to load session: ' + err.message);
     }
-  }, []);
+  }, [resetCanvas, message]);
 
   // ── Delete session ──
   const handleDeleteSession = useCallback((sessionId: string) => {
     Modal.confirm({
-      title: 'Delete this file?',
+      title: 'Delete this roof?',
       icon: <ExclamationCircleOutlined />,
-      content: 'This will permanently remove the saved EagleView file.',
+      content: 'This will permanently remove the saved roof.',
       okText: 'Delete',
       okButtonProps: { danger: true },
       onOk: () => {
@@ -471,7 +524,7 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
       onMouseLeave={onMouseUp}
     >
       {!data ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16, padding: isMobile ? 24 : 48 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100%', boxSizing: 'border-box', gap: 16, padding: isMobile ? 24 : 48 }}>
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
               <polygon points="12,3 21,19 3,19" stroke={colors.textMuted} strokeWidth="1.2" fill="rgba(203,213,225,0.2)" />
@@ -495,6 +548,19 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
               Upload JSON File
             </Button>
           </Upload>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', maxWidth: 280, color: colors.textMuted, fontSize: 12 }}>
+            <div style={{ flex: 1, height: 1, background: colors.border }} />
+            or
+            <div style={{ flex: 1, height: 1, background: colors.border }} />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <Button icon={<EnvironmentOutlined />} size="large" onClick={() => setLidarOpen(true)} style={{ minHeight: 44, minWidth: 180 }}>
+              Measure by Address
+            </Button>
+            <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 6 }}>
+              Free estimate from public USGS LiDAR
+            </div>
+          </div>
           {sessions && sessions.length > 0 && (
             <Button
               type="link"
@@ -1017,6 +1083,9 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
           <Upload accept=".json,.JSON" maxCount={1} showUploadList={false} beforeUpload={handleFileUpload}>
             <Button size="small" icon={<UploadOutlined />}>New File</Button>
           </Upload>
+          <Button size="small" icon={<EnvironmentOutlined />} onClick={() => setLidarOpen(true)}>
+            By Address
+          </Button>
 
           {/* History */}
           <Button size="small" icon={<HistoryOutlined />} onClick={() => setHistoryOpen(true)}>
@@ -1035,6 +1104,29 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
             </div>
           )}
         </Card>
+      )}
+
+      {/* LiDAR estimate: where the numbers came from, and what to double-check */}
+      {data && lidarInfo && (
+        <Alert
+          type={lidarInfo.warnings.length ? 'warning' : 'info'}
+          showIcon
+          style={{ marginBottom: 16, borderRadius: borderRadius.lg }}
+          message={
+            <span style={{ fontSize: 13 }}>
+              <strong>LiDAR estimate</strong>
+              {' · '}{lidarInfo.summary.total_area_sqft.toLocaleString()} sqft ({lidarInfo.summary.squares.toFixed(1)} sq)
+              {lidarInfo.summary.predominant_pitch != null && <> · mostly {lidarInfo.summary.predominant_pitch}/12</>}
+              {' · '}USGS 3DEP {lidarInfo.source.year ?? ''} ({lidarInfo.source.project})
+            </span>
+          }
+          description={
+            <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+              {lidarInfo.warnings.map(w => <div key={w}>{w}</div>)}
+              <div style={{ color: colors.textMuted }}>Estimated from free public LiDAR. Check on site before ordering materials.</div>
+            </div>
+          }
+        />
       )}
 
       {/* Main body */}
@@ -1059,8 +1151,10 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
       </Card>
 
       {/* History Modal */}
+      <LidarAddressModal open={lidarOpen} onClose={() => setLidarOpen(false)} onMeasured={handleLidarMeasured} />
+
       <Modal
-        title="EagleView File History"
+        title="Saved Roofs"
         open={historyOpen}
         onCancel={() => setHistoryOpen(false)}
         footer={null}
@@ -1091,7 +1185,7 @@ const RoofAnalyzerTool: React.FC<ToolComponentProps> = () => {
                     {session.name || 'Untitled'}
                   </div>
                   <div style={{ fontSize: 12, color: colors.textMuted }}>
-                    {(session.data?.filename as string) || 'EagleView JSON'}
+                    {session.data?.source === 'lidar' ? 'LiDAR estimate' : ((session.data?.filename as string) || 'EagleView JSON')}
                     {' | '}
                     {new Date(session.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </div>
