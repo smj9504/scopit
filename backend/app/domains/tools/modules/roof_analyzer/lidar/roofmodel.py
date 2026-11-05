@@ -24,8 +24,31 @@ from shapely.geometry import LineString, MultiLineString, MultiPoint, Polygon
 
 from .geometry import M2_TO_FT2, M_TO_FT, local_normals
 
-STEP_M = 0.35          # height gap between two planes along a shared edge that means "step", not intersection
-MIN_FACE_M2 = 1.0
+# Thresholds, in one place. Tuned against EagleView reports of real houses (see the roof LiDAR
+# validation notes); change them together with that comparison, not one by one by eye.
+TUNING = {
+    "grow_angle_deg": 10.0,           # region growing: max normal difference from the region's plane
+    "grow_dist_m": 0.15,              # region growing: max distance from the region's plane
+    "merge_angle_deg": 6.0,           # adjacent pieces closer than this in direction become one plane
+    "min_pts_per_m2": 1.2,            # a plane needs about this many m^2 worth of points
+    "min_pts_floor": 8,               # ...and never fewer points than this (sparse surveys: ~6 pts/m^2)
+    "seed_curvature": 0.02,           # region growing starts only from points flatter than this
+    "cell_factor": 1.5,               # raster cell = this x point spacing (kept within 0.25-0.5 m)
+    "mode_iters": 1,                  # majority-filter passes over the face labels
+    "min_face_m2": 1.0,               # smaller pieces are dropped before faces are formed
+    "sliver_half_width_m": 0.45,      # narrower pieces are mixed-normal slivers, not facets
+    "small_face_m2": 4.0,             # small faces are merged if near-flat or nearly a neighbour's plane
+    "same_plane_deg": 8.0,            # "nearly a neighbour's plane"
+    "flat_strip_half_width_m": 0.6,   # near-flat strips narrower than this are ridge caps / gutters
+    "dp_tol_cells": 1.5,              # boundary simplification tolerance, in cells...
+    "dp_tol_min_m": 0.35,             # ...but at least this
+    "step_m": 0.25,                   # height gap along a shared edge that means a step, not an intersection
+    "on_line_m": 0.6,                 # an edge this close to the planes' intersection line is an intersection
+    "eave_rake_deg": 45.0,            # outline edge within this of the slope direction is a rake
+    "level_rise_m": 0.2,              # outline edge rising less than this is level (eave)
+    "axis_snap_deg": 25.0,            # outline segments within this of a building axis are snapped to it
+    "jog_m": 0.3,                     # parallel walls further apart than this keep a jog between them
+}
 
 
 @dataclass
@@ -44,7 +67,7 @@ class Plane:
     def __post_init__(self):
         nx, ny, nz = self.normal
         self.slope_deg = math.degrees(math.acos(max(-1.0, min(1.0, nz))))
-        self.wall = self.slope_deg > 60
+        self.wall = self.slope_deg > 72   # mansard faces run to ~22/12 (61 deg); walls are ~90
         if not self.wall:
             self.a, self.b = -nx / nz, -ny / nz
             self.c = float(self.centroid[2] - self.a * self.centroid[0] - self.b * self.centroid[1])
@@ -69,15 +92,17 @@ def _fit(Q: np.ndarray):
     return n, c
 
 
-def segment_planes(P: np.ndarray, min_pts: int, ang_deg: float = 10, dist: float = 0.15):
+def segment_planes(P: np.ndarray, min_pts: int, ang_deg: Optional[float] = None, dist: Optional[float] = None):
     """Region growing on normals. Returns (point -> plane index or -1, planes)."""
+    ang_deg = TUNING["grow_angle_deg"] if ang_deg is None else ang_deg
+    dist = TUNING["grow_dist_m"] if dist is None else dist
     n, curv, tree = local_normals(P)
     _, nb = tree.query(P, k=min(12, len(P)))
     seg = -np.ones(len(P), int)
     cos_t = math.cos(math.radians(ang_deg))
     sid = 0
     for s in np.argsort(curv):
-        if seg[s] != -1 or curv[s] > 0.02:
+        if seg[s] != -1 or curv[s] > TUNING["seed_curvature"]:
             continue
         ns, p0 = n[s], P[s]
         members, stack = [s], [s]
@@ -116,9 +141,9 @@ def segment_planes(P: np.ndarray, min_pts: int, ang_deg: float = 10, dist: float
         if cnt < 5:
             continue
         (ni, ci), (nj, cj) = fits[i], fits[j]
-        if abs(ni @ nj) < math.cos(math.radians(6)):
+        if abs(ni @ nj) < math.cos(math.radians(TUNING["merge_angle_deg"])):
             continue
-        if abs((cj - ci) @ ni) < 0.15 and abs((ci - cj) @ nj) < 0.15:
+        if abs((cj - ci) @ ni) < dist and abs((ci - cj) @ nj) < dist:
             parent[find(i)] = find(j)
     roots = sorted({find(i) for i in range(sid)})
     remap = {r: k for k, r in enumerate(roots)}
@@ -180,7 +205,7 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
         spacing = float(np.median(cKDTree(xy).query(xy, k=2)[0][:, 1]))
     span = np.ptp(xy, axis=0)
     density_b = len(P) / max(span[0] * span[1], 1.0)
-    seg, planes = segment_planes(P, min_pts=max(15, int(1.2 * density_b)))
+    seg, planes = segment_planes(P, min_pts=max(int(TUNING["min_pts_floor"]), int(TUNING["min_pts_per_m2"] * density_b)))
     if not [p for p in planes if not p.wall]:
         raise ValueError("No roof planes found")
 
@@ -211,7 +236,7 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
     roof_planes = [p for p in planes if not p.wall]
 
     # --- raster labels -------------------------------------------------------------------------
-    cell = float(np.clip(1.25 * spacing, 0.25, 0.5))
+    cell = float(np.clip(TUNING["cell_factor"] * spacing, 0.25, 0.5))
     x0, y0 = xy.min(0) - 3 * cell
     nx = int(math.ceil((xy[:, 0].max() - x0) / cell)) + 3
     ny = int(math.ceil((xy[:, 1].max() - y0) / cell)) + 3
@@ -223,7 +248,7 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
     lab, nl = ndimage.label(mask, structure=np.ones((3, 3)))
     if nl > 1:  # the caller already picked one building; only drop specks
         sizes = ndimage.sum(mask, lab, range(1, nl + 1))
-        mask = np.isin(lab, 1 + np.nonzero(sizes * cell * cell >= MIN_FACE_M2)[0])
+        mask = np.isin(lab, 1 + np.nonzero(sizes * cell * cell >= TUNING["min_face_m2"])[0])
 
     roof_ids = np.array([p.id for p in roof_planes])
     use = np.isin(seg, roof_ids)
@@ -233,13 +258,13 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
     _, nn = tree.query(np.c_[x0 + (ci + 0.5) * cell, y0 + (cj + 0.5) * cell])
     L = np.zeros((nx, ny), int)
     L[ci, cj] = seg_use[nn] + 1                      # plane index + 1
-    L = _mode_filter(L, mask, len(planes))
+    L = _mode_filter(L, mask, len(planes), int(TUNING["mode_iters"]))
 
     # split each plane label into connected regions; dissolve tiny ones into their neighbours
     R = np.zeros_like(L)
     region_plane: dict[int, Plane] = {}
     rid = 0
-    min_cells = MIN_FACE_M2 / (cell * cell)
+    min_cells = TUNING["min_face_m2"] / (cell * cell)
     for k in np.unique(L[L > 0]):
         comp, nc = ndimage.label(L == k)
         for c, sl in enumerate(ndimage.find_objects(comp), start=1):
@@ -247,17 +272,54 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
             if m.sum() < min_cells or planes[k - 1].wall:
                 continue
             # slivers along ridges/edges (mixed normals) are not real facets: need ~0.9 m of width
-            if ndimage.distance_transform_edt(np.pad(m[sl], 1)).max() * cell < 0.45:
+            if ndimage.distance_transform_edt(np.pad(m[sl], 1)).max() * cell < TUNING["sliver_half_width_m"]:
                 continue
             rid += 1
             R[m] = rid
             region_plane[rid] = planes[k - 1]
     if rid == 0:
         raise ValueError("No roof faces found")
-    holes = mask & (R == 0)
-    if holes.any():
-        idx = ndimage.distance_transform_edt(R == 0, return_distances=False, return_indices=True)
-        R = np.where(holes, R[idx[0], idx[1]], R)
+
+    def fill_from_neighbours(R):
+        holes = mask & (R == 0)
+        if holes.any():
+            idx = ndimage.distance_transform_edt(R == 0, return_distances=False, return_indices=True)
+            R = np.where(holes, R[idx[0], idx[1]], R)
+        return R
+
+    R = fill_from_neighbours(R)
+    # small near-flat faces (rounded ridges, gutters, vents) and small faces that barely differ from
+    # a neighbour (one plane split in two) are not facets; each adds a ring of fake ridge/hip lines,
+    # so give their cells to the neighbouring faces. Small faces with their own direction (dormer
+    # cheeks, little gables) stay.
+    sizes = np.bincount(R.ravel(), minlength=rid + 1)
+    pairs = set()
+    for a, b in ((R[:-1, :], R[1:, :]), (R[:, :-1], R[:, 1:])):
+        m = (a != b) & (a > 0) & (b > 0)
+        pairs.update(zip(a[m].tolist(), b[m].tolist()))
+    neighbours = defaultdict(set)
+    for a, b in pairs:
+        neighbours[a].add(b)
+        neighbours[b].add(a)
+
+    def spurious(r):
+        p = region_plane[r]
+        if p.pitch < 3 and len(neighbours[r]) >= 1:
+            sl = ndimage.find_objects((R == r).astype(int))[0]
+            half_width = ndimage.distance_transform_edt(np.pad(R[sl] == r, 1)).max() * cell
+            if half_width < TUNING["flat_strip_half_width_m"]:   # a ridge cap or gutter, not a flat roof
+                return True
+        if sizes[r] * cell * cell >= TUNING["small_face_m2"]:
+            return False
+        if p.pitch < 3:
+            return True
+        return any(abs(float(p.normal @ region_plane[q].normal)) > math.cos(math.radians(TUNING["same_plane_deg"])) for q in neighbours[r])
+
+    small = [r for r in region_plane if spurious(r)]
+    if small and len(small) < len(region_plane):
+        R = fill_from_neighbours(np.where(np.isin(R, small), 0, R))
+        for r in small:
+            region_plane.pop(r)
 
     # --- lattice boundaries --------------------------------------------------------------------
     Gp = np.pad(R, 1)
@@ -312,7 +374,7 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
             arcs.append(Arc(walk(v, e), int(min(a, b)), int(max(a, b))))
 
     # --- simplify, then snap vertices onto plane intersections ----------------------------------
-    tol = max(0.35, 1.5 * cell)
+    tol = max(TUNING["dp_tol_min_m"], TUNING["dp_tol_cells"] * cell)
     pos: dict[int, np.ndarray] = {}
     for arc in arcs:
         pts = np.array([vxy(v) for v in arc.verts])
@@ -338,7 +400,7 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
         around = cells_at(v)
         ps = {region_plane[r].id: region_plane[r] for r in around if r}.values()
         ps = sorted(ps, key=lambda p: -float(p.z(*p0)))
-        group = [ps[0]] + [p for p in ps[1:] if float(ps[0].z(*p0) - p.z(*p0)) < STEP_M]
+        group = [ps[0]] + [p for p in ps[1:] if float(ps[0].z(*p0) - p.z(*p0)) < TUNING["step_m"]]
         new = p0
         if len(group) >= 3:
             A = np.array([[p.a, p.b, -1.0] for p in group])
@@ -386,9 +448,9 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
             ang = math.degrees(math.atan2(abs(d[1]), abs(d[0])))
             k1, k2 = sorted((idx_of.get(v1, 0), idx_of.get(v2, len(raw) - 1)))
             chunk = raw[k1:k2 + 1] if k2 > k1 else raw
-            if ang < 25:
+            if ang < TUNING["axis_snap_deg"]:
                 segs.append(["y", float(np.median(chunk[:, 1]))])      # runs along x: y = const
-            elif ang > 65:
+            elif ang > 90 - TUNING["axis_snap_deg"]:
                 segs.append(["x", float(np.median(chunk[:, 0]))])      # runs along y: x = const
             else:
                 segs.append([None, 0.0])
@@ -398,7 +460,7 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
             v = arc.simple[k]
             if ax1 and ax2 and ax1 != ax2:
                 pos[v] = np.array([c1, c2]) if ax1 == "x" else np.array([c2, c1])
-            elif ax1 and ax1 == ax2 and abs(c1 - c2) > 0.3:
+            elif ax1 and ax1 == ax2 and abs(c1 - c2) > TUNING["jog_m"]:
                 # a jog between two parallel walls: two corners joined by a short perpendicular wall
                 p = pos[v]
                 a = np.array([c1, p[1]]) if ax1 == "x" else np.array([p[0], c1])
@@ -434,6 +496,29 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
         ii, jj = np.nonzero(R == r)
         centroid[r] = np.array([x0 + (ii.mean() + 0.5) * cell, y0 + (jj.mean() + 0.5) * cell])
 
+    def region_at(x, y) -> int:
+        i, j = int((x - x0) // cell), int((y - y0) // cell)
+        return int(R[i, j]) if 0 <= i < nx and 0 <= j < ny else 0
+
+    def _convex(arc: Arc, pa: Plane, pb: Plane) -> bool:
+        """Ridge/hip (convex) vs valley (concave), judged right next to the shared edge: step a
+        little into A's side; the edge is convex if B's plane, extended there, rises above A."""
+        raw = np.array([vxy(v) for v in arc.verts])
+        mid = raw[len(raw) // 2]
+        t = raw[-1] - raw[0]
+        if np.hypot(*t) < 1e-6:
+            t = raw[min(len(raw) - 1, 2)] - raw[0]
+        n = np.array([-t[1], t[0]]) / max(np.hypot(*t), 1e-9)
+        for step in (0.75, 1.5, 2.5):
+            for sgn in (1, -1):
+                q = mid + sgn * step * n
+                if region_at(*q) == arc.ra:
+                    return float(pb.z(*q) - pa.z(*q)) > 0
+                if region_at(*q) == arc.rb:
+                    return float(pa.z(*q) - pb.z(*q)) > 0
+        ca, cb = centroid[arc.ra], centroid[arc.rb]
+        return float(pa.z(*cb) - pb.z(*cb)) + float(pb.z(*ca) - pa.z(*ca)) > 0
+
     def length3d(p: Optional[Plane], vs) -> float:
         tot = 0.0
         for v1, v2 in zip(vs[:-1], vs[1:]):
@@ -446,7 +531,9 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
         d = pos[v2] - pos[v1]
         g = np.array([p.a, p.b])
         dn, gn = np.hypot(*d), np.hypot(*g)
-        level = p.slope_deg < 10 or dn < 1e-6 or abs(d @ g) / (dn * gn) < math.cos(math.radians(45))
+        rise = abs(float(d @ g))   # height change along the edge
+        level = (p.slope_deg < 10 or dn < 1e-6 or rise < TUNING["level_rise_m"]
+                 or abs(d @ g) / (dn * gn) < math.cos(math.radians(TUNING["eave_rake_deg"])))
         if upper:
             return "EAVE" if level else "RAKE"
         return "FLASHING" if level else "STEPFLASH"
@@ -475,13 +562,17 @@ def build_roof(P: np.ndarray, ground_z: float, spacing: Optional[float] = None) 
         pa, pb = region_plane[arc.ra], region_plane[arc.rb]
         raw = np.array([vxy(v) for v in arc.verts[:: max(1, len(arc.verts) // 8)]])
         gap = float(np.median(pa.z(raw[:, 0], raw[:, 1]) - pb.z(raw[:, 0], raw[:, 1])))
-        if abs(gap) >= STEP_M:
+        # where the two planes actually meet (in plan): a boundary lying on that line is an
+        # intersection (ridge/hip/valley) even if steep planes make the sampled height gap look big
+        g = np.array([pa.a - pb.a, pa.b - pb.b])
+        gn = float(np.hypot(*g))
+        on_line = gn > 0.05 and float(np.mean(np.abs(raw @ g + pa.c - pb.c))) / gn < TUNING["on_line_m"]
+        if abs(gap) >= TUNING["step_m"] and not on_line:
             (ru, pu), (rl, pl) = ((arc.ra, pa), (arc.rb, pb)) if gap > 0 else ((arc.rb, pb), (arc.ra, pa))
             add_runs(vs, [edge_type(pu, a, b, True) for a, b in zip(vs[:-1], vs[1:])], pu, [ru])
             add_runs(vs, [edge_type(pl, a, b, False) for a, b in zip(vs[:-1], vs[1:])], pl, [rl])
             continue
-        ca, cb = centroid[arc.ra], centroid[arc.rb]
-        convex = float(pa.z(*cb) - pb.z(*cb)) + float(pb.z(*ca) - pa.z(*ca)) > 0
+        convex = _convex(arc, pa, pb)
         d = np.cross(pa.normal, pb.normal)
         if np.linalg.norm(d) < math.sin(math.radians(3)):
             kind = "OTHER"

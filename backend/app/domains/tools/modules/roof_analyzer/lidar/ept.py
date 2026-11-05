@@ -50,6 +50,7 @@ class PointWindow:
     y: np.ndarray
     z: np.ndarray
     classification: np.ndarray
+    return_number: np.ndarray
     number_of_returns: np.ndarray
     nodes_read: int
 
@@ -94,12 +95,13 @@ def read_box(ept_url: str, xmin: float, ymin: float, xmax: float, ymax: float, w
         x, y = np.asarray(las.x), np.asarray(las.y)
         m = (x >= xmin) & (x <= xmax) & (y >= ymin) & (y <= ymax)
         return (x[m], y[m], np.asarray(las.z)[m], np.asarray(las.classification)[m],
-                np.asarray(las.number_of_returns)[m])
+                np.asarray(las.return_number)[m], np.asarray(las.number_of_returns)[m])
 
     with ThreadPoolExecutor(workers) as ex:
         parts = [p for p in ex.map(load, keys) if len(p[0])]
     if not parts:
         empty = np.zeros(0)
-        return PointWindow(empty, empty, empty, empty.astype(np.uint8), empty.astype(np.uint8), len(keys))
-    cols = [np.concatenate([p[i] for p in parts]) for i in range(5)]
+        e8 = empty.astype(np.uint8)
+        return PointWindow(empty, empty, empty, e8, e8, e8, len(keys))
+    cols = [np.concatenate([p[i] for p in parts]) for i in range(6)]
     return PointWindow(*cols, nodes_read=len(keys))

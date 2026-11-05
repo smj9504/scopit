@@ -73,28 +73,41 @@ def _ground_grid(P: np.ndarray, cls: np.ndarray, half: float) -> np.ndarray:
     return grid[idx[0], idx[1]]
 
 
-def _derived_building_points(win_xyz, cls, nret, ground_at, half) -> np.ndarray:
-    """Surveys without a building class: planar, single-return points more than 2 m above ground."""
-    cand = ~np.isin(cls, list(NON_BUILDING)) & (nret <= 1)
-    C = win_xyz[cand]
-    if len(C) < 50:
-        return C
-    C = C[C[:, 2] - ground_at(C[:, 0], C[:, 1]) > 2.0]
-    if len(C) < 50:
-        return C
-    _, curv, _ = local_normals(C)
-    C = C[curv < 0.02]
-    # drop small isolated blobs (tree crowns that happened to look planar)
+def _derived_building_points(win_xyz, cls, ret, nret, ground_at, half) -> np.ndarray:
+    """Surveys without a building class.
+
+    Roofs are the last return (a roof under a tree still ends the pulse) and more than 2 m above the
+    ground. Planar points among those mark where buildings are; tree crowns are rarely planar over a
+    few square metres. Ridges, hips and roof edges are not planar locally, so after finding the
+    building areas from planar points, every elevated last return inside them is kept again.
+    """
+    elevated = ~np.isin(cls, list(NON_BUILDING))
+    elevated[elevated] = win_xyz[elevated, 2] - ground_at(win_xyz[elevated, 0], win_xyz[elevated, 1]) > 2.0
+    L = win_xyz[elevated & (ret == nret)]
+    if len(L) < 50:
+        return L
+    _, curv, _ = local_normals(L)
+    planar = L[curv < 0.02]
+    # roof edges split the pulse (edge + ground), so the edge itself is a first return: keep all returns
+    C = win_xyz[elevated]
     cell = 0.5
     n = int(2 * half / cell) + 1
-    ci = np.clip(((C[:, :2] + half) / cell).astype(int), 0, n - 1)
+
+    def cells(Q):
+        return np.clip(((Q[:, :2] + half) / cell).astype(int), 0, n - 1)
+
+    pi = cells(planar)
     occ = np.zeros((n, n), bool)
-    occ[ci[:, 0], ci[:, 1]] = True
+    occ[pi[:, 0], pi[:, 1]] = True
+    # close gaps along ridges, drop small planar blobs (tree crowns), then reach out to the edges
     occ = ndimage.binary_opening(ndimage.binary_closing(occ, iterations=2), iterations=2)
+    occ = ndimage.binary_dilation(ndimage.binary_fill_holes(occ), iterations=1)
+    ci = cells(C)
     return C[occ[ci[:, 0], ci[:, 1]]]
 
 
 def load_window(ept_url: str, lat: float, lon: float, half: float = 55.0) -> Window:
+    """Window from the public USGS EPT copy."""
     to_merc = Transformer.from_crs(4326, 3857, always_xy=True)
     mx, my = to_merc.transform(lon, lat)
     k = 1 / math.cos(math.radians(lat))  # web-mercator scale factor at this latitude
@@ -104,8 +117,15 @@ def load_window(ept_url: str, lat: float, lon: float, half: float = 55.0) -> Win
     ux, uy = tr.transform(pw.x, pw.y)
     cx, cy = tr.transform(mx, my)
     xyz = np.c_[np.asarray(ux) - cx, np.asarray(uy) - cy, pw.z] if len(pw.x) else np.zeros((0, 3))
-    cls = pw.classification.astype(int)
-    nret = pw.number_of_returns.astype(int)
+    return build_window(lat, lon, half, xyz, pw.classification.astype(int),
+                        pw.return_number.astype(int), pw.number_of_returns.astype(int))
+
+
+def build_window(lat: float, lon: float, half: float, xyz: np.ndarray, cls: np.ndarray,
+                 ret: np.ndarray, nret: np.ndarray) -> Window:
+    """Window from points already in the local frame of (lat, lon): metres east/north of it (UTM)."""
+    keep = (np.abs(xyz[:, 0]) <= half) & (np.abs(xyz[:, 1]) <= half) if len(xyz) else np.zeros(0, bool)
+    xyz, cls, ret, nret = xyz[keep], cls[keep], ret[keep], nret[keep]
     density = len(xyz) / (2 * half) ** 2
     grid = _ground_grid(xyz, cls, half)
     win = Window(lat, lon, half, xyz, cls, nret, density, grid, np.zeros((0, 3)), "none")
@@ -113,7 +133,7 @@ def load_window(ept_url: str, lat: float, lon: float, half: float = 55.0) -> Win
     if len(B) >= 50:
         win.building_xyz, win.building_source = B, "lidar_class"
     else:
-        win.building_xyz = _derived_building_points(xyz, cls, nret, win.ground_at, half)
+        win.building_xyz = _derived_building_points(xyz, cls, ret, nret, win.ground_at, half)
         win.building_source = "derived"
     return win
 

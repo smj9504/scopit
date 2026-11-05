@@ -100,6 +100,42 @@ def test_porch_roof_against_wall_gets_flashing():
     assert r["summary"]["facets"] == 3
 
 
+def test_rounded_ridge_does_not_become_extra_faces():
+    # LiDAR sees a ridge cap as a narrow flat band; it must not add facets or fake ridges
+    P = sample(lambda x, y: (x >= 0) & (x <= 12) & (np.abs(y) <= 4),
+               lambda x, y: 10 + 0.5 * (4 - np.maximum(np.abs(y), 0.4)), (0, 12, -4, 4))
+    r = build_roof(P, ground_z=5.0)
+    assert r["summary"]["facets"] == 2
+    assert totals(r)["RIDGE"] == pytest.approx(12 * M_FT, rel=0.12)
+
+
+def test_steep_wing_meeting_main_roof_is_a_valley_not_a_step():
+    # main gable 12/12 (ridge along x); a steeper 18/12 front wing runs south into it
+    def inside(x, y):
+        return ((x >= 0) & (x <= 16) & (y >= 0) & (y <= 8)) | ((x >= 5) & (x <= 11) & (y >= -6) & (y <= 4))
+
+    def z(x, y):
+        main = np.where(y >= 0, 10 + 1.0 * (4 - np.abs(y - 4)), -np.inf)
+        wing = np.where((x >= 5) & (x <= 11), 10 + 1.5 * (3 - np.abs(x - 8)), -np.inf)
+        return np.maximum(main, wing)
+
+    r = build_roof(sample(inside, z, (0, 16, -6, 8)), ground_z=5.0)
+    t = totals(r)
+    assert t.get("VALLEY", 0) > 2 * 3 * M_FT        # two valleys, each well over 3 m
+    assert t.get("STEPFLASH", 0) < 2 * M_FT
+
+
+def test_mansard_faces_are_roof_not_wall():
+    # 22/12 lower faces (61 deg) around a 4/12 top: all of it is roofing
+    def z(x, y):
+        d = np.minimum(np.minimum(x, 12 - x), np.minimum(y, 10 - y))   # distance in from the eave
+        return np.where(d < 1.2, 6 + d * 22 / 12, 6 + 1.2 * 22 / 12 + (d - 1.2) * 4 / 12)
+
+    r = build_roof(sample(lambda x, y: (x >= 0) & (x <= 12) & (y >= 0) & (y <= 10), z, (0, 12, 0, 10)), ground_z=0.0)
+    steep = sum(v for k, v in r["summary"]["area_by_pitch"].items() if int(k) >= 20)
+    assert steep > 0.25 * r["summary"]["total_area_sqft"]
+
+
 def test_output_is_consistent_roofdata():
     P = sample(lambda x, y: (x >= 0) & (x <= 12) & (np.abs(y) <= 4),
                lambda x, y: 10 + 0.5 * (4 - np.abs(y)), (0, 12, -4, 4))
