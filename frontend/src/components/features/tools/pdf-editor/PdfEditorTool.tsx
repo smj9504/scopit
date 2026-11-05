@@ -1811,23 +1811,65 @@ export const EditorView: React.FC<EditorViewProps> = ({
   }, [commitAnnotations]);
 
   const handleApplyRedactions = useCallback(async (options: RedactApplyOptions) => {
-    let removedImages = 0;
-    const ok = await runPageOperation('Redact', async () => {
-      const result = await pdfEditorApi.applyRedactions(documentId, options);
-      removedImages = result.removedImages;
-      return result.document;
-    });
-    if (!ok) return;
-    setActiveTool('select');
-    message.success('Redactions applied. What was under them is gone from the PDF.');
-    if (removedImages) {
+    const warnRemovedImages = (count: number) => {
+      if (!count) return;
       message.warning(
-        `${removedImages} image${removedImages === 1 ? '' : 's'} under a marked area couldn’t be `
+        `${count} image${count === 1 ? '' : 's'} under a marked area couldn’t be `
         + 'partly blacked out and were removed whole.',
         8,
       );
+    };
+
+    if (!options.keepOriginal) {
+      let removedImages = 0;
+      const ok = await runPageOperation('Redact', async () => {
+        const result = await pdfEditorApi.applyRedactions(documentId, options);
+        removedImages = result.removedImages;
+        return result.document;
+      });
+      if (!ok) return;
+      setActiveTool('select');
+      message.success('Redactions applied. What was under them is gone from the PDF.');
+      warnRemovedImages(removedImages);
+      return;
     }
-  }, [runPageOperation, documentId, message]);
+
+    // Into a new document: this one isn't touched, so not a page operation.
+    // The server reads the marks from the saved document.
+    if ((isDirty || isSaving) && !(await handleSave(true))) return;
+    setPageOpBusy(true);
+    let created: PdfDocument;
+    let removedImages = 0;
+    try {
+      const result = await pdfEditorApi.applyRedactions(documentId, options);
+      created = result.document;
+      removedImages = result.removedImages;
+    } catch (err) {
+      const detail = apiErrorMessage(err, '');
+      message.error(detail ? `Redact failed: ${detail}` : 'Redact failed');
+      return;
+    } finally {
+      setPageOpBusy(false);
+    }
+    queryClient.invalidateQueries({ queryKey: ['pdf-editor-documents'] });
+    setActiveTool('select');
+    const original = doc?.name ?? 'The original';
+    message.success(
+      <span>
+        {onOpenDocument
+          ? <>This is the redacted copy, &ldquo;{created.name}&rdquo;.</>
+          : <>Saved the redacted copy as &ldquo;{created.name}&rdquo;.</>}
+        {' '}&ldquo;{original}&rdquo; is unchanged, marks included: open it to change them
+        and apply again.
+      </span>,
+      10,
+    );
+    warnRemovedImages(removedImages);
+    if (onOpenDocument) openDocument(created.id);
+  }, [
+    runPageOperation, documentId, message, isDirty, isSaving, handleSave, queryClient,
+    doc?.name, onOpenDocument, openDocument,
+  ]);
 
   // ── All tools menu (Acrobat's Edit panel) ─────────────────────────────────
   const handleToolsAction = useCallback((action: ToolsMenuAction) => {
@@ -2126,6 +2168,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
         <RedactBar
           active={activeTool === 'redact'}
           markCount={redactMarks.length}
+          documentName={doc?.name}
           busy={pageOpBusy}
           onToggle={() => setActiveTool(activeTool === 'redact' ? 'select' : 'redact')}
           onFindText={() => setRedactSearchOpen(true)}

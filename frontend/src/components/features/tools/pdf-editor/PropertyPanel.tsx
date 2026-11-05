@@ -530,7 +530,8 @@ const RedactSection: React.FC = () => (
     <span style={S.sectionTitle}>Marked for redaction</span>
     <p style={{ ...S.emptyText, margin: 0, textAlign: 'left' }}>
       Nothing is removed yet. Apply redactions to take the text, images and
-      graphics under this area out of the PDF for good.
+      graphics under this area out for good, in a new copy or in this
+      document.
     </p>
   </div>
 );

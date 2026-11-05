@@ -784,6 +784,15 @@ def _customer_copy_name(name: str, customer_name: str) -> str:
     return (base[: max(0, 255 - len(tail))] + tail)[:255]
 
 
+def _redacted_name(name: str) -> str:
+    """'Claim.pdf' -> 'Claim (Redacted).pdf', within the name column."""
+    base, ext = os.path.splitext(name)
+    if ext.lower() != ".pdf":
+        base, ext = name, ""
+    tail = f" (Redacted){ext}"
+    return (base[: max(0, 255 - len(tail))] + tail)[:255]
+
+
 def _page_ranges(pages: list[int]) -> str:
     """[1, 2, 3, 5] -> "1-3, 5" """
     parts, start = [], None
@@ -2049,11 +2058,80 @@ class PdfEditorService:
         remove_metadata: bool = False,
     ) -> tuple[PdfDocument, int]:
         """Redact the areas marked with "redact" annotations (those in
-        mark_ids, or all) out of the document's file for good -- see
+        mark_ids, or all) out of the document's own file for good -- see
         pdf_redact. The marks are used up, and anything added on top in
         those areas goes with them. Returns the document and how many images
         were removed whole (their pixels couldn't be edited)."""
         doc = self.get_document_or_404(company_id, document_id)
+        redacted, removed_images, marks, areas = self._redacted(
+            doc, mark_ids, fill_color, remove_metadata
+        )
+
+        self.storage.write(doc.file_path, redacted, "application/pdf")
+        # The thumbnail is page 1, which only changes if it was redacted. One
+        # that can't be redrawn goes: it would still show what was taken out.
+        if doc.thumbnail_path and 1 in areas:
+            thumb = self._thumbnail_of(redacted)
+            if thumb is not None:
+                self.storage.write(doc.thumbnail_path, thumb, "image/png")
+            else:
+                self.storage.delete(doc.thumbnail_path)
+                doc.thumbnail_path = None
+
+        doc.file_size = len(redacted)
+        doc.annotations = _without_redacted(doc.annotations or [], marks)
+        flag_modified(doc, "annotations")
+        doc.updated_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(doc)
+        return doc, removed_images
+
+    def redacted_copy(
+        self,
+        company_id: UUID,
+        document_id: UUID,
+        user_id: UUID,
+        mark_ids: Optional[list[str]] = None,
+        fill_color: str = "#000000",
+        remove_metadata: bool = False,
+    ) -> tuple[PdfDocument, int]:
+        """Like apply_redactions, but into a new document, "<name>
+        (Redacted).pdf": the original stays as it was, marks and all, so they
+        can be changed and applied again. The copy belongs to the same
+        customer. Returns the copy and how many images were removed whole."""
+        original = self.get_document_or_404(company_id, document_id)
+        redacted, removed_images, marks, areas = self._redacted(
+            original, mark_ids, fill_color, remove_metadata
+        )
+        # The original's thumbnail is page 1 as it was: only fit to keep if
+        # page 1 wasn't touched
+        if 1 in areas:
+            thumb = self._thumbnail_of(redacted)
+        else:
+            thumb = self._document_files(original)[1]
+        result = self._copy_document(
+            original,
+            (redacted, thumb),
+            user_id,
+            _redacted_name(original.name),
+            customer_id=original.customer_id,
+            template_id=original.template_id,
+        )
+        result.file_size = len(redacted)
+        result.annotations = _without_redacted(original.annotations or [], marks)
+        self.db.commit()
+        self.db.refresh(result)
+        return result, removed_images
+
+    def _redacted(
+        self,
+        doc: PdfDocument,
+        mark_ids: Optional[list[str]],
+        fill_color: str,
+        remove_metadata: bool,
+    ) -> tuple[bytes, int, list[dict], dict[int, list[dict]]]:
+        """The document's file with its marks (those in mark_ids, or all)
+        applied; how many images went whole; the marks; and them by page."""
         wanted = set(mark_ids) if mark_ids is not None else None
         marks = [
             a for a in doc.annotations or []
@@ -2064,33 +2142,25 @@ class PdfEditorService:
         areas: dict[int, list[dict]] = {}
         for mark in marks:
             areas.setdefault(int(mark.get("page") or 0), []).append(mark)
-
         try:
             redacted, removed_images = apply_redactions(
                 self.storage.read(doc.file_path), areas, fill_color, remove_metadata
             )
         except IndexError as exc:
             raise HTTPException(status_code=400, detail=f"Page {exc} doesn't exist")
+        return redacted, removed_images, marks, areas
 
-        self.storage.write(doc.file_path, redacted, "application/pdf")
-        # The thumbnail is page 1, which only changes if it was redacted
-        if doc.thumbnail_path and 1 in areas:
-            with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
-                local_path = os.path.join(tmpdir, "document.pdf")
-                with open(local_path, "wb") as fh:
-                    fh.write(redacted)
-                thumb_local = os.path.join(tmpdir, "thumbnail.png")
-                if self._generate_thumbnail(local_path, thumb_local):
-                    with open(thumb_local, "rb") as fh:
-                        self.storage.write(doc.thumbnail_path, fh.read(), "image/png")
-
-        doc.file_size = len(redacted)
-        doc.annotations = _without_redacted(doc.annotations or [], marks)
-        flag_modified(doc, "annotations")
-        doc.updated_at = datetime.utcnow()
-        self.db.commit()
-        self.db.refresh(doc)
-        return doc, removed_images
+    def _thumbnail_of(self, pdf_data: bytes) -> Optional[bytes]:
+        """A PNG of page 1, or None if it can't be drawn."""
+        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
+            local_path = os.path.join(tmpdir, "document.pdf")
+            with open(local_path, "wb") as fh:
+                fh.write(pdf_data)
+            thumb_local = os.path.join(tmpdir, "thumbnail.png")
+            if not self._generate_thumbnail(local_path, thumb_local):
+                return None
+            with open(thumb_local, "rb") as fh:
+                return fh.read()
 
     def protected_copy(
         self,

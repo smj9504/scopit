@@ -113,6 +113,8 @@ class ApplyRedactionsRequest(BaseModel):
     mark_ids: Optional[list[str]] = None  # None = every redaction mark
     fill_color: str = Field("#000000", pattern=r"^#[0-9a-fA-F]{6}$")
     remove_metadata: bool = False
+    # Redact into a new document, leaving this one as it is (marks and all)
+    keep_original: bool = True
 
 
 # ============================================

@@ -762,15 +762,22 @@ async def apply_redactions(
     current_user: User = Depends(_gate),
 ):
     """Permanently remove what's under the document's redaction marks (or
-    the listed ones) and paint the areas over. Can't be undone."""
+    the listed ones) and paint the areas over. With keep_original (the
+    default) that happens in a new document, returned here, and this one
+    stays as it was, marks and all; without it, in this document, which
+    can't be undone."""
     service = PdfEditorService(db)
-    doc, removed_images = service.apply_redactions(
+    options = dict(
         company_id=current_user.company_id,
         document_id=document_id,
         mark_ids=body.mark_ids,
         fill_color=body.fill_color,
         remove_metadata=body.remove_metadata,
     )
+    if body.keep_original:
+        doc, removed_images = service.redacted_copy(user_id=current_user.id, **options)
+    else:
+        doc, removed_images = service.apply_redactions(**options)
     return {"document": _to_response(doc), "removedImages": removed_images}
 
 

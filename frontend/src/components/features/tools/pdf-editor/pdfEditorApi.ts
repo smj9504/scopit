@@ -213,16 +213,19 @@ export const pdfEditorApi = {
 
   /**
    * Permanently take what's under the redaction marks (`markIds`, or all)
-   * out of the PDF. `removedImages`: images that had to go whole.
+   * out of the PDF: of a new document, returned, leaving this one as it is
+   * (`keepOriginal`, the default), or of this one. `removedImages`: images
+   * that had to go whole.
    */
   applyRedactions: async (
     id: string,
-    options: { markIds?: string[]; fillColor?: string; removeMetadata?: boolean } = {},
+    options: { markIds?: string[]; fillColor?: string; removeMetadata?: boolean; keepOriginal?: boolean } = {},
   ): Promise<{ document: PdfDocument; removedImages: number }> => {
     const response = await api.post(`/tools/pdf-editor/documents/${id}/redactions/apply`, {
       ...(options.markIds ? { mark_ids: options.markIds } : {}),
       fill_color: options.fillColor ?? '#000000',
       remove_metadata: !!options.removeMetadata,
+      keep_original: options.keepOriginal ?? true,
     });
     return response.data;
   },

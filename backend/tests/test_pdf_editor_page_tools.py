@@ -570,6 +570,9 @@ class MemoryStorage:
     def exists(self, key):
         return key in self.files
 
+    def delete(self, key):
+        self.files.pop(key, None)
+
 
 def service_with(*docs):
     service = PdfEditorService.__new__(PdfEditorService)
@@ -774,9 +777,77 @@ def test_thumbnail_is_only_redrawn_when_page_one_is_redacted():
     assert texts(service, doc) == ["Page 1", ""]
 
     doc.annotations = [mark(1)]
+    def draw(pdf_path, thumb_path):
+        with open(thumb_path, "wb") as fh:
+            fh.write(b"new page 1")
+        return True
+
+    service._generate_thumbnail = MagicMock(side_effect=draw)
     service.apply_redactions(doc.company_id, doc.id)
     service._generate_thumbnail.assert_called_once()
     assert texts(service, doc) == ["", ""]
+    assert service.storage.read("thumbnail.png") == b"new page 1"
+
+
+def test_a_thumbnail_that_cannot_be_redrawn_goes_when_page_one_is_redacted():
+    mark = {"id": "m1", "type": "redact", "page": 1, "x": 100, "y": 95,
+            "width": 120, "height": 30, "rotation": 0, "content": "", "style": {}}
+    doc = stored(make_pdf(numbered), [mark])
+    doc.thumbnail_path = "thumbnail.png"
+    service = service_with(doc)
+    service.storage.files["thumbnail.png"] = b"old page 1"
+    service.apply_redactions(doc.company_id, doc.id)
+    assert doc.thumbnail_path is None
+    assert "thumbnail.png" not in service.storage.files
+
+
+def _redactable(pdf, annotations, thumbnail=b"page 1 as it was"):
+    doc = stored(pdf, annotations)
+    doc.thumbnail_path = "thumbnail.png"
+    doc.mime_type = "application/pdf"
+    doc.customer_id = uuid4()
+    doc.template_id = None
+    service = service_with(doc)
+    service.storage.files["thumbnail.png"] = thumbnail
+    service._key = lambda company_id, doc_id, name: f"{doc_id}/{name}"
+    return doc, service
+
+
+def test_a_redacted_copy_leaves_the_original_and_its_marks_alone():
+    pdf = make_pdf(letter)
+    box = find_text(pdf, search_regex("Jane Doe"))[0][0]["boxes"][0]
+    mark = {"id": "m1", "type": "redact", "page": 1, **box, "content": "", "style": {}}
+    on_top = note(1, box["x"], box["y"])
+    elsewhere = note(1, 250, 380)
+    doc, service = _redactable(pdf, [mark, on_top, elsewhere])
+    user = uuid4()
+
+    copy, removed = service.redacted_copy(doc.company_id, doc.id, user)
+
+    assert removed == 0
+    assert copy.id != doc.id and copy.name == "Claim (Redacted).pdf"
+    assert copy.customer_id == doc.customer_id and copy.created_by == user
+    assert "Jane Doe" not in texts(service, copy)[0]
+    assert [a["id"] for a in copy.annotations] == [elsewhere["id"]]
+    # The original: same file, same marks, ready to change and apply again
+    assert service.storage.read(doc.file_path) == pdf
+    assert "Jane Doe" in texts(service, doc)[0]
+    assert [a["id"] for a in doc.annotations] == ["m1", on_top["id"], elsewhere["id"]]
+    # Page 1 was redacted and can't be redrawn here: no thumbnail of it as it was
+    assert copy.thumbnail_path is None
+    assert service.storage.read("thumbnail.png") == b"page 1 as it was"
+
+
+def test_a_redacted_copy_keeps_the_thumbnail_when_page_one_is_untouched():
+    mark = {"id": "m2", "type": "redact", "page": 2, "x": 100, "y": 95,
+            "width": 120, "height": 30, "rotation": 0, "content": "", "style": {}}
+    doc, service = _redactable(make_pdf(numbered, pages=2), [mark])
+    service._generate_thumbnail = MagicMock(return_value=False)
+    copy, _ = service.redacted_copy(doc.company_id, doc.id, uuid4())
+    service._generate_thumbnail.assert_not_called()
+    assert service.storage.read(copy.thumbnail_path) == b"page 1 as it was"
+    assert texts(service, copy) == ["Page 1", ""]
+    assert texts(service, doc) == ["Page 1", "Page 2"]
 
 
 def test_fresh_ids_keep_edit_pairs_together():

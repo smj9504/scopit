@@ -4,12 +4,15 @@
  * The bar under the toolbar while redacting (or while marks are waiting to
  * be applied). Marking is reversible -- marks are just annotations that
  * never reach the export -- until Apply redactions takes what's under them
- * out of the PDF for good, which this confirms first.
+ * out of the PDF for good, which this confirms first. By default that
+ * happens in a new copy, so this document keeps its marks to change and
+ * apply again; redacting this document itself is the other choice.
  *
  * Usage:
  *   <RedactBar
  *     active={activeTool === 'redact'}
  *     markCount={marks.length}
+ *     documentName={doc.name}
  *     busy={pageOpRunning}
  *     onToggle={() => setActiveTool(...)}
  *     onFindText={() => setSearchOpen(true)}
@@ -35,6 +38,8 @@ const FILLS = [
 export interface RedactApplyOptions {
   fillColor: string;
   removeMetadata: boolean;
+  /** Redact into a new document and leave this one as it is, marks and all */
+  keepOriginal: boolean;
 }
 
 export interface RedactBarProps {
@@ -42,6 +47,8 @@ export interface RedactBarProps {
   active: boolean;
   /** Marks waiting in the document */
   markCount: number;
+  /** For naming the redacted copy in the confirmation */
+  documentName?: string;
   busy: boolean;
   onToggle: () => void;
   onFindText: () => void;
@@ -50,9 +57,46 @@ export interface RedactBarProps {
   onApply: (options: RedactApplyOptions) => void;
 }
 
+/** Where the redactions go, chosen in the confirmation (it lives outside
+ * the bar's render, so it keeps its own state and reports each change) */
+const ApplyTarget: React.FC<{
+  documentName: string;
+  onChange: (keepOriginal: boolean) => void;
+}> = ({ documentName, onChange }) => {
+  const [keepOriginal, setKeepOriginal] = useState(true);
+  // Under the label, not in it: the radio would center on both lines
+  const hint = { display: 'block', fontSize: fontSizes.xs, color: colors.textSecondary, paddingLeft: 24 };
+  return (
+    <Radio.Group
+      value={keepOriginal}
+      onChange={(e) => { setKeepOriginal(e.target.value); onChange(e.target.value); }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+    >
+      <div>
+        <Radio value={true}>
+          <span style={{ fontWeight: 500 }}>Save as a new document</span>
+        </Radio>
+        <span style={hint}>
+          &ldquo;{documentName.replace(/(\.pdf)?$/i, ' (Redacted)$1')}&rdquo;. This one stays as it is, with what&rsquo;s
+          under the marks and the marks themselves, so you can change them and apply again.
+        </span>
+      </div>
+      <div>
+        <Radio value={false}>
+          <span style={{ fontWeight: 500 }}>Redact this document</span>
+        </Radio>
+        <span style={hint}>
+          What&rsquo;s under the marks isn&rsquo;t kept anywhere. This can&rsquo;t be undone.
+        </span>
+      </div>
+    </Radio.Group>
+  );
+};
+
 const RedactBar: React.FC<RedactBarProps> = ({
   active,
   markCount,
+  documentName = 'Document',
   busy,
   onToggle,
   onFindText,
@@ -68,18 +112,28 @@ const RedactBar: React.FC<RedactBarProps> = ({
     // The dialog's controls keep their own copies; read back on OK
     let chosenFill = fill;
     let chosenMetadata = removeMetadata;
-    modal.confirm({
+    // Always offered as a copy first: the safe choice
+    let chosenKeep = true;
+    const okFor = (keep: boolean) => ({
+      okText: keep ? 'Save redacted copy' : 'Redact this document',
+      okButtonProps: { danger: !keep },
+    });
+    const confirm = modal.confirm({
       title: `Apply ${markCount} redaction${markCount === 1 ? '' : 's'}?`,
-      width: 460,
-      okText: 'Apply redactions',
-      okButtonProps: { danger: true },
+      width: 480,
+      ...okFor(chosenKeep),
       content: (
         <div style={{ fontFamily: fonts.body }}>
           <p style={{ margin: '0 0 12px', color: colors.textSecondary }}>
-            The text, images and graphics under the marked areas are removed
-            from this document for good, and the areas are filled in. This
-            can&rsquo;t be undone.
+            The text, images and graphics under the marked areas are taken out
+            for good, and the areas are filled in.
           </p>
+          <div style={{ marginBottom: 14 }}>
+            <ApplyTarget
+              documentName={documentName}
+              onChange={(keep) => { chosenKeep = keep; confirm.update(okFor(keep)); }}
+            />
+          </div>
           <div style={{ marginBottom: 10 }}>
             <Text style={{ display: 'block', fontSize: fontSizes.xs, color: colors.textSecondary, marginBottom: 4 }}>
               Fill color
@@ -117,7 +171,7 @@ const RedactBar: React.FC<RedactBarProps> = ({
       onOk: () => {
         setFill(chosenFill);
         setRemoveMetadata(chosenMetadata);
-        onApply({ fillColor: chosenFill, removeMetadata: chosenMetadata });
+        onApply({ fillColor: chosenFill, removeMetadata: chosenMetadata, keepOriginal: chosenKeep });
       },
     });
   };
