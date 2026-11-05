@@ -128,7 +128,8 @@ export interface SignRecipient {
   consentAgreed: boolean;
 }
 
-export type DeliveryMethod = 'direct_link' | 'email_request';
+/** in_person: signed on the company's own device, never sent (see in-person/) */
+export type DeliveryMethod = 'direct_link' | 'email_request' | 'in_person';
 
 export interface SignRequest {
   id: string;

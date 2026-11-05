@@ -31,6 +31,7 @@ const LineItemsListPage = lazy(() => import('@/pages/app/line_items/LineItemsLis
 const SettingsPage = lazy(() => import('@/pages/app/settings/SettingsPage'));
 const ToolsPage = lazy(() => import('@/pages/app/tools/ToolsPage'));
 const ToolWrapper = lazy(() => import('@/pages/app/tools/ToolWrapper'));
+const SignInPersonPage = lazy(() => import('@/pages/app/SignInPersonPage'));
 
 // Public pages (no auth)
 const SignPage = lazy(() => import('@/pages/public/SignPage'));
@@ -222,6 +223,7 @@ const router = createBrowserRouter(
         <Route path="tools" element={<ToolsPage />} />
         <Route path="tools/packing/:sessionId" element={<ToolWrapper />} />
         <Route path="tools/:toolId" element={<ToolWrapper />} />
+        <Route path="sign-in-person" element={<SignInPersonPage />} />
 
         {/* Settings */}
         <Route path="settings/*" element={<SettingsPage />} />

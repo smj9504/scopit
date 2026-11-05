@@ -11,6 +11,7 @@ import secrets
 import tempfile
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from types import SimpleNamespace
 from typing import Optional
 from uuid import UUID
 
@@ -1101,6 +1102,129 @@ class SignService:
 
         return {"text": value} if value else None
 
+    def render_filled_document(
+        self,
+        doc: PdfDocument,
+        fields: list,
+        prefill: dict,
+        signer_values: dict,
+    ) -> bytes:
+        """The document as a PDF with these values burned in and no
+        signatures, for checking before anyone signs. Nothing is stored.
+        `signer_values` is each signer role's own values by field key."""
+        if not doc.file_path or not self.storage.exists(doc.file_path):
+            raise ValueError("Source document not found")
+        draft = SimpleNamespace(
+            sign_fields=fields or [],
+            prefill_data=prefill or {},
+            recipients=[
+                SimpleNamespace(role=role, signature_data=None, signed_field_values=values, signed_at=None)
+                for role, values in (signer_values or {}).items()
+            ],
+        )
+        with tempfile.TemporaryDirectory(prefix="scopit_preview_") as tmpdir:
+            src_path = os.path.join(tmpdir, "source")
+            with open(src_path, "wb") as f:
+                f.write(self._live_source_bytes(doc))
+            out_path = os.path.join(tmpdir, "filled.pdf")
+            if self._is_image_doc(doc):
+                self._burn_fields_image(draft, src_path, out_path)
+            else:
+                self._burn_fields_pdf(draft, src_path, out_path)
+            with open(out_path, "rb") as f:
+                return f.read()
+
+    def email_signed_copies(
+        self,
+        company_id: UUID,
+        request_ids: list,
+        emails: list,
+        actor_email: str,
+    ) -> list:
+        """Email the signed PDFs of several fully signed requests together,
+        one message per address. Returns the addresses it reached; raises
+        if none could be reached."""
+        requests = []
+        for request_id in request_ids:
+            sign_req = self._get_owned(company_id, request_id)
+            if sign_req.status != "signed":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{self._doc_name(sign_req)} has not been fully signed yet",
+                )
+            requests.append(sign_req)
+        if not requests:
+            raise HTTPException(status_code=400, detail="Pick a signed document to email")
+
+        attachments = []
+        for sign_req in requests:
+            key = self.ensure_signed_file(sign_req)
+            base_name = os.path.splitext(self._doc_name(sign_req))[0]
+            attachments.append({
+                "data": self.storage.read(key),
+                "filename": f"{base_name}_signed.pdf",
+                "mime_type": "application/pdf",
+            })
+
+        first = requests[0]
+        names = [self._doc_name(r) for r in requests]
+        subject = (
+            f"Your signed copy of {names[0]}" if len(names) == 1
+            else f"Your signed copies of {len(names)} documents"
+        )
+        signers = sorted(first.recipients or [], key=lambda r: r.sequence or 0)
+        greeting = signers[0].name if signers and signers[0].name else "there"
+        what = (
+            f"<strong>{html.escape(names[0])}</strong>" if len(names) == 1
+            else ", ".join(f"<strong>{html.escape(n)}</strong>" for n in names)
+        )
+        company_name = first.company.name if first.company else "Scopit"
+        signed_at = _utc_naive(first.signed_at) or datetime.utcnow()
+        body = self._build_completion_email(
+            greeting_name=html.escape(greeting),
+            intro=(
+                f"Thank you for signing {what}. "
+                f"{'A copy is' if len(names) == 1 else 'Copies are'} attached for your records."
+            ),
+            completed_at_str=signed_at.strftime("%B %d, %Y at %I:%M %p UTC"),
+            footer=(
+                f"Signed in person with {html.escape(first.sender_name)} "
+                f"({html.escape(first.sender_email)}) of {html.escape(company_name)}."
+            ),
+        )
+
+        reached, errors = [], []
+        for address in emails:
+            error = self._deliver(
+                to_email=address,
+                subject=subject,
+                html_content=body,
+                reply_to=first.sender_email,
+                from_display_name=self._from_display_name(first),
+                attachments=attachments,
+            )
+            if error:
+                logger.warning("Emailing signed copies to %s failed: %s", address, error)
+                errors.append(error)
+            else:
+                reached.append(address)
+
+        if reached:
+            for sign_req in requests:
+                self._log_event(
+                    sign_req.id,
+                    "signed_copy_sent",
+                    actor_email=actor_email,
+                    metadata={"emails": reached},
+                )
+            self.db.commit()
+        if not reached:
+            raise HTTPException(
+                status_code=502,
+                detail="The email couldn't be sent. Check the address and try again.",
+            )
+        return reached
+
     def _signed_key(self, sign_req: SignRequest) -> str:
         """Per-request key: a template shared by many envelopes must never
         have one signed copy overwrite another."""
@@ -1525,6 +1649,9 @@ class SignService:
         )
 
         def _send(to_email, subject, html_content, reply_to, **extra):
+            # A signer met in person may have given no email address
+            if not to_email:
+                return
             error = self._deliver(
                 to_email=to_email,
                 subject=subject,
@@ -1552,7 +1679,7 @@ class SignService:
                 completed_at_str=completed_at_str,
                 footer=None,
             ),
-            sign_req.recipients[0].email if sign_req.recipients else None,
+            (sign_req.recipients[0].email or None) if sign_req.recipients else None,
         )
 
         for recipient in sign_req.recipients:

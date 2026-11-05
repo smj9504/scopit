@@ -1110,17 +1110,30 @@ export default function CustomerDetailPage() {
                     </Button>
                   </Tooltip>
                 ) : activeTab === 'signatures' ? (
-                  <Tooltip title={canESign ? undefined : `Requires the ${pdfEditorTool?.requiredPlan ?? 'pro'} plan`}>
-                    <Button
-                      type="primary"
-                      icon={canESign ? <SendOutlined /> : <LockOutlined />}
-                      disabled={!canESign}
-                      onClick={() => setRequestSignOpen(true)}
-                      style={{ background: colors.primary, borderColor: colors.primary, fontFamily: fonts.body, borderRadius: borderRadius.base }}
-                    >
-                      Request Signature
-                    </Button>
-                  </Tooltip>
+                  <Space size={8} wrap>
+                    {canESign && (
+                      <Button
+                        icon={<EditOutlined />}
+                        onClick={() => navigate(`/app/sign-in-person?customer=${customer.id}`, {
+                          state: { returnTo: `/app/customers/${customer.id}` },
+                        })}
+                        style={{ fontFamily: fonts.body, borderRadius: borderRadius.base }}
+                      >
+                        Sign in Person
+                      </Button>
+                    )}
+                    <Tooltip title={canESign ? undefined : `Requires the ${pdfEditorTool?.requiredPlan ?? 'pro'} plan`}>
+                      <Button
+                        type="primary"
+                        icon={canESign ? <SendOutlined /> : <LockOutlined />}
+                        disabled={!canESign}
+                        onClick={() => setRequestSignOpen(true)}
+                        style={{ background: colors.primary, borderColor: colors.primary, fontFamily: fonts.body, borderRadius: borderRadius.base }}
+                      >
+                        Request Signature
+                      </Button>
+                    </Tooltip>
+                  </Space>
                 ) : undefined
               }
             />

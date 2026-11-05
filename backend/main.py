@@ -36,6 +36,7 @@ from app.domains.tools.modules.packing.lead_api import router as packing_leads_r
 from app.domains.tools.modules.packing.lead_cleanup import cleanup_expired_leads
 from app.domains.tools.modules.pdf_editor.api import router as pdf_editor_router
 from app.domains.tools.modules.pdf_editor.company_docs_api import router as company_docs_router
+from app.domains.tools.modules.pdf_editor.in_person_api import router as sign_in_person_router
 from app.domains.tools.modules.pdf_editor.sign_api import public_router as sign_public_router
 from app.domains.tools.modules.pdf_editor.sign_api import router as sign_router
 from app.domains.tools.modules.roof_analyzer.api import router as roof_analyzer_router
@@ -127,6 +128,7 @@ app.include_router(packing_router, prefix="/api/tools/packing", tags=["Packing E
 app.include_router(packing_demo_router, prefix="/api/demo/packing", tags=["Packing Demo"])
 app.include_router(item_recommender_router, prefix="/api/tools/item-recommender", tags=["Item Recommender"])
 app.include_router(pdf_editor_router, prefix="/api/tools/pdf-editor", tags=["PDF Editor"])
+app.include_router(sign_in_person_router, prefix="/api/tools/pdf-editor/sign/in-person", tags=["E-Sign In Person"])
 app.include_router(sign_router, prefix="/api/tools/pdf-editor/sign", tags=["E-Sign"])
 app.include_router(sign_public_router, prefix="/api/sign", tags=["E-Sign Public"])
 app.include_router(company_docs_router, prefix="/api/company-documents", tags=["Company Documents"])

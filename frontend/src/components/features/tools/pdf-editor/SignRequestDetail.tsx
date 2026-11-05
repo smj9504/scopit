@@ -614,9 +614,15 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
               </Tag>
             </Descriptions.Item>
 
-            <Descriptions.Item label="Sent">
-              {formatDate(req.sentAt)}
-            </Descriptions.Item>
+            {req.deliveryMethod === 'in_person' ? (
+              <Descriptions.Item label="Delivery">
+                Signed in person
+              </Descriptions.Item>
+            ) : (
+              <Descriptions.Item label="Sent">
+                {formatDate(req.sentAt)}
+              </Descriptions.Item>
+            )}
 
             {req.signedAt && (
               <Descriptions.Item label="Signed">
@@ -718,10 +724,13 @@ const SignRequestDetail: React.FC<SignRequestDetailProps> = ({ requestId, onBack
                     </Tag>
                   </div>
                   <Text style={{ fontFamily: fonts.body, fontSize: fontSizes.xs, color: colors.textSecondary }}>
-                    {recipient.email}
-                    {recipient.signedAt && ` · Signed ${formatDate(recipient.signedAt)}`}
-                    {!recipient.signedAt && recipient.viewedAt && ` · Viewed ${formatDate(recipient.viewedAt)}`}
-                    {!recipient.signedAt && recipient.declinedAt && ` · Declined ${formatDate(recipient.declinedAt)}`}
+                    {/* A signer met in person may have given no email */}
+                    {[
+                      recipient.email,
+                      recipient.signedAt && `Signed ${formatDate(recipient.signedAt)}`,
+                      !recipient.signedAt && recipient.viewedAt && `Viewed ${formatDate(recipient.viewedAt)}`,
+                      !recipient.signedAt && recipient.declinedAt && `Declined ${formatDate(recipient.declinedAt)}`,
+                    ].filter(Boolean).join(' · ')}
                   </Text>
                 </div>
 

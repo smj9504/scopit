@@ -1,0 +1,679 @@
+/* Scopit - Sign in person. Phone first: the device goes from the tech's hand
+   to the signer's, so rows are thumb-sized and the next action stays in reach. */
+
+.ip-root {
+  --ip-ink: #111827;
+  --ip-ink-2: #4b5563;
+  --ip-muted: #6b7280;
+  --ip-line: #e5e7eb;
+  --ip-line-2: #d1d5db;
+  --ip-bg: #f9fafb;
+  --ip-surface: #ffffff;
+  --ip-accent: #2563eb;
+  --ip-accent-bg: #eff6ff;
+  --ip-ok: #047857;
+  --ip-ok-bg: #ecfdf5;
+  --ip-warn: #b45309;
+  --ip-warn-bg: #fffbeb;
+  --ip-error: #dc2626;
+  --ip-error-bg: #fef2f2;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--ip-bg);
+  color: var(--ip-ink);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  display: flex;
+  flex-direction: column;
+  /* Room for the fixed top bar */
+  padding-top: calc(57px + env(safe-area-inset-top));
+}
+
+/* ── Top bar ───────────────────────────────────────── */
+
+/* Fixed, not sticky: the app's content area clips overflow, which stops sticky */
+.ip-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--ip-surface);
+  border-bottom: 1px solid var(--ip-line);
+  padding: env(safe-area-inset-top) 0 0;
+}
+
+.ip-bar-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.ip-root--wide .ip-bar-inner {
+  max-width: 960px;
+}
+
+.ip-bar-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ip-bar-trail {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ip-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ip-icon-btn.ant-btn {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+/* ── Page body ─────────────────────────────────────── */
+
+.ip-main {
+  flex: 1;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 16px 120px;
+  box-sizing: border-box;
+}
+
+.ip-main--wide {
+  max-width: 960px;
+}
+
+.ip-title {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+
+.ip-lead {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ip-ink-2);
+  margin: 0 0 20px;
+  max-width: 60ch;
+}
+
+.ip-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ip-muted);
+  margin: 12px 0 0;
+}
+
+.ip-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ip-ink-2);
+  margin: 28px 0 8px;
+}
+
+.ip-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 12px 0;
+}
+
+.ip-alert--error {
+  background: var(--ip-error-bg);
+  color: #991b1b;
+}
+
+.ip-alert--warn {
+  background: var(--ip-warn-bg);
+  color: #92400e;
+}
+
+/* ── Rows (customers, documents, review) ───────────── */
+
+.ip-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--ip-surface);
+  border: 1px solid var(--ip-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ip-rows > li + li {
+  border-top: 1px solid var(--ip-line);
+}
+
+.ip-row {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s ease-out;
+}
+
+.ip-row:hover {
+  background: var(--ip-bg);
+}
+
+.ip-row:focus-visible {
+  outline: 2px solid var(--ip-accent);
+  outline-offset: -2px;
+}
+
+.ip-row[aria-checked='true'] {
+  background: var(--ip-accent-bg);
+}
+
+.ip-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ip-row-title {
+  font-size: 15px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ip-row-meta {
+  font-size: 13px;
+  color: var(--ip-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ip-row-go {
+  color: var(--ip-muted);
+  font-size: 12px;
+}
+
+.ip-check {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--ip-line-2);
+  background: var(--ip-surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
+}
+
+.ip-row[aria-checked='true'] .ip-check {
+  background: var(--ip-accent);
+  border-color: var(--ip-accent);
+}
+
+.ip-order {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ip-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  padding: 0 7px;
+  border-radius: 9999px;
+  background: var(--ip-accent-bg);
+  color: #1d4ed8;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.ip-tag--warn {
+  background: var(--ip-warn-bg);
+  color: var(--ip-warn);
+}
+
+.ip-empty {
+  padding: 20px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ip-ink-2);
+  background: var(--ip-surface);
+  border: 1px dashed var(--ip-line-2);
+  border-radius: 10px;
+}
+
+.ip-empty strong {
+  display: block;
+  color: var(--ip-ink);
+  margin-bottom: 4px;
+}
+
+/* ── Forms ─────────────────────────────────────────── */
+
+.ip-panel {
+  background: var(--ip-surface);
+  border: 1px solid var(--ip-line);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.ip-field + .ip-field {
+  margin-top: 16px;
+}
+
+.ip-label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.ip-label-meta {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ip-muted);
+}
+
+.ip-required {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ip-error);
+}
+
+.ip-control {
+  width: 100%;
+}
+
+.ip-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ip-grid-3 {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 520px) {
+  .ip-grid-2,
+  .ip-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* One question per screen on a phone */
+.ip-question .ip-title {
+  margin-bottom: 4px;
+}
+
+.ip-count {
+  font-size: 13px;
+  color: var(--ip-muted);
+  font-variant-numeric: tabular-nums;
+  margin: 0 0 16px;
+}
+
+.ip-review-row {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ip-review-row:hover {
+  background: var(--ip-bg);
+}
+
+.ip-review-row:focus-visible {
+  outline: 2px solid var(--ip-accent);
+  outline-offset: -2px;
+}
+
+.ip-review-label {
+  font-size: 13px;
+  color: var(--ip-muted);
+  flex-shrink: 0;
+  max-width: 45%;
+}
+
+.ip-review-value {
+  font-size: 14px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* ── Bottom action bar ─────────────────────────────── */
+
+.ip-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: var(--ip-surface);
+  border-top: 1px solid var(--ip-line);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+}
+
+/* The page's content width: its max-width less its 16px gutters */
+.ip-actions-inner {
+  max-width: 728px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* The bar is fixed but lives inside the page, so it lines up with it */
+.ip-main--wide .ip-actions-inner {
+  max-width: 928px;
+}
+
+.ip-actions-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ip-ink-2);
+}
+
+.ip-actions .ant-btn {
+  height: 44px;
+  font-weight: 600;
+}
+
+/* ── Signing ───────────────────────────────────────── */
+
+.ip-steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ip-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--ip-line);
+  background: var(--ip-surface);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.ip-step[aria-current='step'] {
+  border-color: var(--ip-ink);
+  box-shadow: inset 0 0 0 1px var(--ip-ink);
+}
+
+.ip-step:focus-visible {
+  outline: 2px solid var(--ip-accent);
+  outline-offset: 2px;
+}
+
+.ip-step-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: var(--ip-bg);
+  border: 1px solid var(--ip-line-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ip-step.is-done .ip-step-mark {
+  background: var(--ip-ok);
+  border-color: var(--ip-ok);
+  color: #fff;
+}
+
+.ip-step-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ip-step-meta {
+  display: block;
+  font-size: 12px;
+  color: var(--ip-muted);
+}
+
+.ip-page {
+  position: relative;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.12), 0 0 0 1px rgba(17, 24, 39, 0.04);
+  margin: 0 0 16px;
+  overflow: hidden;
+}
+
+.ip-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ip-line {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: 2px dashed var(--ip-accent);
+  border-radius: 4px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+.ip-line:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+.ip-line:focus-visible {
+  outline: 3px solid var(--ip-accent);
+  outline-offset: 2px;
+}
+
+.ip-line.is-signed {
+  border-style: solid;
+  border-color: rgba(4, 120, 87, 0.55);
+  background: rgba(4, 120, 87, 0.04);
+}
+
+.ip-line.is-flash {
+  animation: ip-flash 1.4s ease-out;
+}
+
+@keyframes ip-flash {
+  0%, 40% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.45); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ip-line.is-flash {
+    animation: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.45);
+  }
+}
+
+.ip-line img {
+  max-width: 94%;
+  max-height: 88%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.ip-line-label {
+  padding: 0 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ip-signer {
+  background: var(--ip-surface);
+  border: 1px solid var(--ip-line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.ip-signer + .ip-signer {
+  margin-top: 12px;
+}
+
+.ip-signer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ip-signer-role {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ip-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 12px;
+}
+
+.ip-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.ip-mark-img {
+  height: 36px;
+  max-width: 160px;
+  object-fit: contain;
+  border-bottom: 1px solid var(--ip-line-2);
+}
+
+.ip-mark-label {
+  font-size: 13px;
+  color: var(--ip-ink-2);
+}
+
+.ip-consent {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--ip-surface);
+  border: 1px solid var(--ip-line);
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Done ──────────────────────────────────────────── */
+
+.ip-done-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ip-done-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: var(--ip-ok-bg);
+  color: var(--ip-ok);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.ip-email-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ip-email-row .ant-input {
+  flex: 1;
+}

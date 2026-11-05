@@ -49,6 +49,7 @@ import {
   SlidersOutlined,
   TeamOutlined,
   UserOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { pdfEditorApi, type PreviewCover } from './pdfEditorApi';
@@ -1327,6 +1328,16 @@ export const EditorView: React.FC<EditorViewProps> = ({
     navigate(`/app/customers/${customerId}`);
   }, [isDirty, isSaving, handleSave, navigate]);
 
+  // Signing in person signs the saved document, so pending edits are saved first
+  const handleSignInPerson = useCallback(async () => {
+    if ((isDirty || isSaving) && !(await handleSave(true))) return;
+    const params = new URLSearchParams({ document: documentId });
+    if (doc?.customerId) params.set('customer', doc.customerId);
+    navigate(`/app/sign-in-person?${params}`, {
+      state: { returnTo: `${window.location.pathname}${window.location.search}` },
+    });
+  }, [isDirty, isSaving, handleSave, documentId, doc?.customerId, navigate]);
+
   // Auto-save every 5 seconds when dirty
   useEffect(() => {
     if (!isDirty || isSaving) return;
@@ -2049,6 +2060,17 @@ export const EditorView: React.FC<EditorViewProps> = ({
             >
               {!isMobile && 'Send for Signature'}
             </Button>
+            <Tooltip {...tip} title="Have someone sign it here, on this device">
+              <Button
+                icon={<EditOutlined />}
+                onClick={handleSignInPerson}
+                size="small"
+                style={headerButtonStyle}
+                aria-label="Sign in Person"
+              >
+                {!isMobile && 'Sign in Person'}
+              </Button>
+            </Tooltip>
           </>
         }
         toolsLeading={
@@ -2608,25 +2630,34 @@ const PdfEditorTool: React.FC<ToolComponentProps> = () => {
             Upload, annotate, and send PDFs for e-signature
           </Text>
         </div>
-        <Button
-          type="primary"
-          icon={<UploadOutlined />}
-          onClick={() => {
-            setActiveTab('editor');
-            setTimeout(() => {
-              const dragger = document.querySelector('.ant-upload-drag');
-              if (dragger) {
-                dragger.scrollIntoView({ behavior: 'smooth' });
-                // Trigger file dialog by clicking the upload input
-                const input = dragger.querySelector('input[type="file"]') as HTMLInputElement | null;
-                if (input) input.click();
-              }
-            }, 100);
-          }}
-          style={{ fontFamily: fonts.body, fontWeight: 600 }}
-        >
-          Upload
-        </Button>
+        <Space wrap>
+          <Button
+            icon={<EditOutlined />}
+            onClick={() => navigate('/app/sign-in-person', { state: { returnTo: '/app/tools/pdf_editor' } })}
+            style={{ fontFamily: fonts.body, fontWeight: 600 }}
+          >
+            Sign in Person
+          </Button>
+          <Button
+            type="primary"
+            icon={<UploadOutlined />}
+            onClick={() => {
+              setActiveTab('editor');
+              setTimeout(() => {
+                const dragger = document.querySelector('.ant-upload-drag');
+                if (dragger) {
+                  dragger.scrollIntoView({ behavior: 'smooth' });
+                  // Trigger file dialog by clicking the upload input
+                  const input = dragger.querySelector('input[type="file"]') as HTMLInputElement | null;
+                  if (input) input.click();
+                }
+              }, 100);
+            }}
+            style={{ fontFamily: fonts.body, fontWeight: 600 }}
+          >
+            Upload
+          </Button>
+        </Space>
       </div>
 
       <Tabs

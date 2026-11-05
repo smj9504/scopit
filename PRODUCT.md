@@ -34,7 +34,7 @@ A set of job-specific tools that feed one estimate. Scopit is not positioned aga
 - Packing & Moving Estimator: room presets or AI photo analysis identify contents; prices packing labor, materials (in catalog sell units), moving (van by workday and weight), and off-site storage (by the unit sizes a facility stocks); PDF and Excel reports; a session can become a Scopit estimate
 - Roof Analyzer: reads EagleView roof reports and shows roof faces, slopes, and areas
 - Item Recommender: searches line items by work type and groups recommendations into pre-work, main, materials, trim, and post-work
-- PDF Editor & E-Sign: annotate and merge PDFs, auto-fill templates from customer and company data, send documents for signature via a public signing link
+- PDF Editor & E-Sign: annotate and merge PDFs, auto-fill templates from customer and company data, send documents for signature via a public signing link, or sign in person on the company's own phone or tablet (pick the customer and one or more documents, fill what's blank, hand over the device)
 - Multi-user companies with role-based access
 
 ## Capabilities and Constraints
@@ -47,7 +47,7 @@ A set of job-specific tools that feed one estimate. Scopit is not positioned aga
 - Packing tool with AI photo analysis (Anthropic Vision, beta), item taxonomy, and PDF/Excel reports; packing session to estimate
 - Roof Analyzer (EagleView report upload, faces, slopes, areas)
 - Item Recommender (grouped line item recommendations by work type)
-- PDF editor with field-mapping templates and e-signature requests
+- PDF editor with field-mapping templates, e-signature requests, and in-person signing
 - PDF generation with multiple templates (classic, modern, professional, detailed)
 - Dashboard with business metrics and charts
 - Daily automated data backups (confirmed by the owner, 2026-10-12)
