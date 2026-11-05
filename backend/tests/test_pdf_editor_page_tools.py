@@ -13,12 +13,15 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 from pypdf.constants import UserAccessPermissions as Perm
-from pypdf.generic import ContentStream, DictionaryObject
+from pypdf.filters import ASCII85Decode
+from pypdf.generic import ArrayObject, ContentStream, DictionaryObject, IndirectObject
+from reportlab.lib.rl_accel import asciiBase85Encode
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from app.domains.tools.modules.pdf_editor.pdf_geometry import page_view
 from app.domains.tools.modules.pdf_editor.pdf_page_content import (
+    a85decode,
     find_text,
     page_image,
     page_images,
@@ -100,6 +103,24 @@ def everything_in(pdf: bytes) -> bytes:
 
 def page_text(pdf: bytes, n: int = 1) -> str:
     return PdfReader(BytesIO(pdf)).pages[n - 1].extract_text()
+
+
+def unreachable_objects(pdf: bytes) -> set[int]:
+    """Objects in the file that nothing reaches from its trailer -- what an
+    old content stream or an image's unredacted original would be."""
+    seen, stack = set(), [PdfReader(BytesIO(pdf)).trailer]
+    while stack:
+        obj = stack.pop()
+        if isinstance(obj, IndirectObject):
+            if obj.idnum in seen:
+                continue
+            seen.add(obj.idnum)
+            obj = obj.get_object()
+        if isinstance(obj, DictionaryObject):
+            stack.extend(obj.values())
+        elif isinstance(obj, ArrayObject):
+            stack.extend(obj)
+    return {int(n) for n in re.findall(rb"(?m)^(\d+) 0 obj", pdf)} - seen
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +345,7 @@ def test_redaction_reaches_inside_shared_forms_without_leaving_the_original():
     out, _ = redact(pdf, [view_box(page, 15, 340, 200, 365)])
     assert "SECRET" not in page_text(out)
     assert b"SECRET" not in everything_in(out)
+    assert unreachable_objects(out) == set()
 
 
 def test_image_loses_only_the_redacted_pixels():
@@ -344,6 +366,52 @@ def test_image_loses_only_the_redacted_pixels():
     reader = PdfReader(BytesIO(out))
     xobjects = reader.pages[0]["/Resources"]["/XObject"]
     assert len(xobjects) == 1
+    assert unreachable_objects(out) == set()
+
+
+def test_uploaded_photo_loses_only_the_redacted_pixels_and_stays_a_jpeg():
+    # An image upload becomes a PDF the way this one is made: reportlab
+    # draws the JPEG, and stores it ASCII85-wrapped
+    jpeg = BytesIO()
+    photo((0, 200, 0), size=(200, 100)).save(jpeg, "JPEG", quality=95)
+
+    def draw(c):
+        c.drawImage(ImageReader(BytesIO(jpeg.getvalue())), 50, 100, 200, 100)
+
+    pdf = make_pdf(draw)
+    page = PdfReader(BytesIO(pdf)).pages[0]
+    original = next(iter(page["/Resources"]["/XObject"].values())).get_object()
+    assert [str(f) for f in original["/Filter"]] == ["/ASCII85Decode", "/DCTDecode"]
+
+    out, removed = redact(pdf, [view_box(page, 40, 90, 150, 210)])  # its left half
+    assert removed == 0
+    image = next(iter(PdfReader(BytesIO(out)).pages[0]["/Resources"]["/XObject"].values())).get_object()
+    assert image["/Filter"] == "/DCTDecode"
+    pixels = Image.open(BytesIO(image.get_data())).convert("RGB")
+    assert pixels.size == (200, 100)
+    assert max(pixels.getpixel((20, 50))) < 40
+    kept = pixels.getpixel((180, 50))
+    assert kept[1] > 150 and kept[0] < 60
+    assert original._data not in out
+    assert unreachable_objects(out) == set()
+
+
+@pytest.mark.parametrize("raw", [b"", b"a", b"ab", b"abc", b"\0" * 11, b"\xff" * 9, bytes(range(256)) * 5])
+def test_fast_ascii85_decodes_like_pypdf(raw):
+    for encoded in (
+        base64.a85encode(raw, adobe=True),
+        base64.a85encode(raw, wrapcol=7) + b"\n~>",
+        asciiBase85Encode(raw.decode("latin-1")).encode("latin-1"),  # reportlab's, with z groups
+        base64.a85encode(raw),  # no end marker
+    ):
+        assert a85decode(encoded) == ASCII85Decode.decode(encoded) == raw
+
+
+@pytest.mark.parametrize("bad", [b"uuuuu~>", b"9jqoz^~>", b"9jqo{~>", b"<\n~9jqo~>"])
+def test_fast_ascii85_leaves_bad_data_to_pypdf(bad):
+    assert a85decode(bad) is None
+    with pytest.raises(ValueError):
+        ASCII85Decode.decode(bad)
 
 
 def test_image_entirely_inside_is_removed():
@@ -690,6 +758,25 @@ def test_applying_redactions_uses_up_the_marks_and_what_sat_on_them():
     assert removed == 0
     assert [a["id"] for a in doc.annotations] == ["m2", elsewhere["id"]]
     assert "Jane Doe" not in texts(service, doc)[0]
+
+
+def test_thumbnail_is_only_redrawn_when_page_one_is_redacted():
+    def mark(page):
+        return {"id": f"m{page}", "type": "redact", "page": page, "x": 100, "y": 95,
+                "width": 120, "height": 30, "rotation": 0, "content": "", "style": {}}
+
+    doc = stored(make_pdf(numbered, pages=2), [mark(2)])
+    doc.thumbnail_path = "thumbnail.png"
+    service = service_with(doc)
+    service._generate_thumbnail = MagicMock(return_value=False)
+    service.apply_redactions(doc.company_id, doc.id)
+    service._generate_thumbnail.assert_not_called()
+    assert texts(service, doc) == ["Page 1", ""]
+
+    doc.annotations = [mark(1)]
+    service.apply_redactions(doc.company_id, doc.id)
+    service._generate_thumbnail.assert_called_once()
+    assert texts(service, doc) == ["", ""]
 
 
 def test_fresh_ids_keep_edit_pairs_together():

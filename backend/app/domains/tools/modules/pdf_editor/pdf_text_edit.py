@@ -997,22 +997,23 @@ class ContentWalker:
         return self._fresh_name(xobjects, "ScopitEdit"), ref
 
 
-def rewrite_page(page, walker: ContentWalker) -> bool:
+def rewrite_page(page, walker: ContentWalker) -> Optional[list]:
     """Run `walker` over a page that belongs to its writer and keep what it
-    changed. Whether anything changed."""
+    changed. The page's new operations, or None when nothing changed (so
+    a caller that needs them doesn't parse the page all over again)."""
     content = page.get_contents()
     if content is None:
-        return False
+        return None
     resources = _resolve(page.get("/Resources"))
     new_ops, added = walker.rewrite(content.operations, resources, _IDENTITY, _TextState(), 0)
     if new_ops is None:
-        return False
+        return None
     if added:
         page[NameObject("/Resources")] = _with_entries(resources, "/XObject", added)
     content.operations = new_ops
     page.replace_contents(content)
     page.compress_content_streams()
-    return True
+    return new_ops
 
 
 # ---------------------------------------------------------------------------

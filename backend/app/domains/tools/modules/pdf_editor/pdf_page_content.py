@@ -23,7 +23,7 @@ from io import BytesIO
 from typing import Optional
 
 from pypdf import PdfReader
-from pypdf.generic import StreamObject
+from pypdf.generic import ArrayObject, EncodedStreamObject, NameObject, StreamObject
 
 from app.domains.tools.modules.pdf_editor.pdf_geometry import invert, page_view
 from app.domains.tools.modules.pdf_editor.pdf_text_edit import (
@@ -31,6 +31,7 @@ from app.domains.tools.modules.pdf_editor.pdf_text_edit import (
     ImageBox,
     _apply,
     _name,
+    _num,
     _resolve,
     image_box,
     quad,
@@ -130,11 +131,111 @@ def _is_plain_jpeg(xobj: StreamObject) -> bool:
     )
 
 
+_A85_DIGITS = bytes(range(ord("!"), ord("u") + 1))
+_A85_VALUES = bytes((c - ord("!")) % 256 for c in range(256))
+_PDF_WHITESPACE = b"\x00\t\n\x0c\r "
+
+
+def a85decode(data: bytes) -> Optional[bytes]:
+    """PDF ASCII85 data (/ASCII85Decode) decoded -- the same bytes as
+    base64.a85decode gives -- or None if it isn't valid, to leave it to
+    pypdf (which says why). base64.a85decode loops in Python over every
+    character: seconds for a phone photo, and reportlab wraps every image
+    in ASCII85 (Scopit's own image uploads among them). Here each group of
+    5 characters is a lane of one big integer, so decoding is a handful of
+    whole-buffer operations."""
+    data = bytes(data).strip(_PDF_WHITESPACE)
+    if data.endswith(b">"):
+        data = data[:-1].rstrip(_PDF_WHITESPACE) + b">"
+    if data.endswith(b"~>"):
+        data = data[2:-2] if data.startswith(b"<~") else data[:-2]
+    data = data.translate(None, _PDF_WHITESPACE)
+    if b"z" in data:
+        # Four zero bytes -- in place of a whole group only
+        parts = data.split(b"z")
+        if any(len(p) % 5 for p in parts[:-1]):
+            return None
+        data = b"!!!!!".join(parts)
+    if data.translate(None, _A85_DIGITS):
+        return None
+    pad = -len(data) % 5
+    groups = (len(data) + pad) // 5
+    values = (data + b"u" * pad).translate(_A85_VALUES)
+    # Each group's value builds up in its own 8-byte lane: 85 ** 5 < 2 ** 33,
+    # so no lane ever carries into the next
+    lane = bytearray(8 * groups)
+    total = 0
+    for k in range(5):
+        lane[7::8] = values[k::5]
+        total = total * 85 + int.from_bytes(lane, "big")
+    lanes = total.to_bytes(8 * groups, "big")
+    if lanes[3::8].strip(b"\x00"):
+        return None  # a group worth more than 4 bytes
+    out = bytearray(4 * groups)
+    for k in range(4):
+        out[k::4] = lanes[4 + k::8]
+    return bytes(out[:len(out) - pad])
+
+
+def _without_a85(xobj: StreamObject) -> StreamObject:
+    """The image with its ASCII85 layer already taken off (see a85decode),
+    its masks too; xobj itself if it has none or it doesn't decode."""
+    filters = _resolve(xobj.get("/Filter"))
+    chain = list(filters) if isinstance(filters, list) else [filters]
+    if not isinstance(xobj, EncodedStreamObject) or _name(chain[0]) not in ("ASCII85Decode", "A85"):
+        return xobj
+    data = a85decode(xobj._data)
+    if data is None:
+        return xobj
+    entries = {
+        NameObject(k): v for k, v in xobj.items() if k not in ("/Filter", "/DecodeParms", "/Length")
+    }
+    if len(chain) > 1:
+        entries[NameObject("/Filter")] = ArrayObject(chain[1:])
+        parms = _resolve(xobj.get("/DecodeParms"))
+        if isinstance(parms, list) and len(parms) == len(chain):
+            entries[NameObject("/DecodeParms")] = ArrayObject(parms[1:])
+    for key in ("/SMask", "/Mask"):
+        mask = _resolve(xobj.get(key))
+        if isinstance(mask, StreamObject):
+            entries[NameObject(key)] = _without_a85(mask)
+    return StreamObject.initialize_from_dictionary({"__streamdata__": data, **entries})
+
+
+def _jpeg_data(xobj: StreamObject) -> Optional[bytes]:
+    """The JPEG an image is, when its pixels are exactly the JPEG's: no
+    mask, /Decode or color conversion to apply on top."""
+    filters = _resolve(xobj.get("/Filter"))
+    if isinstance(filters, list) and len(filters) == 1:
+        filters = _resolve(filters[0])
+    space = _resolve(xobj.get("/ColorSpace"))
+    if isinstance(space, list) and len(space) == 2 and _name(space[0]) == "ICCBased":
+        # The profile only tints how the samples look
+        profile = _resolve(space[1])
+        components = _num(profile.get("/N")) if isinstance(profile, StreamObject) else 0
+        space = {1: "DeviceGray", 3: "DeviceRGB"}.get(int(components), "")
+    if (
+        _name(filters) == "DCTDecode"
+        and not any(k in xobj for k in ("/SMask", "/Mask", "/Decode", "/ImageMask"))
+        and _name(space) in ("DeviceRGB", "DeviceGray")
+    ):
+        return xobj.get_data()
+    return None
+
+
 def image_pixels(xobj: StreamObject):
     """An image XObject as a PIL image in RGB, L or RGBA (alpha from its
     soft mask; a stencil mask becomes black ink on transparency)."""
     from PIL import Image, ImageOps
 
+    xobj = _without_a85(xobj)
+    jpeg = _jpeg_data(xobj)
+    if jpeg is not None:
+        # Straight from the JPEG: pypdf would encode it and decode it again
+        img = Image.open(BytesIO(jpeg), formats=("JPEG",))
+        if img.mode in ("RGB", "L"):
+            img.load()
+            return img
     img = xobj.decode_as_image()
     if _resolve(xobj.get("/ImageMask")):
         # Samples of 0 paint, unless /Decode [1 0] flips that

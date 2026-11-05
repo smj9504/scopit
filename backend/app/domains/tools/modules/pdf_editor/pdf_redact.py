@@ -11,9 +11,11 @@ good, then paints the area over:
   * paths entirely inside an area aren't painted;
   * PDF annotations (links, form fields, comments) touching it are removed.
 
-Then the file is rebuilt from its pages up, so nothing the pages no longer
-use -- the old content streams, an image's unredacted original -- is left
-anywhere in it. Areas are in the editor's geometry (pdf.js viewport at
+Then the file is written with only the objects its trailer still reaches
+(catalog, pages, info), so nothing the pages no longer use -- the old
+content streams, an image's unredacted original -- is left anywhere in it.
+Only the marked pages are walked; an image is only decoded when an area
+cuts across it. Areas are in the editor's geometry (pdf.js viewport at
 scale 1, see pdf_geometry), like the annotations that mark them.
 """
 
@@ -29,6 +31,7 @@ from pypdf.generic import (
     ContentStream,
     DecodedStreamObject,
     DictionaryObject,
+    IndirectObject,
     NameObject,
     NumberObject,
     StreamObject,
@@ -88,22 +91,49 @@ class _Redactor(ContentWalker):
         super().__init__(to_view, writer)
         self.areas = areas
         self.polygons = [a.corners() for a in areas]
+        # Each area's bounds, and whether it's upright (then a box inside
+        # its bounds is inside it): most glyphs are settled by these alone
+        self.bounds = [
+            (min(x for x, _ in p), min(y for _, y in p), max(x for x, _ in p), max(y for _, y in p))
+            for p in self.polygons
+        ]
+        self.upright = [abs(a.sin) < 1e-9 or abs(a.cos) < 1e-9 for a in areas]
         self.fill = fill
         # Images that touched an area but couldn't be edited, so went whole
         self.removed_images = 0
 
-    def _touches(self, points: list) -> bool:
-        return any(_overlap(points, poly) for poly in self.polygons)
+    def _touches(self, m, u0: float, v0: float, u1: float, v1: float) -> bool:
+        """Whether the box [u0, u1] x [v0, v1] of a local space, mapped by m,
+        overlaps an area. It runs for every glyph on the page, so the box's
+        bounds come straight from m; its corners only when it's near one."""
+        a, b, c, d, e, f = m
+        au0, au1, cv0, cv1 = a * u0, a * u1, c * v0, c * v1
+        bu0, bu1, dv0, dv1 = b * u0, b * u1, d * v0, d * v1
+        x0 = e + min(au0, au1) + min(cv0, cv1)
+        x1 = e + max(au0, au1) + max(cv0, cv1)
+        y0 = f + min(bu0, bu1) + min(dv0, dv1)
+        y1 = f + max(bu0, bu1) + max(dv0, dv1)
+        points = None
+        for (ax0, ay0, ax1, ay1), upright, poly in zip(self.bounds, self.upright, self.polygons):
+            # (a hair of slack: a box that just touches an area is _overlap's to judge)
+            if x1 < ax0 - 1e-6 or x0 > ax1 + 1e-6 or y1 < ay0 - 1e-6 or y0 > ay1 + 1e-6:
+                continue  # apart
+            if upright and ax0 <= x0 and x1 <= ax1 and ay0 <= y0 and y1 <= ay1:
+                return True  # inside
+            points = points or quad(m, u0, v0, u1, v1)
+            if _overlap(points, poly):
+                return True
+        return False
 
     def glyph(self, base, x, width, ts, code, n) -> bool:
         (c0, c1), (r0, r1) = _GLYPH_CORE, _GLYPH_CORE_RISE
-        return self._touches(quad(base, x + c0 * width, ts.rise + r0 * ts.fs, x + c1 * width, ts.rise + r1 * ts.fs))
+        return self._touches(base, x + c0 * width, ts.rise + r0 * ts.fs, x + c1 * width, ts.rise + r1 * ts.fs)
 
     def opaque_text(self, base, advance, ts) -> bool:
         # Where its glyphs are isn't known: all of it goes if any could be in
         lo, hi = sorted((0.0, advance))
         bottom, top = sorted((ts.rise - 0.25 * ts.fs, ts.rise + 0.95 * ts.fs))
-        return self._touches(quad(base, lo, bottom, hi, top))
+        return self._touches(base, lo, bottom, hi, top)
 
     def path(self, points) -> bool:
         return any(all(a.contains(px, py, slack=0.01) for px, py in points) for a in self.areas)
@@ -323,21 +353,51 @@ def _fill_content(areas: list[_Region], to_user, fill: tuple) -> bytes:
     return "\n".join(parts).encode("ascii")
 
 
+def _reachable(writer: PdfWriter) -> set[int]:
+    """Numbers of the writer's objects the trailer reaches -- through the
+    catalog (pages, forms, outlines, ...), the info dictionary and the
+    encryption dictionary."""
+    info = writer._info
+    encrypt = getattr(writer, "_encrypt_entry", None)
+    stack = [
+        writer._root_object.indirect_reference,
+        writer._ID,
+        info.indirect_reference if info is not None else None,
+        encrypt.indirect_reference if encrypt is not None else None,
+    ]
+    seen: set[int] = set()
+    while stack:
+        obj = stack.pop()
+        if isinstance(obj, IndirectObject):
+            if obj.pdf is not writer or obj.idnum in seen or not 0 < obj.idnum <= len(writer._objects):
+                continue
+            seen.add(obj.idnum)
+            obj = writer._objects[obj.idnum - 1]
+        if isinstance(obj, DictionaryObject):  # streams too
+            stack.extend(obj.values())
+        elif isinstance(obj, ArrayObject):
+            stack.extend(obj)
+    return seen
+
+
 def _without_unused_objects(writer: PdfWriter, remove_metadata: bool) -> bytes:
-    """Write the document out with only what its pages and catalog still
-    reach. A writer keeps every object it was given, so the old content of
-    a redacted page would otherwise still be in the file."""
-    first = BytesIO()
-    writer.write(first)
-    first.seek(0)
-    rebuilt = PdfWriter(clone_from=PdfReader(first))
+    """Write the document out with only what the trailer still reaches. A
+    writer keeps every object it was given, so the old content of a
+    redacted page (or an image's unredacted original) would otherwise
+    still be in the file. Everything else is dropped before the one write
+    -- the same file as writing it, reading it back and copying out what
+    its catalog reaches, at a third of the work."""
     if remove_metadata:
-        rebuilt.metadata = None
-        root = rebuilt._root_object
+        writer.metadata = None
+        root = writer._root_object
         if "/Metadata" in root:
             del root["/Metadata"]
+    reachable = _reachable(writer)
+    for i in range(len(writer._objects)):
+        if i + 1 not in reachable:
+            writer._objects[i] = None
     out = BytesIO()
-    rebuilt.write(out)
+    writer.write(out)
     return out.getvalue()
 
 
@@ -365,8 +425,9 @@ def apply_redactions(
         view = page_view(page)
         to_view = invert(view.to_user)
         redactor = _Redactor(areas, to_view, writer, fill)
-        if rewrite_page(page, redactor):
-            _prune_xobjects(page, page.get_contents().operations, writer)
+        new_ops = rewrite_page(page, redactor)
+        if new_ops is not None:
+            _prune_xobjects(page, new_ops, writer)
         removed_images += redactor.removed_images
         removed_annots |= _drop_annotations(page, areas, to_view)
         if "/Thumb" in page:

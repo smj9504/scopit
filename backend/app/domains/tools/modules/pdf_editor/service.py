@@ -2072,15 +2072,17 @@ class PdfEditorService:
         except IndexError as exc:
             raise HTTPException(status_code=400, detail=f"Page {exc} doesn't exist")
 
-        with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
-            local_path = os.path.join(tmpdir, "document.pdf")
-            with open(local_path, "wb") as fh:
-                fh.write(redacted)
-            self.storage.write(doc.file_path, redacted, "application/pdf")
-            thumb_local = os.path.join(tmpdir, "thumbnail.png")
-            if doc.thumbnail_path and self._generate_thumbnail(local_path, thumb_local):
-                with open(thumb_local, "rb") as fh:
-                    self.storage.write(doc.thumbnail_path, fh.read(), "image/png")
+        self.storage.write(doc.file_path, redacted, "application/pdf")
+        # The thumbnail is page 1, which only changes if it was redacted
+        if doc.thumbnail_path and 1 in areas:
+            with tempfile.TemporaryDirectory(prefix="scopit_") as tmpdir:
+                local_path = os.path.join(tmpdir, "document.pdf")
+                with open(local_path, "wb") as fh:
+                    fh.write(redacted)
+                thumb_local = os.path.join(tmpdir, "thumbnail.png")
+                if self._generate_thumbnail(local_path, thumb_local):
+                    with open(thumb_local, "rb") as fh:
+                        self.storage.write(doc.thumbnail_path, fh.read(), "image/png")
 
         doc.file_size = len(redacted)
         doc.annotations = _without_redacted(doc.annotations or [], marks)
