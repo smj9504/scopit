@@ -11,7 +11,9 @@
  * - a wall beside it — any wall crossing the 12" beside the end, over any
  *   part of its depth, the cabinet drawn short of it or into it: never an
  *   end panel; a scribed filler, unless the end is hidden behind the run
- *   that turns the corner in front of it;
+ *   that turns the corner in front of it. A run with a wall at both ends
+ *   (wall to wall, a niche) takes one filler, not two: it takes up the
+ *   slack at one end, and the other end is scribed tight;
  * - against the door side of a run that turns the corner (a dead or blind
  *   corner): a filler, so the doors and drawers clear each other;
  * - against another cabinet's side, or an appliance: nothing;
@@ -524,9 +526,26 @@ export function takeoffTrim(
   };
 
   // Ends against a wall wait until every end has been seen: one hidden
-  // behind the run that turns the corner in front of it takes no filler.
-  const atWall: { c: CabinetSketchCabinet; end: EndSide }[] = [];
+  // behind the run that turns the corner in front of it takes no filler,
+  // and a run with a wall at both ends takes one filler for both.
+  const atWall: { c: CabinetSketchCabinet; end: EndSide; run: string }[] = [];
   const hidden = new Set<string>();
+  // The runs: cabinets (and appliances) side by side at one height, joined
+  // end to end. Keyed by the cabinet and the way that end's back faces, so a
+  // corner unit's two legs stay in the two runs they belong to.
+  const legOf = (id: string, back: Pt) => `${id}|${Math.round(back.x * 10)},${Math.round(back.y * 10)}`;
+  const parent = new Map<string, string>();
+  const runRoot = (id: string): string => {
+    let r = id;
+    while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(id, r);
+    return r;
+  };
+  const join = (a: string, b: string) => {
+    const ra = runRoot(a);
+    const rb = runRoot(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
 
   for (const { c } of cabObstacles) {
     if (c.location === 'island') continue;
@@ -537,6 +556,7 @@ export function takeoffTrim(
 
     for (const face of localFaces(c, presets, scalePx)) {
       const where = whereOf(c, face.end);
+      const leg = legOf(c.id, planDir(c, face.back));
 
       const besideWall = wallBeside(c, face, wallObstacles, scalePx);
 
@@ -563,6 +583,10 @@ export function takeoffTrim(
           // for clearance, and that run's end is hidden behind this one.
           count('filler_count', where, 'inside corner');
           hidden.add(`${mid.obstacle.pose.id}|${endNear(mid.obstacle.pose, mid.point)}`);
+        } else if (mid.obstacle.pose && continuesRun(c, face, mid.obstacle.pose, scalePx)) {
+          // Side by side, facing the same way: the same straight run. (A corner
+          // unit turning the run doesn't join it to the next wall's run.)
+          join(leg, legOf(mid.obstacle.pose.id, planDir(c, face.back)));
         }
         if (c.cab_type === 'tall') {
           // A tall shows above whatever lower thing stands beside it.
@@ -575,7 +599,7 @@ export function takeoffTrim(
 
       // A wall beside the end: never a panel, a scribed filler.
       if (besideWall) {
-        atWall.push({ c, end: face.end });
+        atWall.push({ c, end: face.end, run: leg });
         continue;
       }
 
@@ -596,8 +620,13 @@ export function takeoffTrim(
     }
   }
 
-  for (const { c, end } of atWall) {
-    if (!hidden.has(`${c.id}|${end}`)) count('filler_count', whereOf(c, end), 'against the wall');
+  const filledRuns = new Set<string>();
+  for (const { c, end, run: leg } of atWall) {
+    if (hidden.has(`${c.id}|${end}`)) continue;
+    const run = runRoot(leg);
+    if (filledRuns.has(run)) continue; // wall to wall: one filler takes up the slack, this end is scribed
+    filledRuns.add(run);
+    count('filler_count', whereOf(c, end), 'against the wall');
   }
 
   // Dishwashers on the plan (only when the Appliance Detach & Reset list has one).

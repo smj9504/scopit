@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applianceSolids, cabinetSolids, wallSolids } from '@/components/features/tools/cabinet-estimate/sketch/cabinet3dModel';
-import { backsplashLayout, splashFaceKey, splashOnRun, splashPieces } from '@/components/features/tools/cabinet-estimate/sketch/cabinetBacksplash';
+import { backsplashLayout, faceKeeps, splashFaceKey, splashOnRun, splashPieces, type SplashChoices } from '@/components/features/tools/cabinet-estimate/sketch/cabinetBacksplash';
 import { buildCabinetScene } from '@/components/features/tools/cabinet-estimate/sketch/cabinet3dScene';
 import { buildElevations, pxToIn, type PresetCatalog } from '@/components/features/tools/cabinet-estimate/sketch/cabinetSketchLayout';
 import type { CabinetSketchAppliance, CabinetSketchCabinet, CabinetSketchWall } from '@/types/cabinetSketch';
@@ -69,7 +69,7 @@ const layoutOf = (
   cabinets: CabinetSketchCabinet[],
   walls: CabinetSketchWall[],
   appliances: CabinetSketchAppliance[] = [],
-  off: string[] = []
+  choices: SplashChoices = {}
 ) => {
   const wallModels = wallSolids(walls, SCALE);
   const pieces = splashPieces(
@@ -77,22 +77,28 @@ const layoutOf = (
     applianceSolids(appliances, cabinets, PRESETS, SCALE),
     wallModels
   );
-  return backsplashLayout(pieces, wallModels, off);
+  return backsplashLayout(pieces, wallModels, choices);
 };
 
+/** The face on the left side wall, at the run's end, and the back wall's. */
+const SIDE_KEY = () => layoutOf(RUN, [BACK, SIDE]).faces.find((f) => f.key.startsWith('side'))!.key;
+const BACK_KEY = () => layoutOf(RUN, [BACK, SIDE]).faces.find((f) => f.key.startsWith('back'))!.key;
+
 describe('backsplashLayout', () => {
-  it('runs the tile along the whole run and its end on the side wall, the 4" splash only where there is a counter', () => {
+  it('runs the tile along the whole run, the 4" splash only where there is a counter, and lists the side wall at its end without', () => {
     const layout = layoutOf(RUN, [BACK, SIDE]);
-    // Back wall 120" (range included), side wall the end base's 24" depth.
-    expect(layout.tileIn).toBeCloseTo(144, 6);
-    // Not behind the range opening: 30 + 60 on the back wall, 24 on the side.
-    expect(layout.counterIn).toBeCloseTo(114, 6);
+    // Back wall 120" (range included); the side wall starts without.
+    expect(layout.tileIn).toBeCloseTo(120, 6);
+    // Not behind the range opening: 30 + 60.
+    expect(layout.counterIn).toBeCloseTo(90, 6);
     const back = layout.faces.find((f) => f.key.startsWith('back'))!;
     expect(back.tile).toHaveLength(1);
     expect(back.counter.map((s) => Math.round(s.lengthIn))).toEqual([30, 60]);
-    expect(back.back).toBe(true);
+    expect(back).toMatchObject({ back: true, off: false });
     const side = layout.faces.find((f) => f.key.startsWith('side'))!;
-    expect(side).toMatchObject({ back: false, ownerIds: ['a'] });
+    // Measured all the same (the end base's 24" depth), so ticking it on adds that.
+    expect(side).toMatchObject({ back: false, off: true, ownerIds: ['a'] });
+    expect(side.tileIn).toBeCloseTo(24, 6);
     // Laid on the wall's face, turned to the counter.
     expect(back.tile[0].a[1]).toBeCloseTo(0, 6);
     expect(back.tile[0].normal[1]).toBeCloseTo(1, 6);
@@ -104,8 +110,8 @@ describe('backsplashLayout', () => {
       appliance('dw', 'dishwasher', 120, 0, 24),
     ];
     const layout = layoutOf(RUN, [BACK, SIDE], appliances);
-    expect(layout.tileIn).toBeCloseTo(144 + 24, 6);
-    expect(layout.counterIn).toBeCloseTo(114 + 24, 6);
+    expect(layout.tileIn).toBeCloseTo(120 + 24, 6);
+    expect(layout.counterIn).toBeCloseTo(90 + 24, 6);
   });
 
   it('gives an island, a base off the wall, an upper and a tall none', () => {
@@ -161,9 +167,9 @@ describe('splashOnRun', () => {
   });
 });
 
-describe('a face left without backsplash', () => {
+describe('a face with or without backsplash', () => {
   const walls = [BACK, SIDE];
-  const sideKey = () => layoutOf(RUN, walls).faces.find((f) => f.key.startsWith('side'))!.key;
+  const sideKey = SIDE_KEY;
 
   it('names a face by its wall and which side of it, as splashFaceKey does', () => {
     const layout = layoutOf(RUN, walls);
@@ -173,32 +179,29 @@ describe('a face left without backsplash', () => {
     expect(splashFaceKey([0, 0], [0, 0.2], [15, 12], wallSolids(walls, SCALE))).toBeNull();
   });
 
-  it("is listed but left out of the length: the side wall at the run's end bare", () => {
-    const layout = layoutOf(RUN, walls, [], [sideKey()]);
-    expect(layout.faces).toHaveLength(2);
-    expect(layout.faces.find((f) => f.key === sideKey())).toMatchObject({ off: true, back: false });
-    expect(layout.faces.find((f) => f.key.startsWith('back'))!.off).toBe(false);
-    expect(layout.tileIn).toBeCloseTo(120, 6);
-    expect(layout.counterIn).toBeCloseTo(90, 6);
-    // A key for no face changes nothing.
-    expect(layoutOf(RUN, walls, [], ['gone:1']).tileIn).toBeCloseTo(144, 6);
+  it("counts the side wall at the run's end once it is ticked on", () => {
+    const layout = layoutOf(RUN, walls, [], { on: [sideKey()] });
+    expect(layout.faces.find((f) => f.key === sideKey())).toMatchObject({ off: false, back: false });
+    expect(layout.tileIn).toBeCloseTo(144, 6);
+    expect(layout.counterIn).toBeCloseTo(114, 6);
+    // Left off again, it is off again (and a key for no face changes nothing).
+    expect(layoutOf(RUN, walls, [], { off: [sideKey()], on: ['gone:1'] }).tileIn).toBeCloseTo(120, 6);
   });
 
-  it("leaves the Front view's run without it when it is the back wall", () => {
-    const backKey = layoutOf(RUN, walls).faces.find((f) => f.key.startsWith('back'))!.key;
-    const layout = layoutOf(RUN, walls, [], [backKey]);
+  it("leaves the Front view's run without it when the back wall is left off", () => {
+    const layout = layoutOf(RUN, walls, [], { off: [BACK_KEY()], on: [sideKey()] });
     const [run] = buildElevations(RUN, walls, PRESETS, SCALE);
     const onRun = splashOnRun(run, layout, (px) => pxToIn(px, SCALE));
     expect(onRun).toEqual({ tile: [], counter: [] });
     expect(layout.tileIn).toBeCloseTo(24, 6);
   });
 
-  it('is not built in 3D, in the drawing look or the realistic one', () => {
+  it('is built in 3D only where it is', () => {
     const wallModels = wallSolids(walls, SCALE);
     const solids = cabinetSolids(RUN, PRESETS, SCALE);
-    const meshesOfA = (off: string[]) => {
+    const meshesOfA = (choices: SplashChoices) => {
       const root = buildCabinetScene(solids, wallModels, new Set(), {
-        backsplash: { tileIn: 18, counter: true, off },
+        backsplash: { tileIn: 18, counter: true, faces: faceKeeps(layoutOf(RUN, walls, [], choices)) },
       });
       const group = root.children.find((c) => c.userData.cabinetId === 'a')!;
       let n = 0;
@@ -207,8 +210,79 @@ describe('a face left without backsplash', () => {
       });
       return n;
     };
-    // The end base: tile and 4" strip on its back and on its end; the end's two go.
-    const all = meshesOfA([]);
-    expect(meshesOfA([sideKey()])).toBe(all - 2);
+    // The end base: tile and 4" strip on its back, and on its end once that is ticked on.
+    const backOnly = meshesOfA({});
+    expect(meshesOfA({ on: [sideKey()] })).toBe(backOnly + 2);
+    expect(meshesOfA({ off: [BACK_KEY()] })).toBe(backOnly - 2);
+  });
+});
+
+describe('a face that stops short of an end', () => {
+  const walls = [BACK, SIDE];
+
+  it('cuts the back wall\'s tile and 4" splash from its left and right ends as you face it', () => {
+    // Facing the back wall, its left end is at the side wall's corner (x = 0).
+    const layout = layoutOf(RUN, walls, [], { trim: { [BACK_KEY()]: [10, 20] } });
+    const back = layout.faces.find((f) => f.key === BACK_KEY())!;
+    expect(back.trim).toEqual([10, 20]);
+    expect(back.wholeIn).toBeCloseTo(120, 6);
+    expect(back.tileIn).toBeCloseTo(90, 6);
+    expect(back.tile[0].a[0]).toBeCloseTo(10, 6);
+    expect(back.tile[0].b[0]).toBeCloseTo(100, 6);
+    // The 4" one: 10..30 and 60..100.
+    expect(back.counter.map((s) => [Math.round(s.a[0]), Math.round(s.b[0])])).toEqual([
+      [10, 30],
+      [60, 100],
+    ]);
+    expect(layout.tileIn).toBeCloseTo(90, 6);
+    expect(layout.counterIn).toBeCloseTo(60, 6);
+    // The uncut stretches stay, for the plan to show what was left out.
+    expect(back.uncut.tile[0].lengthIn).toBeCloseTo(120, 6);
+  });
+
+  it('takes left and right as you face a side wall too', () => {
+    // Facing the left side wall from the counter, its left end is toward the room (y = 24), its right at the back wall.
+    const layout = layoutOf(RUN, walls, [], { on: [SIDE_KEY()], trim: { [SIDE_KEY()]: [0, 6] } });
+    const side = layout.faces.find((f) => f.key === SIDE_KEY())!;
+    expect(side.tileIn).toBeCloseTo(18, 6);
+    const ys = [side.tile[0].a[1], side.tile[0].b[1]].sort((p, q) => p - q);
+    expect(ys[0]).toBeCloseTo(6, 6);
+    expect(ys[1]).toBeCloseTo(24, 6);
+  });
+
+  it('ignores a trim it cannot read, and drops a face cut back to nothing', () => {
+    const odd = layoutOf(RUN, walls, [], { trim: { [BACK_KEY()]: [-5, Number.NaN] } });
+    expect(odd.tileIn).toBeCloseTo(120, 6);
+    const gone = layoutOf(RUN, walls, [], { trim: { [BACK_KEY()]: [70, 60] } });
+    expect(gone.tileIn).toBe(0);
+    expect(gone.faces.find((f) => f.key === BACK_KEY())!.tile).toEqual([]);
+  });
+
+  it('stops short in the Front view and in 3D', () => {
+    const layout = layoutOf(RUN, walls, [], { trim: { [BACK_KEY()]: [10, 0] } });
+    const [run] = buildElevations(RUN, walls, PRESETS, SCALE);
+    const onRun = splashOnRun(run, layout, (px) => pxToIn(px, SCALE));
+    const left = run.items[0].left_in;
+    expect(onRun.tile[0][0] - left).toBeCloseTo(10, 6);
+    expect(onRun.tile[0][1] - left).toBeCloseTo(120, 6);
+
+    const wallModels = wallSolids(walls, SCALE);
+    const solids = cabinetSolids(RUN, PRESETS, SCALE);
+    const widthsOfA = (choices: SplashChoices) => {
+      const root = buildCabinetScene(solids, wallModels, new Set(), {
+        backsplash: { tileIn: 18, counter: true, faces: faceKeeps(layoutOf(RUN, walls, [], choices)) },
+      });
+      const group = root.children.find((c) => c.userData.cabinetId === 'a')!;
+      const widths: number[] = [];
+      group.traverse((o) => {
+        const g = (o as { geometry?: { type?: string; parameters?: { width: number } } }).geometry;
+        if (g?.type === 'BoxGeometry' && g.parameters) widths.push(Math.round(g.parameters.width));
+      });
+      return widths;
+    };
+    const count = (list: number[], w: number) => list.filter((x) => x === w).length;
+    // The end base's tile and 4" strip run 20" of its 30" back; cut past it, it has none.
+    expect(count(widthsOfA({ trim: { [BACK_KEY()]: [10, 0] } }), 20) - count(widthsOfA({}), 20)).toBe(2);
+    expect(widthsOfA({ trim: { [BACK_KEY()]: [30, 0] } }).length).toBe(widthsOfA({}).length - 2);
   });
 });

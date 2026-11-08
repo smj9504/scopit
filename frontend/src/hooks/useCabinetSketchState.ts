@@ -20,6 +20,11 @@ import type {
 } from '@/types/cabinetSketch';
 import { EMPTY_CABINET_OVERLAY_DATA } from '@/types/cabinetSketch';
 
+/** The sketch's backsplash choices, any of them, set together. */
+type BacksplashChoices = Partial<
+  Pick<CabinetSketchOverlayData, 'backsplash_off' | 'backsplash_on' | 'backsplash_trim'>
+>;
+
 const MAX_UNDO_STACK = 50;
 
 export interface CabinetSketchLocalState {
@@ -58,7 +63,7 @@ type CabinetSketchAction =
   | { type: 'UPDATE_APPLIANCES'; payload: (Partial<CabinetSketchAppliance> & { id: string })[] }
   | { type: 'SYNC_APPLIANCES'; payload: CabinetSketchAppliance[] }
   | { type: 'SET_FINISH'; payload: CabinetSketchFinish }
-  | { type: 'SET_BACKSPLASH_OFF'; payload: string[] }
+  | { type: 'SET_BACKSPLASH'; payload: BacksplashChoices }
   | { type: 'LOAD_OVERLAY_DATA'; payload: CabinetSketchOverlayData }
   | { type: 'MARK_SAVED' }
   | { type: 'UNDO' }
@@ -408,15 +413,15 @@ function cabinetSketchReducer(
       };
     }
 
-    // The wall faces left without backsplash, as one undo step.
-    case 'SET_BACKSPLASH_OFF': {
+    // Which wall faces have backsplash and where it stops, as one undo step.
+    case 'SET_BACKSPLASH': {
       const { undoStack, redoStack } = pushUndo(state);
       return {
         ...state,
         undoStack,
         redoStack,
         isDirty: true,
-        overlayData: { ...state.overlayData, backsplash_off: action.payload },
+        overlayData: { ...state.overlayData, ...action.payload },
       };
     }
 
@@ -512,8 +517,8 @@ export interface CabinetSketchStateReturn {
   updateAppliances: (patches: (Partial<CabinetSketchAppliance> & { id: string })[]) => void;
   syncAppliances: (appliances: CabinetSketchAppliance[]) => void;
   setFinish: (finish: CabinetSketchFinish) => void;
-  /** The wall faces left without backsplash (splashFaceKey in cabinetBacksplash.ts). */
-  setBacksplashOff: (keys: string[]) => void;
+  /** Which wall faces have backsplash and where it stops short (splashFaceKey keys, cabinetBacksplash.ts). */
+  setBacksplash: (choices: BacksplashChoices) => void;
   loadOverlayData: (data: CabinetSketchOverlayData) => void;
   markSaved: () => void;
 
@@ -607,8 +612,8 @@ export function useCabinetSketchState(
     (finish: CabinetSketchFinish) => dispatch({ type: 'SET_FINISH', payload: finish }),
     []
   );
-  const setBacksplashOff = useCallback(
-    (keys: string[]) => dispatch({ type: 'SET_BACKSPLASH_OFF', payload: keys }),
+  const setBacksplash = useCallback(
+    (choices: BacksplashChoices) => dispatch({ type: 'SET_BACKSPLASH', payload: choices }),
     []
   );
   const loadOverlayData = useCallback(
@@ -649,7 +654,7 @@ export function useCabinetSketchState(
     updateAppliances,
     syncAppliances,
     setFinish,
-    setBacksplashOff,
+    setBacksplash,
     loadOverlayData,
     markSaved,
     undo,

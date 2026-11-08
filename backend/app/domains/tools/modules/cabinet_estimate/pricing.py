@@ -61,31 +61,33 @@ _DECL_DATE = date(2026, 9, 18)
 #    sits above what a contractor actually pays, so going all the way to
 #    the measured ratio would over-correct. Revisit against a real
 #    supplier quote - see the v2 report Â§F.
+#
+# 2026-11-08: every tier's supply cut 20% at the owner's call. A Fairfax
+# painted Semi-Custom kitchen came to ~$531/LF base and ~$461/LF uppers
+# before O&P (~$990/LF together), against $300-600/LF for semi-custom
+# base+upper and $500-900/LF for premium semi-custom. Each rate sat inside
+# its own published band; it was the stacking (painted x1.15, 36" uppers
+# x1.156, then 30% O&P) that ran high. Install labor was left alone (inside
+# $90-150 / $75-120 per LF). The same 20% went to tall cabinets
+# (TALL_CABINET_TYPES) and finished panels (END_PANEL_PRICING,
+# ISLAND_PANEL_PRICING) so they stay in step with the boxes.
 BASE_RATES = {
     "Stock": {
-        "base_lf": 200,      # $/LF for base cabinets (market $180-$280)
-        "wall_lf": 142,      # 0.71 of base (measured 0.706)
-        "tall_each": 750,    # was 539; measured ratio implies ~935
+        "base_lf": 160,      # was 200; now under the $180-$280 box-alone band
+        "wall_lf": 114,      # 0.71 of base (measured 0.706)
+        "tall_each": 600,    # was 750
     },
     "Semi-Custom": {
-        "base_lf": 310,      # market $280-$400; was 364
-        "wall_lf": 220,      # 0.71 of base; was 258
-        "tall_each": 1235,   # was 889; measured ratio implies ~1543
+        "base_lf": 291,      # was 364 (market $280-$400)
+        "wall_lf": 207,      # 0.71 of base
+        "tall_each": 988,    # was 1235
     },
     "Custom": {
-        "base_lf": 583,      # market $500-$700; was 686
-        "wall_lf": 414,      # 0.71 of base; was 487
-        "tall_each": 2275,   # was 1637; measured ratio implies ~2841
+        "base_lf": 549,      # was 686 (market $500-$700)
+        "wall_lf": 390,      # 0.71 of base
+        "tall_each": 1820,   # was 2275
     },
 }
-# 2026-11-08: Semi-Custom and Custom base/wall cut 15%. A market check of a
-# Semi-Custom job (painted, 36" uppers, Fairfax zip) had base $531/LF and
-# wall $461/LF installed, about $990/LF for the two together, against
-# semi-custom $150-$650/LF installed (HomeAdvisor) and $500-$900/LF for
-# premium semi-custom. After the cut that job is about $880/LF, inside the
-# premium band, and both rates sit inside their own supply bands above.
-# Stock already sits low in its band and was not flagged; tall_each was not
-# flagged either and stays below its measured ratio.
 
 # Wall cabinet height multiplier (applied to wall_lf rate)
 # 30"H is the baseline (1.0); shorter/taller scale proportionally
@@ -575,18 +577,19 @@ RANGE_END_PANEL_EACH = 95
 # Fridge cabinet stays at x0.80 of the generic tall at 36": it is a short
 # bridge box with deep returns, carrying less material than a full-height
 # pantry but far more than a 12"-deep wall unit.
+# 2026-11-08: -20% with BASE_RATES (see there).
 TALL_CABINET_TYPES = {
     "oven_cabinet": {
-        # 33" generic: Stock 915 / Semi 1507 / Custom 2776, x1.132
-        "Stock": 1036,
-        "Semi-Custom": 1706,
-        "Custom": 3142,
+        # 33" generic x1.132; was Stock 1036 / Semi 1706 / Custom 3142
+        "Stock": 829,
+        "Semi-Custom": 1365,
+        "Custom": 2514,
     },
     "refrigerator_cabinet": {
-        # 36" generic: Stock 975 / Semi 1606 / Custom 2958, x0.80
-        "Stock": 780,
-        "Semi-Custom": 1284,
-        "Custom": 2366,
+        # 36" generic x0.80; was Stock 780 / Semi 1284 / Custom 2366
+        "Stock": 624,
+        "Semi-Custom": 1027,
+        "Custom": 1893,
     },
 }
 
@@ -600,10 +603,8 @@ TALL_CABINET_TYPES = {
 # on a Stock one.
 SPECIALTY_TALL_TYPES = set(TALL_CABINET_TYPES.keys())
 
-# Glass door upgrade premium, added on top of standard door pricing. The
-# calculator bills it once per cabinet (the measured W3030GD below is a
-# whole two-door cabinet). A door with a pattern in its frame takes
-# GLASS_INSERT_PREMIUM per door instead, since its frame is already billed.
+# Glass door upgrade premium (per door, added on top of standard door
+# pricing).
 #
 # 2026-09-18 (v2): the measured SKUs show these are really two different
 # products, and this table was sitting between them:
@@ -630,22 +631,8 @@ GLASS_READY_DOOR_PREMIUM = {
     "Custom": 30,
 }
 
-# The glass alone, per door, for a door whose frame is a pattern (lattice,
-# mullion) billed in DOOR_PATTERN_PREMIUM. Until 2026-11-08 such a door took
-# the finished glass door above on top of its pattern, so its frame was
-# billed twice. Clear tempered inserts run $40-$75 a door from the cabinet
-# makers (KraftMaid, Diamond, Schrock); cabinet glass $13-$53/SF by design.
-# The installer sets it with the door's retainer clips, inside the cabinet
-# install. Tiers follow GLASS_DOOR_PREMIUM's ratios (1 : 1.41 : 2.01).
-GLASS_INSERT_PREMIUM = {
-    "Stock": 45,
-    "Semi-Custom": 65,
-    "Custom": 90,
-}
-
 # A door with a pattern in its frame instead of a plain panel, per door on top
-# of the box. The glass is NOT in this: tick Glass on the box for that, and it
-# is billed as GLASS_INSERT_PREMIUM per door.
+# of the box. The glass is NOT in this: tick Glass on the box for that.
 #
 # "lattice" is a diamond-lattice frame. Three reads of what the frame costs
 # over a plain door:
@@ -682,16 +669,17 @@ DOOR_PATTERN_LABELS = {
 # Island end panel / back panel pricing (per SF, finished to match cabinets)
 # Typical sizes: base end panel ~5.75 SF (24"x34.5"), tall ~14 SF (24"x84")
 # Back panel varies by island length: e.g. 60"x34.5" = ~14.4 SF
+# 2026-11-08: supply -20% with BASE_RATES (see there); install unchanged.
 ISLAND_PANEL_PRICING = {
     "end_panel_per_sf": {
-        "Stock": 19,         # 3/4" matching laminate/veneer, +6%
-        "Semi-Custom": 36,   # 3/4" plywood with finish match, +14%
-        "Custom": 65,        # solid wood or premium veneer, +18%
+        "Stock": 15,         # 3/4" matching laminate/veneer; was 19
+        "Semi-Custom": 29,   # 3/4" plywood with finish match; was 36
+        "Custom": 52,        # solid wood or premium veneer; was 65
     },
     "back_panel_per_sf": {
-        "Stock": 16,         # +7%
-        "Semi-Custom": 32,   # +13%
-        "Custom": 56,        # +16%
+        "Stock": 13,         # was 16
+        "Semi-Custom": 26,   # was 32
+        "Custom": 45,        # was 56
     },
     # 2026-09-18 (v2): raised 9 -> 13. Installers quote finished panels
     # at a flat ~$100/panel, which on a typical 5-8 SF panel works out to
@@ -738,16 +726,14 @@ PREFAB_ISLAND_INSTALL = {
 }
 
 # Crown molding for wall cabinets (per LF, material + install)
-# 2026-11-08: material cut. Semi-Custom was $25 + $11 = $36/LF against crown
-# at $5-$23/LF installed and paint-grade $8-$25/LF installed (Inch
-# Calculator, Bob Vila, Angi). Material is MDF $4-$10/LF, common hardwood
-# $10-$15/LF; cabinet crown is finished to match, so each tier sits at the
-# top of its material's band. Install stays inside $3-$12/LF.
+# 2026-11-08: material cut at the owner's call. Semi-Custom came to $36/LF
+# with install against $6-$12/LF quoted for installing cabinet crown;
+# install ($11) was inside that, the $25 material was what ran high.
 CROWN_MOLDING_PRICING = {
-    "Stock": 8,          # MDF crown, per LF material; was 13
+    "Stock": 8,          # basic MDF crown, per LF material; was 13
     "Semi-Custom": 14,   # solid wood crown, per LF material; was 25
-    "Custom": 26,        # decorative multi-piece crown, per LF material; was 45
-    "install_per_lf": 11,  # labor per LF (market $6-$12), +10%
+    "Custom": 28,        # decorative multi-piece crown, per LF material; was 45
+    "install_per_lf": 11,  # labor per LF (market $6-$12)
 }
 
 # Backsplash pricing (per SF, material + install)
@@ -1131,18 +1117,13 @@ BACKSPLASH_TYPE_OPTIONS = list(BACKSPLASH_TYPES.keys())
 # ceiling, since these rates include fabrication, template, edge and
 # removal of the old top.
 # Granite and Marble verified in range and left alone.
-#
-# 2026-11-08: Granite 95 -> 80. Standard-grade granite installed in
-# Northern Virginia runs $50-$75/SF (Mayflower VA; a Sterling VA guide puts
-# the stone at $15-$60 of it), and the general local range $50-$100 only
-# reaches past that for premium slabs. Set like quartz: the local
-# standard-grade ceiling plus removal of the old top ($4-$7/SF). A premium
-# or exotic slab is a product picked in an upgrade option.
 COUNTERTOP_MATERIALS = {
     "Laminate": {"rate": 35, "label": "Laminate"},
     "Solid Surface": {"rate": 72, "label": "Solid Surface (Corian)"},
     "Butcher Block": {"rate": 70, "label": "Butcher Block"},
-    "Granite": {"rate": 80, "label": "Granite"},
+    # 2026-11-08: 95 -> 75, the top of the NoVA standard-grade band
+    # ($50-$75 installed); a higher grade would need its own entry.
+    "Granite": {"rate": 75, "label": "Granite"},
     "Quartz": {"rate": 90, "label": "Quartz"},
     "Quartzite": {"rate": 112, "label": "Quartzite"},
     "Marble": {"rate": 140, "label": "Marble"},
@@ -1392,11 +1373,13 @@ FILLER_TALL_PRICING = {
 # match the door finish across its whole face.
 # Semi-Custom / Custom keep the v1 tier spread (~1.45x / ~2.3x Stock),
 # which the v2 review verified against ABCabinetry $/SF.
+# 2026-11-08: supply -20% with BASE_RATES (see there); install unchanged.
+# Was wall 72/104/166, base 41/59/94, tall 421/610/970, fridge 244/354/561.
 END_PANEL_PRICING = {
-    "wall": {"Stock": 72, "Semi-Custom": 104, "Custom": 166},
-    "base": {"Stock": 41, "Semi-Custom": 59, "Custom": 94},
-    "tall": {"Stock": 421, "Semi-Custom": 610, "Custom": 970},
-    "refrigerator": {"Stock": 244, "Semi-Custom": 354, "Custom": 561},
+    "wall": {"Stock": 58, "Semi-Custom": 83, "Custom": 133},
+    "base": {"Stock": 33, "Semi-Custom": 47, "Custom": 75},
+    "tall": {"Stock": 337, "Semi-Custom": 488, "Custom": 776},
+    "refrigerator": {"Stock": 195, "Semi-Custom": 283, "Custom": 449},
     # v2: $9/SF install was below the trade norm — installers quote a
     # flat ~$100/panel, which on a 5-8 SF panel is $12.50-$20/SF.
     "install_each": 100,

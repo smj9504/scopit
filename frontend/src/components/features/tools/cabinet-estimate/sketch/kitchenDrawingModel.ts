@@ -14,6 +14,7 @@ import type {
   CabinetSketchOverlayData,
   CabinetSketchWall,
 } from '@/types/cabinetSketch';
+import type { SplashChoices } from '@/components/features/tools/cabinet-estimate/sketch/cabinetBacksplash';
 import type { PresetCatalog } from '@/components/features/tools/cabinet-estimate/sketch/cabinetSketchLayout';
 import { layoutIslandSides, reconcileCabinets } from '@/components/features/tools/cabinet-estimate/sketch/cabinetSketchLayout';
 import { finishOf } from '@/components/features/tools/cabinet-estimate/sketch/kitchenFinish';
@@ -33,6 +34,8 @@ export interface KitchenDrawingInput {
   /** The finish the realistic 3D look draws, with the products' surfaces over it. */
   finish: CabinetSketchFinish;
   surfaces: ProductSurfaces;
+  /** Which wall faces have backsplash and where it stops, as saved with the sketch. */
+  backsplash?: SplashChoices;
 }
 
 export interface PlanFrame {
@@ -112,6 +115,7 @@ export function drawingInput(
     islandSeatingIn: twoSided ? 0 : estimate.island_seating_overhang_in ?? 0,
     finish,
     surfaces: look.surfaces,
+    backsplash: { off: overlay.backsplash_off, on: overlay.backsplash_on, trim: overlay.backsplash_trim },
   };
 }
 

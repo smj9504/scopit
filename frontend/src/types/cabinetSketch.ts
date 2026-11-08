@@ -104,10 +104,17 @@ export interface CabinetSketchOverlayData {
   island_two_sided?: boolean | null;
   /**
    * Wall faces left without backsplash (splashFaceKey in cabinetBacksplash.ts:
-   * a wall's id and which of its faces), e.g. a side wall at a run's end
-   * that isn't tiled. Absent: every face a counter meets has it.
+   * a wall's id and which of its faces). Absent: every face behind a run's
+   * backs has it.
    */
   backsplash_off?: string[] | null;
+  /**
+   * Faces given backsplash that start without one: a side wall at a run's
+   * end, tiled in some kitchens and not in others.
+   */
+  backsplash_on?: string[] | null;
+  /** Inches a face's backsplash stops short of its [left, right] end, as you face that wall. */
+  backsplash_trim?: Record<string, number[]> | null;
 }
 
 export interface CabinetSketch {

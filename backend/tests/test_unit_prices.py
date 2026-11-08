@@ -347,7 +347,7 @@ def test_the_same_prices_are_stored_once(prices):
     c = prices.current_book("cabinet", COMPANY)
     assert c.id != a.id
     assert c.prices["BASE_RATES.Stock.base_lf"] == [250, 0]
-    assert cab_pricing.BASE_RATES["Stock"]["base_lf"] == 200  # the default is untouched
+    assert cab_pricing.BASE_RATES["Stock"]["base_lf"] == 160  # the default is untouched
 
 
 def test_the_form_quotes_the_estimates_own_prices(kitchen, prices):

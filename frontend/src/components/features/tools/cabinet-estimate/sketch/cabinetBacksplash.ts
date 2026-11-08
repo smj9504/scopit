@@ -15,6 +15,12 @@
  * range drawn in its range base, or a run's end meeting the next run's
  * back in a corner, is not counted twice.
  *
+ * What the sketch saves for each face (SplashChoices): a face behind a
+ * run's backs has backsplash unless it is left off; a side wall at a run's
+ * end — tiled in some kitchens, not in others — has none unless it is
+ * ticked on. A face's backsplash can stop short of either end, so many
+ * inches in from its left or right as you face that wall.
+ *
  * Pure, so it is tested without WebGL.
  */
 
@@ -35,10 +41,28 @@ export interface BacksplashSpec {
   /** The 4" countertop backsplash (with the countertop). */
   counter: boolean;
   /**
-   * Faces left without backsplash (splashFaceKey), as the sketch saves them
-   * — a side wall at a run's end is tiled in some kitchens and not in others.
+   * Where each face's backsplash goes (faceKeeps of the layout): faces with
+   * none, and how much of a face is kept when it stops short of an end.
+   * Absent: every side against a wall has it, end to end.
    */
-  off?: string[] | null;
+  faces?: ReadonlyMap<string, FaceKeep> | null;
+}
+
+/** What the sketch saves about its backsplash faces (splashFaceKey keys). */
+export interface SplashChoices {
+  /** Faces left without backsplash. */
+  off?: readonly string[] | null;
+  /** Faces given it that start without one: a side wall at a run's end. */
+  on?: readonly string[] | null;
+  /** Inches it stops short of a face's [left, right] end, as you face that wall. */
+  trim?: Readonly<Record<string, readonly number[]>> | null;
+}
+
+/** A face as the 3D view draws it: none, or kept from `from` to `to` along its face (FaceFrame's `along`). */
+export interface FaceKeep {
+  off: boolean;
+  from: number;
+  to: number;
 }
 
 /** The wall whose face the side pa→pb (plan inches) lies against, along it and within its length; null for none. */
@@ -192,13 +216,21 @@ export const splashFaceKey = (a: Pt2, b: Pt2, inside: Pt2, walls: WallSolid[]): 
 /** One face of a wall (or, with no walls drawn, one line) with backsplash on it. */
 export interface SplashFace {
   key: string;
-  /** Left without backsplash (BacksplashSpec.off): not measured, not drawn. */
+  /** Without backsplash (left off, or a side wall not ticked on): not measured, not drawn. */
   off: boolean;
-  /** The tile backsplash's stretches on it, and the 4" countertop one's (none behind a range). */
+  /** The tile backsplash's stretches on it, and the 4" countertop one's (none behind a range), as far as it is kept. */
   tile: SplashSpan[];
   counter: SplashSpan[];
   tileIn: number;
   counterIn: number;
+  /** The stretches end to end, before it stops short of either end. */
+  uncut: { tile: SplashSpan[]; counter: SplashSpan[] };
+  /** How far the tile runs end to end, inches. */
+  wholeIn: number;
+  /** Inches it stops short of the [left, right] end, as you face the wall. */
+  trim: [number, number];
+  /** The part kept, along the face (FaceFrame's `along`), for the 3D view. */
+  keep: [number, number];
   /** The cabinets and appliances it runs behind. */
   ownerIds: string[];
   /** Behind a run's backs (else only the end of a run, against a side wall). */
@@ -212,18 +244,25 @@ export interface BacksplashLayout {
   counterIn: number;
 }
 
-/** Pieces closer than this along a line are one stretch, inches. */
+/** Pieces closer than this along a line are one stretch, inches; a stretch cut shorter than it is gone. */
 const JOIN_IN = 0.5;
+
+/** A saved trim as two inch figures, nothing negative or unreadable. */
+const trimOf = (saved: readonly number[] | undefined): [number, number] => {
+  const inch = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+  return [inch(saved?.[0]), inch(saved?.[1])];
+};
 
 /**
  * The backsplash as measured: the pieces on each face of each wall joined
- * into stretches, the tile and the 4" countertop splash apiece. Faces in
- * `off` are listed, marked off, and left out of the totals.
+ * into stretches, the tile and the 4" countertop splash apiece, cut back
+ * where the sketch has it stop short of an end. Faces without it (see
+ * SplashChoices) are listed, marked off, and left out of the totals.
  */
 export function backsplashLayout(
   pieces: SplashPiece[],
   walls: WallSolid[],
-  off: readonly string[] = []
+  choices: SplashChoices = {}
 ): BacksplashLayout {
   type Placed = { piece: SplashPiece; key: string; origin: Pt2; u: Pt2; n: Pt2; off: number; t0: number; t1: number };
   const placed: Placed[] = [];
@@ -235,7 +274,8 @@ export function backsplashLayout(
     const [t0, t1] = [along(piece.a), along(piece.b)].sort((p, q) => p - q);
     placed.push({ piece, key, origin, u, n, off: (sideOf(piece.a) + sideOf(piece.b)) / 2, t0, t1 });
   }
-  const offKeys = new Set(off);
+  const offKeys = new Set(choices.off ?? []);
+  const onKeys = new Set(choices.on ?? []);
 
   const byKey = new Map<string, Placed[]>();
   for (const p of placed) byKey.set(p.key, [...(byKey.get(p.key) ?? []), p]);
@@ -244,7 +284,8 @@ export function backsplashLayout(
   for (const [key, group] of Array.from(byKey.entries())) {
     const { origin, u, n } = group[0];
     const off = group.reduce((sum, p) => sum + p.off, 0) / group.length;
-    const spans = (list: Placed[]): SplashSpan[] => {
+    const at = (t: number): Pt2 => [origin[0] + u[0] * t + -u[1] * off, origin[1] + u[1] * t + u[0] * off];
+    const joinedOf = (list: Placed[]): [number, number][] => {
       const sorted = [...list].sort((p, q) => p.t0 - q.t0);
       const joined: [number, number][] = [];
       for (const p of sorted) {
@@ -252,23 +293,43 @@ export function backsplashLayout(
         if (last && p.t0 <= last[1] + JOIN_IN) last[1] = Math.max(last[1], p.t1);
         else joined.push([p.t0, p.t1]);
       }
-      const at = (t: number): Pt2 => [
-        origin[0] + u[0] * t + -u[1] * off,
-        origin[1] + u[1] * t + u[0] * off,
-      ];
-      return joined.map(([t0, t1]) => ({ a: at(t0), b: at(t1), normal: n, lengthIn: t1 - t0 }));
+      return joined;
     };
-    const tile = spans(group);
-    const counter = spans(group.filter((p) => p.piece.counter));
+    const spansOf = (joined: [number, number][]): SplashSpan[] =>
+      joined.map(([t0, t1]) => ({ a: at(t0), b: at(t1), normal: n, lengthIn: t1 - t0 }));
+
+    // Facing the wall from the counter, the right hand points along
+    // (n.z, -n.x) on the plan (whose z runs down the screen); when that is
+    // the way `u` runs, a face's left end is where `along` is least.
+    const leftFirst = n[1] * u[0] - n[0] * u[1] > 0;
+    const trim = trimOf(choices.trim?.[key]);
+    const tileJoined = joinedOf(group);
+    const lo = Math.min(...tileJoined.map(([t0]) => t0));
+    const hi = Math.max(...tileJoined.map(([, t1]) => t1));
+    const keep: [number, number] = leftFirst ? [lo + trim[0], hi - trim[1]] : [lo + trim[1], hi - trim[0]];
+    const cut = (joined: [number, number][]) =>
+      joined
+        .map(([t0, t1]): [number, number] => [Math.max(t0, keep[0]), Math.min(t1, keep[1])])
+        .filter(([t0, t1]) => t1 - t0 >= JOIN_IN);
+
+    const counterJoined = joinedOf(group.filter((p) => p.piece.counter));
+    const tile = spansOf(cut(tileJoined));
+    const counter = spansOf(cut(counterJoined));
+    const back = group.some((p) => p.piece.back);
     faces.push({
       key,
-      off: offKeys.has(key),
+      // A side wall at a run's end starts without; a face ticked one way stays that way.
+      off: onKeys.has(key) ? false : offKeys.has(key) ? true : !back,
       tile,
       counter,
       tileIn: tile.reduce((sum, s) => sum + s.lengthIn, 0),
       counterIn: counter.reduce((sum, s) => sum + s.lengthIn, 0),
+      uncut: { tile: spansOf(tileJoined), counter: spansOf(counterJoined) },
+      wholeIn: tileJoined.reduce((sum, [t0, t1]) => sum + (t1 - t0), 0),
+      trim,
+      keep,
       ownerIds: Array.from(new Set(group.map((p) => p.piece.ownerId))),
-      back: group.some((p) => p.piece.back),
+      back,
     });
   }
   const on = faces.filter((f) => !f.off);
@@ -277,6 +338,53 @@ export function backsplashLayout(
     tileIn: on.reduce((sum, f) => sum + f.tileIn, 0),
     counterIn: on.reduce((sum, f) => sum + f.counterIn, 0),
   };
+}
+
+/** Each face as the 3D view draws it (BacksplashSpec.faces). */
+export function faceKeeps(layout: BacksplashLayout): Map<string, FaceKeep> {
+  return new Map(layout.faces.map((f) => [f.key, { off: f.off, from: f.keep[0], to: f.keep[1] }]));
+}
+
+/** The faces as one string, so a view can tell new faces from the same ones again. */
+export const faceKeepsText = (faces: ReadonlyMap<string, FaceKeep> | null | undefined): string =>
+  faces && faces.size
+    ? JSON.stringify(
+        Array.from(faces.entries(), ([key, f]) => [key, f.off ? 1 : 0, Math.round(f.from * 100) / 100, Math.round(f.to * 100) / 100])
+      )
+    : '';
+
+/** faceKeepsText read back. */
+export function faceKeepsFromText(text: string): Map<string, FaceKeep> | null {
+  if (!text) return null;
+  const rows = JSON.parse(text) as [string, number, number, number][];
+  return new Map(rows.map(([key, off, from, to]) => [key, { off: off === 1, from, to }]));
+}
+
+/**
+ * How much of the side a→b (plan inches, the counter toward `inside`) has
+ * backsplash, as fractions along a→b: all of it unless its face is off or
+ * stops short of an end there. Null for none.
+ */
+export function keptPart(
+  a: Pt2,
+  b: Pt2,
+  inside: Pt2,
+  walls: WallSolid[],
+  faces: ReadonlyMap<string, FaceKeep> | null | undefined
+): [number, number] | null {
+  if (!faces || !faces.size) return [0, 1];
+  const frame = faceFrame(a, b, inside, walls);
+  const keep = frame && faces.get(frame.key);
+  if (!frame || !keep) return [0, 1];
+  if (keep.off || keep.to - keep.from < JOIN_IN) return null;
+  const along = (p: Pt2) => (p[0] - frame.origin[0]) * frame.u[0] + (p[1] - frame.origin[1]) * frame.u[1];
+  const ta = along(a);
+  const tb = along(b);
+  if (Math.abs(tb - ta) < 1e-6) return [0, 1];
+  const [f0, f1] = [(keep.from - ta) / (tb - ta), (keep.to - ta) / (tb - ta)].sort((p, q) => p - q);
+  const from = Math.max(0, f0);
+  const to = Math.min(1, f1);
+  return (to - from) * Math.abs(tb - ta) >= JOIN_IN ? [from, to] : null;
 }
 
 /** A run's backsplash in its own frame: inches from the run's left edge, as the Front view draws it. */

@@ -138,8 +138,8 @@ const FALLBACK_APPLIANCES: ApplianceOption[] = [
   { type: 'garbage_disposal', label: 'Garbage Disposal', cost: 305 },
 ];
 const FALLBACK_COUNTERTOP_RATES: Record<string, number> = {
-  Laminate: 35, 'Butcher Block': 70, 'Solid Surface': 95,
-  Granite: 95, Quartz: 110, Quartzite: 130, Marble: 160,
+  Laminate: 35, 'Butcher Block': 70, 'Solid Surface': 72,
+  Granite: 75, Quartz: 90, Quartzite: 112, Marble: 140,
 };
 const FALLBACK_CT_BACKSPLASH_PER_LF: Record<string, number> = {
   Laminate: 12, 'Solid Surface': 22, 'Butcher Block': 18,

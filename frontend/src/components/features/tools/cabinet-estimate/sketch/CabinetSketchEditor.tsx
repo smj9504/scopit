@@ -107,7 +107,7 @@ import {
 } from '@/components/features/tools/cabinet-estimate/sketch/sketchAppliances';
 import { TRIM_FIELDS, TRIM_FIELD_LABELS, takeoffTrim, type TrimCounts } from '@/components/features/tools/cabinet-estimate/sketch/cabinetTrimTakeoff';
 import { applianceSolids, cabinetSolids, wallSolids } from '@/components/features/tools/cabinet-estimate/sketch/cabinet3dModel';
-import { backsplashLayout, splashOnRun, splashPieces, type BacksplashSpec, type SplashSpan } from '@/components/features/tools/cabinet-estimate/sketch/cabinetBacksplash';
+import { backsplashLayout, faceKeeps, splashOnRun, splashPieces, type BacksplashSpec, type SplashFace, type SplashSpan } from '@/components/features/tools/cabinet-estimate/sketch/cabinetBacksplash';
 import { pxToIn } from '@/components/features/tools/cabinet-estimate/sketch/cabinetSketchLayout';
 
 // three.js is big; it's only fetched once the 3D view is opened.
@@ -387,7 +387,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     updateAppliances,
     syncAppliances,
     setFinish,
-    setBacksplashOff,
+    setBacksplash,
     loadOverlayData,
     markSaved,
     undo,
@@ -1295,23 +1295,40 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
 
   // The backsplash the plan calls for (cabinetBacksplash.ts): what the 3D
   // and Front views draw, measured for the Edit tab, and each run's share.
-  // A face can be left without it (a side wall at a run's end often isn't
-  // tiled): unticked in the count, saved with the sketch.
+  // Ticked in the count face by face (a side wall at a run's end starts
+  // without, as it often isn't tiled) and cut back where it stops short of
+  // an end; saved with the sketch.
   const splashOff = state.overlayData.backsplash_off;
+  const splashOn = state.overlayData.backsplash_on;
+  const splashTrim = state.overlayData.backsplash_trim;
   const splashLayout = useMemo(() => {
     const wallModels = wallSolids(walls, scalePixelsPerFoot);
     const solids = cabinetSolids(cabinets, CABINET_PRESETS, scalePixelsPerFoot);
     const apps = applianceSolids(appliances, cabinets, CABINET_PRESETS, scalePixelsPerFoot);
-    return backsplashLayout(splashPieces(solids, apps, wallModels), wallModels, splashOff ?? []);
-  }, [cabinets, appliances, walls, scalePixelsPerFoot, splashOff]);
+    return backsplashLayout(splashPieces(solids, apps, wallModels), wallModels, {
+      off: splashOff,
+      on: splashOn,
+      trim: splashTrim,
+    });
+  }, [cabinets, appliances, walls, scalePixelsPerFoot, splashOff, splashOn, splashTrim]);
   const toggleSplashFace = (key: string, on: boolean) => {
-    const rest = (splashOff ?? []).filter((k) => k !== key);
-    setBacksplashOff(on ? rest : [...rest, key]);
+    const off = (splashOff ?? []).filter((k) => k !== key);
+    const onList = (splashOn ?? []).filter((k) => k !== key);
+    setBacksplash({ backsplash_off: on ? off : [...off, key], backsplash_on: on ? [...onList, key] : onList });
   };
-  // The 3D view leaves the same faces bare, in either look.
+  /** How far a face's backsplash stops short of its left (0) or right (1) end, inches. */
+  const trimSplashFace = (key: string, end: 0 | 1, inches: number | null) => {
+    const next = [...(splashTrim?.[key] ?? [0, 0])];
+    next[end] = inches && inches > 0 ? Math.round(inches * 4) / 4 : 0;
+    const rest = { ...(splashTrim ?? {}) };
+    if (next[0] || next[1]) rest[key] = next;
+    else delete rest[key];
+    setBacksplash({ backsplash_trim: rest });
+  };
+  // The 3D view leaves the same faces bare and stops where they stop, in either look.
   const splashSpec = useMemo<BacksplashSpec>(
-    () => ({ tileIn: backsplash?.tileIn ?? null, counter: !!backsplash?.counter, off: splashOff ?? [] }),
-    [backsplash?.tileIn, backsplash?.counter, splashOff]
+    () => ({ tileIn: backsplash?.tileIn ?? null, counter: !!backsplash?.counter, faces: faceKeeps(splashLayout) }),
+    [backsplash?.tileIn, backsplash?.counter, splashLayout]
   );
   // The face whose row is under the pointer in the count, picked out on the plan.
   const [splashHover, setSplashHover] = useState<string | null>(null);
@@ -1331,6 +1348,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   }, [elevations, splashLayout]);
   const splashTileLf = Math.round((splashLayout.tileIn / 12) * 10) / 10;
   const splashCounterLf = Math.round((splashLayout.counterIn / 12) * 10) / 10;
+  /** A face whose backsplash stops short of an end. */
+  const isCut = (f: SplashFace) => f.trim[0] > 0 || f.trim[1] > 0;
+  const lfOf = (inches: number) => Math.round((inches / 12) * 10) / 10;
   // The plan shows the backsplash the Edit tab has, and all of it while its count is open.
   const [splashCountOpen, setSplashCountOpen] = useState(false);
   useEffect(() => {
@@ -1604,7 +1624,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       {splashFaces.map((f) => (
         <div
           key={f.key}
-          style={{ paddingLeft: 10, color: f.off ? '#a3a29e' : '#374151' }}
+          style={{ paddingLeft: 10, marginBottom: 2, color: f.off ? '#a3a29e' : '#374151' }}
           onMouseEnter={() => setSplashHover(f.key)}
           onMouseLeave={() => setSplashHover((k) => (k === f.key ? null : k))}
         >
@@ -1613,19 +1633,42 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             onChange={(e) => toggleSplashFace(f.key, e.target.checked)}
             style={{ color: 'inherit', fontSize: 13 }}
           >
-            {f.label}: tile {Math.round((f.tileIn / 12) * 10) / 10} LF, 4&quot;{' '}
-            {Math.round((f.counterIn / 12) * 10) / 10} LF{f.off ? ' — none' : ''}
+            {f.label}: tile {lfOf(f.tileIn)} LF, 4&quot; {lfOf(f.counterIn)} LF
+            {f.off ? ' — none' : isCut(f) ? ` (of ${lfOf(f.wholeIn)} LF)` : ''}
           </Checkbox>
+          {!f.off && (
+            <div style={{ paddingLeft: 24, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <span>Stops short of</span>
+              {([0, 1] as const).map((end) => (
+                <InputNumber
+                  key={end}
+                  size="small"
+                  min={0}
+                  max={Math.floor(f.wholeIn)}
+                  step={1}
+                  precision={2}
+                  value={f.trim[end] || null}
+                  placeholder="0"
+                  addonBefore={end === 0 ? 'left' : 'right'}
+                  addonAfter="in"
+                  style={{ width: 132 }}
+                  aria-label={`${f.label}: inches short of its ${end === 0 ? 'left' : 'right'} end`}
+                  onChange={(v) => trimSplashFace(f.key, end, typeof v === 'number' ? v : null)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       ))}
       <div style={{ marginTop: 6, color: '#6b7280' }}>
         Measured where a perimeter counter meets a drawn wall: the bases&apos; backs, a corner&apos;s
-        side leg, a run&apos;s end against a side wall, and behind a dishwasher. The tile runs on
-        behind a range, the 4&quot; one doesn&apos;t. Island cabinets take none. Shown on the plan in
-        teal (tile) and gray (4&quot;) while this is open. Untick a face that has none, such as a side wall
-        at a run&apos;s end left bare: it drops out of the length and the views (dashed here), and the
-        sketch keeps it. Use in estimate sets the Backsplash area (this
-        length × its height) and the 4&quot; Countertop Backsplash length; tick them to price them.
+        side leg and behind a dishwasher. The tile runs on behind a range, the 4&quot; one doesn&apos;t.
+        Island cabinets take none. A run&apos;s end against a side wall starts unticked: tick it where that
+        wall is done too, and untick a face that has none. Stops short ends a face&apos;s backsplash that
+        many inches in from its left or right end as you face the wall, say at a window. Shown on the plan
+        in teal (tile) and gray (4&quot;) while this is open, what&apos;s left out dashed; the sketch keeps
+        it. Use in estimate sets the Backsplash area (this length × its height) and the 4&quot; Countertop
+        Backsplash length; tick them to price them.
       </div>
     </div>
   );
@@ -2256,17 +2299,30 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                       corner={cornerShapes.get(cabinet.id)}
                     />
                   ))}
-                {/* The backsplash along the walls, just inside the counter's back edge: tile (teal), 4" countertop (gray). */}
-                {splashLayout.faces
-                  .filter((f) => !f.off || splashCountOpen)
-                  .flatMap((f) => [
-                    ...(planTile ? f.tile : []).map((s, k) =>
-                      splashLine(s, 5, '#13a8a8', `t-${f.key}-${k}`, f.off, f.key === splashHover)
-                    ),
-                    ...(planCounter ? f.counter : []).map((s, k) =>
-                      splashLine(s, 2, '#6f6d68', `c-${f.key}-${k}`, f.off, f.key === splashHover)
-                    ),
-                  ])}
+                {/* The backsplash along the walls, just inside the counter's back edge: tile (teal), 4" countertop (gray).
+                    While the count is open, a face without it and the part cut off a face's end show dashed. */}
+                {splashLayout.faces.flatMap((f) => [
+                  ...(splashCountOpen && (f.off || isCut(f))
+                    ? [
+                        ...(planTile ? f.uncut.tile : []).map((s, k) =>
+                          splashLine(s, 5, '#13a8a8', `tu-${f.key}-${k}`, true, f.key === splashHover)
+                        ),
+                        ...(planCounter ? f.uncut.counter : []).map((s, k) =>
+                          splashLine(s, 2, '#6f6d68', `cu-${f.key}-${k}`, true, f.key === splashHover)
+                        ),
+                      ]
+                    : []),
+                  ...(f.off
+                    ? []
+                    : [
+                        ...(planTile ? f.tile : []).map((s, k) =>
+                          splashLine(s, 5, '#13a8a8', `t-${f.key}-${k}`, false, f.key === splashHover)
+                        ),
+                        ...(planCounter ? f.counter : []).map((s, k) =>
+                          splashLine(s, 2, '#6f6d68', `c-${f.key}-${k}`, false, f.key === splashHover)
+                        ),
+                      ]),
+                ])}
                 {appliances.filter(isHung).map(applianceShape)}
                 {walls.filter((wall) => selectedIds.has(wall.id)).map(wallShape)}
               {/* The cabinets of the form row under the pointer. */}

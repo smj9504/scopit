@@ -26,11 +26,11 @@ def _island(**kw):
         height_inches=34.5, is_specialty=False, specialty_type=None,
         has_glass_door=False, qty=4,
     )
+    kw = {"island_end_panel_sqft": 23, "island_back_panel_sqft": 34.5, **kw}
     return calculate_estimate(
         [box], "Stock", "22030", include_demo=False, include_delivery=False,
         include_countertop=True, island_countertop_sqft=40,
-        island_countertop_material="Granite",
-        island_end_panel_sqft=23, island_back_panel_sqft=34.5, **kw,
+        island_countertop_material="Granite", **kw,
     )
 
 
@@ -67,6 +67,30 @@ def test_the_cabinets_cost_the_same_either_way():
     def cabinets(result):
         return sum(li.total for li in result.line_items if "B36" in li.description)
     assert cabinets(_island()) == cabinets(_island(island_two_sided=True))
+
+
+def _end_panel_warnings(result):
+    return [w for w in result.warning_flags if w.startswith("Island end panels")]
+
+
+def test_end_panels_bigger_than_both_ends_of_the_island_warn():
+    # 23 SF on a one-row island: its two 24" ends are 11.5 SF, 14 SF even at bar height.
+    [warning] = _end_panel_warnings(_island())
+    assert warning == (
+        'Island end panels: 23 SF is more than both ends of a 24"-deep island '
+        '(11.5 SF at 34.5" high, 14.0 SF at 42") — measure the panels and correct the SF.'
+    )
+    # Still billed as typed: the warning asks, it doesn't change the number.
+    assert [li.quantity for li in _island().line_items if li.description.startswith("Island End Panel")] == [23, 23]
+
+
+def test_end_panels_that_fit_the_island_dont_warn():
+    # Back to back the ends are 48" deep: 23 SF at 34.5", 28 SF at 42".
+    assert not _end_panel_warnings(_island(island_two_sided=True))
+    assert not _end_panel_warnings(_island(island_end_panel_sqft=11.5))
+    # Run out under a 12" seating overhang, the ends are 36" deep: 21 SF at 42".
+    assert not _end_panel_warnings(_island(island_end_panel_sqft=21, island_seating_overhang_in=12))
+    assert _end_panel_warnings(_island(island_end_panel_sqft=21.5, island_seating_overhang_in=12))
 
 
 # ── Through the service ──

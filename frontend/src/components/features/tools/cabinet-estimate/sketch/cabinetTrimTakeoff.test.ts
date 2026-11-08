@@ -92,17 +92,30 @@ const only = (c: Partial<TrimCounts>): TrimCounts => ({
 const corner = [wallH(0, 0, 240), wallV(0, 0, 240)];
 
 describe('takeoffTrim', () => {
-  it('scribes both ends of a run that fills the wall, at each height', () => {
+  it('takes up a run that fills the wall with one filler, at each height', () => {
+    // Wall to wall: one filler takes up the slack, the other end is scribed tight.
     const walls = [wallH(0, 0, 120), wallV(0, 0, 60), wallV(120, 0, 60, 'right')];
     const run = [0, 30, 60, 90].flatMap((x) => [cab('B30', x, 0), cab('W3030', x, 0)]);
-    expect(counts(run, walls)).toEqual(only({ filler_count: 4 }));
+    expect(counts(run, walls)).toEqual(only({ filler_count: 2 }));
+    // A single cabinet in a niche just wider than it: one filler, base and upper alike.
+    const niche = [wallH(0, 0, 32), wallV(0, 0, 60), wallV(32, 0, 60, 'right')];
+    expect(counts([cab('B30', 1, 0), cab('W3030', 1, 0)], niche)).toEqual(only({ filler_count: 2 }));
+    // Runs that each meet one wall keep their own filler.
+    expect(counts([cab('B30', 0, 0), cab('B30', 90, 0)], walls)).toEqual(only({ filler_count: 2, end_panel_base: 2 }));
+    // So do the two runs of an L joined by a lazy susan: each ends at its own wall.
+    // A wall across the foot of the west leg (which runs y 36-66 off the lazy susan).
+    const foot: CabinetSketchWall = { id: 'foot', start_x: -4, start_y: 68, end_x: 30, end_y: 68, thickness: 4, color: '#333', length_ft: 34 / 12 };
+    const ell = [wallH(0, 0, 96), wallV(0, 0, 96), wallV(96, 0, 30, 'right'), foot];
+    const legs = [cab('LS36', 0, 0), cab('B30', 36, 0), cab('B30', 66, 0), cab('B30', 0, 66, { rotation: -90 })];
+    expect(counts(legs, ell).filler_count).toBe(2);
   });
 
   it('never puts a panel on an end with a wall near it', () => {
     // Drawn 10" short of the east wall: a filler takes up the gap, no panel, base or upper.
+    // The bases run wall to wall, so that one filler is theirs; the west end is scribed tight.
     const east = [...corner, wallV(130, 0, 240, 'right')];
     const short = [...[0, 30, 60, 90].map((x) => cab('B30', x, 0)), cab('W3030', 60, 0), cab('W3030', 90, 0)];
-    expect(counts(short, east)).toEqual(only({ filler_count: 3, end_panel_wall: 1 }));
+    expect(counts(short, east)).toEqual(only({ filler_count: 2, end_panel_wall: 1 }));
     // A side wall that covers only the back 6" of the end still closes it.
     const stub = [wallH(0, 0, 240), wallV(0, 0, 6)];
     expect(counts([cab('B30', 0, 0)], stub)).toEqual(only({ filler_count: 1, end_panel_base: 1 }));

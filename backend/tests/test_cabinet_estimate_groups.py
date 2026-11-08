@@ -20,6 +20,7 @@ from app.domains.tools.modules.cabinet_estimate.export_service import CabinetExp
 from app.domains.tools.modules.cabinet_estimate.models import (  # noqa: E402
     CabinetSketch,  # noqa: E402
 )
+from app.domains.tools.modules.cabinet_estimate.pricing import BASE_RATES  # noqa: E402
 from app.domains.tools.modules.cabinet_estimate.schemas import (  # noqa: E402
     CabinetBoxCreate,
     CabinetEstimateCreate,
@@ -230,13 +231,13 @@ def test_a_cabinet_line_sets_the_cabinet_supply_level(service, session):
     option = service.add_option(service.calculate(new_job(service)["id"])["id"])
     before = sum(li["total"] for li in option["line_items"] if li["category"] == "supply"
                  and "Cabinet" in li["description"] and "Hardware" not in li["description"])
-    # $460 for a 30" base: $184/LF retail, ×1.15 = $211.60 vs Stock $200
+    # $460 for a 30" base: $184/LF retail, ×1.15 = $211.60 against the Stock base rate
     base = add_product(session, "cabinet", "Shaker 30 in. Base Cabinet in White", 460,
                        width_in=30, depth_in=24, height_in=34.5)
     option = service.set_selection(option["id"], "cabinets", str(base.id))
     after = sum(li["total"] for li in option["line_items"] if li["category"] == "supply"
                 and "Cabinet" in li["description"] and "Hardware" not in li["description"])
-    assert "supply multiplier 1.06" in option["methodology_notes"]
+    assert f"supply multiplier {211.60 / BASE_RATES['Stock']['base_lf']:.2f}" in option["methodology_notes"]
     assert after != before
 
 

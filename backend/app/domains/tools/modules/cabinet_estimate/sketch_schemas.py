@@ -2,7 +2,7 @@
 Cabinet Estimate Sketch Pydantic schemas.
 """
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -87,9 +87,14 @@ class CabinetSketchOverlayData(BaseModel):
     # for, so the Sketch re-lays it (two rows / one) only when that changes.
     island_two_sided: Optional[bool] = None
     # Wall faces left without backsplash ("<wall id>:<1|-1>", which face of
-    # the wall), e.g. a side wall at a run's end that isn't tiled. See
-    # splashFaceKey in the frontend's cabinetBacksplash.ts.
+    # the wall). See splashFaceKey in the frontend's cabinetBacksplash.ts.
     backsplash_off: Optional[List[str]] = None
+    # Faces given backsplash that start without one: a side wall at a run's
+    # end, tiled in some kitchens and not in others.
+    backsplash_on: Optional[List[str]] = None
+    # Inches a face's backsplash stops short of its [left, right] end, as
+    # you face that wall.
+    backsplash_trim: Optional[Dict[str, List[float]]] = None
 
 
 class CabinetSketchResponse(BaseModel):
