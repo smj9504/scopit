@@ -35,6 +35,191 @@ const PackingSection: React.FC = () => (
   </section>
 );
 
+// Drawing colours match the roof plan below, so every mockup drawing reads as one set.
+const INK = '#1e3a8a';
+const BOX = '#dbeafe';
+const APPLIANCE = '#eff6ff';
+
+/** A door or drawer front: an inset panel with a pull. */
+const Front: React.FC<{ x: number; y: number; w: number; h: number; pull: 'h' | 'v'; side?: 'l' | 'r' }> = ({
+  x, y, w, h, pull, side = 'r',
+}) => {
+  const px = side === 'r' ? x + w - 5 : x + 5;
+  return (
+    <g>
+      <rect x={x} y={y} width={w} height={h} fill="none" stroke={INK} strokeWidth="1" />
+      {pull === 'h'
+        ? <path d={`M${x + w / 2 - 5} ${y + h / 2}h10`} stroke={INK} strokeWidth="1.6" strokeLinecap="round" />
+        : <path d={`M${px} ${y + h - 13}v7`} stroke={INK} strokeWidth="1.6" strokeLinecap="round" />}
+    </g>
+  );
+};
+
+const CabinetSection: React.FC = () => (
+  <section id="cabinets" className="lp-tool">
+    <div className="lp-container lp-split lp-split--reverse">
+      <div className="lp-tool__copy">
+        <span className="lp-tool__meta">Cabinet Estimator · Interior</span>
+        <h2 className="lp-tool__title">Sketch the kitchen. Price every box.</h2>
+        <p className="lp-tool__body">
+          Cabinets, countertop, demo, plumbing and install, priced off your layout. Restoration and upgrade options side by side.
+        </p>
+        <div className="lp-tool__ctas">
+          <Link to="/register" className="lp-btn">Price a kitchen</Link>
+          <span className="lp-note">3D view · PDF quote · Purchase order</span>
+        </div>
+      </div>
+      <div className="lp-tray" aria-hidden="true">
+        <div className="lp-sheet">
+          <div className="lp-sheet__head">Kitchen · Sink wall elevation</div>
+          <div className="lp-elev">
+            <svg viewBox="0 0 320 166">
+              <g stroke={INK} strokeWidth="1.5" strokeLinejoin="round">
+                {/* Wall cabinets, the window over the sink, the hood over the range */}
+                <rect x="16" y="12" width="54" height="52" fill={BOX} />
+                <rect x="82" y="18" width="40" height="44" fill={APPLIANCE} />
+                <path d="M102 18v44M82 40h40" strokeWidth="1" fill="none" />
+                <rect x="132" y="12" width="44" height="52" fill={BOX} />
+                <rect x="197" y="12" width="14" height="26" fill={APPLIANCE} />
+                <polygon points="180,58 228,58 214,38 194,38" fill={APPLIANCE} />
+                <rect x="232" y="12" width="72" height="52" fill={BOX} />
+                {/* Base cabinets and appliances */}
+                <rect x="16" y="102" width="54" height="48" fill={BOX} />
+                <rect x="70" y="102" width="62" height="48" fill={BOX} />
+                <rect x="132" y="102" width="44" height="54" fill="#ffffff" />
+                <rect x="176" y="98" width="56" height="58" fill={APPLIANCE} />
+                <rect x="186" y="120" width="36" height="24" fill={BOX} strokeWidth="1" />
+                <rect x="232" y="102" width="72" height="48" fill={BOX} />
+                {/* Toe kicks */}
+                <rect x="19" y="150" width="48" height="6" fill="#bfdbfe" strokeWidth="1" />
+                <rect x="73" y="150" width="56" height="6" fill="#bfdbfe" strokeWidth="1" />
+                <rect x="235" y="150" width="66" height="6" fill="#bfdbfe" strokeWidth="1" />
+              </g>
+              <Front x={20} y={16} w={46} h={44} pull="v" />
+              <Front x={136} y={16} w={36} h={44} pull="v" side="l" />
+              <Front x={236} y={16} w={32} h={44} pull="v" />
+              <Front x={268} y={16} w={32} h={44} pull="v" side="l" />
+              <Front x={20} y={106} w={46} h={12} pull="h" />
+              <Front x={20} y={121} w={46} h={13} pull="h" />
+              <Front x={20} y={137} w={46} h={10} pull="h" />
+              <rect x="74" y="106" width="54" height="10" fill="none" stroke={INK} strokeWidth="1" />
+              <Front x={74} y={120} w={26} h={27} pull="v" />
+              <Front x={102} y={120} w={26} h={27} pull="v" side="l" />
+              <Front x={236} y={106} w={32} h={12} pull="h" />
+              <Front x={270} y={106} w={30} h={12} pull="h" />
+              <Front x={236} y={121} w={32} h={26} pull="v" />
+              <Front x={270} y={121} w={30} h={26} pull="v" side="l" />
+              <g stroke={INK} strokeLinecap="round" fill="none">
+                <path d="M138 110h32" strokeWidth="1.6" />
+                <path d="M188 113h32" strokeWidth="1.6" />
+                <path d="M102 96v-10q0-4 4-4h5" strokeWidth="2" />
+              </g>
+              <g fill={INK}>
+                {[187, 198, 209, 220].map((cx) => <circle key={cx} cx={cx} cy="105" r="2" />)}
+                {/* Countertop, broken by the slide-in range */}
+                <rect x="12" y="96" width="164" height="6" />
+                <rect x="232" y="96" width="76" height="6" />
+              </g>
+              <path d="M8 156h304" stroke={INK} strokeWidth="1.5" />
+            </svg>
+          </div>
+          <div className="lp-options">
+            <div className="lp-option">
+              <span className="lp-option__label">Restoration</span>
+              <span className="lp-option__spec">Stock · Granite</span>
+              <span className="lp-big-num">$16,480</span>
+            </div>
+            <div className="lp-option">
+              <span className="lp-option__label">Upgrade option</span>
+              <span className="lp-option__spec">Semi-Custom · Quartz</span>
+              <span className="lp-big-num">$24,915</span>
+              <span className="lp-option__diff">+$8,435 over restoration</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
+// Phase names follow the Bathroom Estimator's own phases (PHASE_LABELS in its export service).
+const BATH_PHASES: [string, string][] = [
+  ['Demo & disposal', '$1,640.00'],
+  ['Plumbing & electrical', '$2,180.00'],
+  ['Substrate & waterproofing', '$1,420.00'],
+  ['Tile & flooring', '$3,960.00'],
+  ['Fixtures install', '$2,850.00'],
+  ['Paint & trim', '$920.00'],
+  ['Punch & cleanup', '$480.00'],
+];
+
+const BathroomSection: React.FC = () => (
+  <section id="bathrooms" className="lp-tool">
+    <div className="lp-container lp-split">
+      <div className="lp-tool__copy">
+        <span className="lp-tool__meta">Bathroom Estimator · Interior</span>
+        <h2 className="lp-tool__title">Draw the bathroom. Price it phase by phase.</h2>
+        <p className="lp-tool__body">
+          Demo to punch list in seven phases, priced from your floor plan. For insurance restorations and remodels alike.
+        </p>
+        <div className="lp-tool__ctas">
+          <Link to="/register" className="lp-btn">Price a bathroom</Link>
+          <span className="lp-note">3D view · PDF with the sketch</span>
+        </div>
+      </div>
+      <div className="lp-tray" aria-hidden="true">
+        <div className="lp-sheet lp-bath">
+          <div className="lp-sheet__head">Hall bath · 5′ × 8′</div>
+          <div className="lp-bath__body">
+            <div className="lp-bath__plan">
+              <svg viewBox="0 0 150 240">
+                <defs>
+                  <pattern id="lp-bath-tile" width="12" height="12" patternUnits="userSpaceOnUse">
+                    <path d="M12 0H0V12" fill="none" stroke={BOX} strokeWidth="1" />
+                  </pattern>
+                </defs>
+                {/* Tiled floor inside the walls */}
+                <rect x="4" y="4" width="142" height="232" fill="url(#lp-bath-tile)" stroke={INK} strokeWidth="3" />
+                {/* Wall tile around the tub */}
+                <path d="M8 82V8h134v74" fill="none" stroke="#93c5fd" strokeWidth="4" />
+                <g stroke={INK} strokeWidth="1.5">
+                  {/* Tub */}
+                  <rect x="10" y="10" width="130" height="68" fill={BOX} />
+                  <rect x="18" y="18" width="114" height="52" rx="18" fill={APPLIANCE} />
+                  <circle cx="118" cy="44" r="3" fill="#ffffff" strokeWidth="1" />
+                  {/* Toilet */}
+                  <rect x="130" y="110" width="12" height="34" fill={BOX} />
+                  <ellipse cx="115" cy="127" rx="14" ry="11" fill="#ffffff" />
+                  {/* Vanity and sink */}
+                  <rect x="6" y="148" width="36" height="58" fill={BOX} />
+                  <ellipse cx="24" cy="177" rx="10" ry="15" fill="#ffffff" />
+                </g>
+                {/* Door and its swing */}
+                <rect x="66" y="232" width="75" height="8" fill="#ffffff" />
+                <path d="M66 236V161" stroke={INK} strokeWidth="2" />
+                <path d="M66 161A75 75 0 0 1 141 236" fill="none" stroke={INK} strokeWidth="1" strokeDasharray="3 3" />
+              </svg>
+            </div>
+            <ol className="lp-phases">
+              {BATH_PHASES.map(([phase, amount], i) => (
+                <li key={phase}>
+                  <span className="lp-phases__n">{i + 1}</span>
+                  <span>{phase}</span>
+                  <span className="lp-num">{amount}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <div className="lp-sheet__foot">
+            <span style={{ fontWeight: 600 }}>Total</span>
+            <span className="lp-big-num">$13,450.00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
 const RoofSection: React.FC = () => (
   <section id="roof" className="lp-tool">
     <div className="lp-container lp-split lp-split--reverse">
@@ -144,6 +329,8 @@ const ESignSection: React.FC = () => (
 const ToolSections: React.FC = () => (
   <div id="tools">
     <PackingSection />
+    <CabinetSection />
+    <BathroomSection />
     <RoofSection />
     <ItemsSection />
     <ESignSection />

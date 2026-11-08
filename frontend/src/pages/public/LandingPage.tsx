@@ -20,7 +20,7 @@ const LandingPage: React.FC = () => {
   usePageSEO({
     title: 'Scopit - Work Tools for Restoration Contractors',
     description:
-      'Price pack-outs, read roof reports, find line items and get documents signed. Every tool feeds your estimates and invoices. Free beta through 2026.',
+      'Price pack-outs, kitchen cabinets and bathrooms. Read roof reports, find line items, get documents signed. Every tool feeds your estimates and invoices.',
     path: '/',
   });
 

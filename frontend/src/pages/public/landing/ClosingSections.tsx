@@ -78,6 +78,8 @@ export const LandingFooter: React.FC = () => (
         <nav aria-label="Tools">
           <b>Tools</b>
           <a href="#packing">Packing &amp; Moving</a>
+          <a href="#cabinets">Cabinet Estimator</a>
+          <a href="#bathrooms">Bathroom Estimator</a>
           <a href="#roof">Roof Analyzer</a>
           <a href="#items">Item Recommender</a>
           <a href="#esign">PDF &amp; E-Sign</a>

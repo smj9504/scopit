@@ -148,6 +148,30 @@
 .lp-big-num { font-family: var(--lp-heading); font-weight: 800; font-size: 22px; color: var(--lp-accent); font-variant-numeric: tabular-nums; }
 .lp-roof-plan { padding: 20px; display: flex; justify-content: center; }
 .lp-roof-plan svg { width: 100%; max-width: 340px; height: auto; }
+.lp-elev { padding: 20px 20px 16px; display: flex; justify-content: center; }
+.lp-elev svg { width: 100%; max-width: 380px; height: auto; }
+.lp-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--lp-line-soft); background: var(--lp-bg-soft); }
+.lp-option { padding: 14px 20px 16px; display: flex; flex-direction: column; gap: 2px; }
+.lp-option + .lp-option { border-left: 1px solid var(--lp-line); }
+.lp-option__label { font-size: 12px; font-weight: 600; color: var(--lp-text-2); }
+.lp-option__spec { font-size: 14px; }
+.lp-option .lp-big-num { font-size: 20px; padding-top: 6px; }
+.lp-option__diff { font-size: 12px; font-weight: 600; color: var(--lp-accent-ink); }
+.lp-bath { container-type: inline-size; }
+.lp-bath__body { display: flex; flex-direction: column; }
+.lp-bath__plan { padding: 18px 20px 4px; display: flex; justify-content: center; }
+.lp-bath__plan svg { width: 100%; max-width: 120px; height: auto; }
+.lp-phases { list-style: none; margin: 0; padding: 6px 20px; font-size: 14px; }
+.lp-phases li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--lp-line-soft); }
+.lp-phases li:last-child { border-bottom: 0; }
+.lp-phases li > span:nth-child(2) { color: var(--lp-text-2); }
+.lp-phases__n { font-size: 12px; font-weight: 600; color: var(--lp-muted); font-variant-numeric: tabular-nums; }
+@container (min-width: 460px) {
+  .lp-bath__body { flex-direction: row; align-items: center; }
+  .lp-bath__plan { flex: 0 0 36%; padding: 16px 0 16px 20px; }
+  .lp-bath__plan svg { max-width: 160px; }
+  .lp-phases { flex: 1; min-width: 0; }
+}
 .lp-search { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border: 1px solid var(--lp-line-strong); border-radius: 10px; }
 .lp-items { padding: 20px; display: flex; flex-direction: column; gap: 14px; font-size: 14px; }
 .lp-items__grid { display: grid; grid-template-columns: 96px minmax(0, 1fr); row-gap: 10px; column-gap: 12px; }
@@ -239,6 +263,8 @@
   .lp-launcher__grid { padding: 12px; gap: 8px; }
   .lp-tool-card { padding: 12px; gap: 6px; }
   .lp-tray { padding: 14px; border-radius: 14px; }
+  .lp-option { padding: 12px 14px 14px; }
+  .lp-elev, .lp-phases { padding-left: 14px; padding-right: 14px; }
   .lp-jt-card { padding: 4px 8px; border-radius: 12px; }
   .lp-jt col.lp-jt__tool { width: 46%; }
   .lp-jt th, .lp-jt td { padding-left: 4px !important; padding-right: 4px !important; }

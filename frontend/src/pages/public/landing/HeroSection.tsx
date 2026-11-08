@@ -1,10 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BoxIcon, HouseIcon, SearchIcon, PenIcon } from './icons';
+import { BoxIcon, CabinetIcon, BathtubIcon, HouseIcon, SearchIcon, PenIcon } from './icons';
 import { BETA_END_LABEL } from './content';
 
+// Same order as the app's Tools page (TOOL_ORDER in toolMeta.tsx).
 const LAUNCHER_TOOLS = [
   { name: 'Packing & Moving', jobs: 'Interior · Moving', Icon: BoxIcon },
+  { name: 'Cabinet Estimator', jobs: 'Interior', Icon: CabinetIcon },
+  { name: 'Bathroom Estimator', jobs: 'Interior', Icon: BathtubIcon },
   { name: 'Roof Analyzer', jobs: 'Roofing', Icon: HouseIcon },
   { name: 'Item Recommender', jobs: 'All jobs', Icon: SearchIcon },
   { name: 'PDF & E-Sign', jobs: 'All jobs', Icon: PenIcon },
@@ -14,7 +17,7 @@ const HeroSection: React.FC = () => (
   <section className="lp-hero">
     <div className="lp-container lp-split">
       <div className="lp-hero__copy">
-        <h1>Pack-outs, roofs, line items, signatures. One toolkit.</h1>
+        <h1>Pack-outs, kitchens, baths, roofs. One toolkit.</h1>
         <p className="lp-hero__sub">Each tool works on its own. Everything lands in your estimates and invoices.</p>
         <div className="lp-hero__ctas">
           <Link to="/register" className="lp-btn lp-btn--lg">Get started free</Link>

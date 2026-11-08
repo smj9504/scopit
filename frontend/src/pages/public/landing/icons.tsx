@@ -37,6 +37,27 @@ export const HouseIcon: React.FC<IconProps> = (p) => (
   </Svg>
 );
 
+/** A two-door cabinet (same glyph as the app's Cabinet Estimator). */
+export const CabinetIcon: React.FC<IconProps> = (p) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="1.5" />
+    <path d="M12 4v16" />
+    <path d="M9.5 10.5v3" />
+    <path d="M14.5 10.5v3" />
+  </Svg>
+);
+
+/** A bathtub (same glyph as the app's Bathroom Estimator). */
+export const BathtubIcon: React.FC<IconProps> = (p) => (
+  <Svg {...p}>
+    <path d="M3 12h18" />
+    <path d="M4 12v3a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-3" />
+    <path d="M7 19l-1 2" />
+    <path d="M17 19l1 2" />
+    <path d="M6 12V6a2 2 0 0 1 3.5-1.3" />
+  </Svg>
+);
+
 export const SearchIcon: React.FC<IconProps> = (p) => (
   <Svg {...p}>
     <circle cx="11" cy="11" r="7" />

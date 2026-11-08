@@ -1,5 +1,7 @@
 import React from 'react';
-import { BoxIcon, HouseIcon, SearchIcon, PenIcon, DropletIcon, RoofIcon, TruckIcon, CheckIcon } from './icons';
+import {
+  BoxIcon, CabinetIcon, BathtubIcon, HouseIcon, SearchIcon, PenIcon, DropletIcon, RoofIcon, TruckIcon, CheckIcon,
+} from './icons';
 
 const JOB_TYPES = [
   { long: 'Interior restoration', short: 'Interior', Icon: DropletIcon },
@@ -10,6 +12,8 @@ const JOB_TYPES = [
 // Columns follow JOB_TYPES order. Pack-out and roofing are separate job types.
 const TOOL_ROWS = [
   { name: 'Packing & Moving', href: '#packing', Icon: BoxIcon, uses: [true, false, true] },
+  { name: 'Cabinet Estimator', href: '#cabinets', Icon: CabinetIcon, uses: [true, false, false] },
+  { name: 'Bathroom Estimator', href: '#bathrooms', Icon: BathtubIcon, uses: [true, false, false] },
   { name: 'Roof Analyzer', href: '#roof', Icon: HouseIcon, uses: [false, true, false] },
   { name: 'Item Recommender', href: '#items', Icon: SearchIcon, uses: [true, true, true] },
   { name: 'PDF & E-Sign', href: '#esign', Icon: PenIcon, uses: [true, true, true] },
