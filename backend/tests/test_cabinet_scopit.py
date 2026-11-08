@@ -4,7 +4,7 @@ a Scopit customer and carries its claim number, a calculated estimate becomes
 a Scopit estimate whose lines add up to the same total, and a product picture
 id can only ever name the company's own files. On a throwaway SQLite database."""
 import uuid
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import pytest
 
@@ -126,12 +126,43 @@ def test_customer_and_claim_number_are_shared_by_the_whole_job(ours, session):
 
 # ── To a Scopit estimate ──
 
+def estimate_shows(items) -> Decimal:
+    """The total the Scopit estimate shows for these lines: each line's
+    quantity × unit price rounded half up to the cent, as
+    estimate/api.py recalculate_estimate does."""
+    cent = Decimal("0.01")
+    return sum(
+        (
+            (Decimal(str(it["quantity"])) * Decimal(str(it["unit_price"]))).quantize(cent, rounding=ROUND_HALF_UP)
+            for it in items
+        ),
+        Decimal("0"),
+    )
+
+
 def test_a_scopit_estimate_adds_up_to_the_cabinet_total(ours):
     estimate = ours.calculate(new_job(ours)["id"])
     payload = to_estimate_payload(estimate)
     items = [it for s in payload["sections"] for it in s["items"]]
-    assert round(sum(round(it["quantity"] * it["unit_price"], 2) for it in items), 2) == round(estimate["total"], 2)
+    assert estimate_shows(items) == Decimal(str(estimate["total"])).quantize(Decimal("0.01"))
     assert all(len(it["name"]) <= 255 for it in items)
+
+
+def test_half_cent_lines_still_add_up_to_the_cabinet_total():
+    # Seen in the browser: 2.5 LF × $405.73 and 2.5 LF × $307.57 each end in
+    # half a cent, which the estimate rounds up; the calculator's total didn't.
+    lines = [
+        {"description": "Base Cabinets - Stock", "category": "supply", "unit": "LF",
+         "quantity": 2.5, "unit_price": 405.73, "total": 1014.33},
+        {"description": "Wall Cabinets Standard - Stock", "category": "supply", "unit": "LF",
+         "quantity": 2.5, "unit_price": 307.57, "total": 768.93},
+        {"description": "Trash Disposal with 10 Yard Dumpster", "category": "demo", "unit": "EA",
+         "quantity": 1, "unit_price": 496.61, "total": 496.61},
+    ]
+    payload = to_estimate_payload({"line_items": lines, "total": 2279.86})
+    items = [it for s in payload["sections"] for it in s["items"]]
+    assert estimate_shows(items) == Decimal("2279.86")
+    assert [it["unit_price"] for it in items if it["quantity"] == 1] == [496.60]
 
 
 def test_a_scopit_estimate_is_sectioned_like_the_customer_pdf(ours):
@@ -149,7 +180,7 @@ def test_a_scopit_estimate_hits_a_target_total_to_the_cent(ours):
     estimate = new_job(ours, target_total=23456.78)
     estimate = ours.calculate(estimate["id"])
     items = [it for s in to_estimate_payload(estimate)["sections"] for it in s["items"]]
-    assert round(sum(round(it["quantity"] * it["unit_price"], 2) for it in items), 2) == 23456.78
+    assert estimate_shows(items) == Decimal("23456.78")
 
 
 def test_the_title_names_the_option_and_the_address(ours):
@@ -157,6 +188,20 @@ def test_the_title_names_the_option_and_the_address(ours):
     option = ours.add_option(restore["id"])
     assert title_for(restore) == "Kitchen Cabinets — 12 Elm St"
     assert title_for(option) == "Kitchen Cabinets — Option A — 12 Elm St"
+
+
+def test_the_proposal_names_the_zip_once(ours):
+    # A customer's address, as the job form fills it in, already ends with the zip
+    restore = ours.calculate(new_job(ours, property_address="12 Elm St, Rockville, MD 20850")["id"])
+    ours.add_option(restore["id"])
+    from pypdf import PdfReader
+
+    from app.domains.tools.modules.cabinet_estimate.export_service import CabinetExportService
+
+    pdf = CabinetExportService().generate_proposal_pdf(ours.get_group(restore["id"]))
+    text = " ".join(" ".join((page.extract_text() or "").split()) for page in PdfReader(pdf).pages)
+    assert "Property: 12 Elm St, Rockville, MD 20850 " in text
+    assert "20850, 20850" not in text
 
 
 def test_the_claim_number_goes_in_the_description(ours):

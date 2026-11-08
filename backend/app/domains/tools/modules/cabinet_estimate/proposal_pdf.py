@@ -302,7 +302,11 @@ def generate_proposal_pdf(
                  HRFlowable(width="100%", thickness=1.5, color=brand_accent), Spacer(1, 12)]
 
     # ══════ PROJECT INFO ══════
-    address = ", ".join(filter(None, [prop_addr, first.get("zip_code")]))
+    # In Scopit the address picked from a customer already ends with the zip
+    zip_code = first.get("zip_code")
+    if zip_code and prop_addr and prop_addr.rstrip().endswith(zip_code):
+        zip_code = None
+    address = ", ".join(filter(None, [prop_addr, zip_code]))
     info_data = [["Property:", address or "—"]]
     if first.get("client_name"):
         info_data.append(["Client:", first["client_name"]])
