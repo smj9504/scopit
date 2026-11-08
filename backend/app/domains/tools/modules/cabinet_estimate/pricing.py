@@ -68,16 +68,24 @@ BASE_RATES = {
         "tall_each": 750,    # was 539; measured ratio implies ~935
     },
     "Semi-Custom": {
-        "base_lf": 364,      # market $280-$400
-        "wall_lf": 258,      # 0.71 of base
+        "base_lf": 310,      # market $280-$400; was 364
+        "wall_lf": 220,      # 0.71 of base; was 258
         "tall_each": 1235,   # was 889; measured ratio implies ~1543
     },
     "Custom": {
-        "base_lf": 686,      # market $500-$700
-        "wall_lf": 487,      # 0.71 of base
+        "base_lf": 583,      # market $500-$700; was 686
+        "wall_lf": 414,      # 0.71 of base; was 487
         "tall_each": 2275,   # was 1637; measured ratio implies ~2841
     },
 }
+# 2026-11-08: Semi-Custom and Custom base/wall cut 15%. A market check of a
+# Semi-Custom job (painted, 36" uppers, Fairfax zip) had base $531/LF and
+# wall $461/LF installed, about $990/LF for the two together, against
+# semi-custom $150-$650/LF installed (HomeAdvisor) and $500-$900/LF for
+# premium semi-custom. After the cut that job is about $880/LF, inside the
+# premium band, and both rates sit inside their own supply bands above.
+# Stock already sits low in its band and was not flagged; tall_each was not
+# flagged either and stays below its measured ratio.
 
 # Wall cabinet height multiplier (applied to wall_lf rate)
 # 30"H is the baseline (1.0); shorter/taller scale proportionally
@@ -592,8 +600,10 @@ TALL_CABINET_TYPES = {
 # on a Stock one.
 SPECIALTY_TALL_TYPES = set(TALL_CABINET_TYPES.keys())
 
-# Glass door upgrade premium (per door, added on top of standard door
-# pricing).
+# Glass door upgrade premium, added on top of standard door pricing. The
+# calculator bills it once per cabinet (the measured W3030GD below is a
+# whole two-door cabinet). A door with a pattern in its frame takes
+# GLASS_INSERT_PREMIUM per door instead, since its frame is already billed.
 #
 # 2026-09-18 (v2): the measured SKUs show these are really two different
 # products, and this table was sitting between them:
@@ -620,8 +630,22 @@ GLASS_READY_DOOR_PREMIUM = {
     "Custom": 30,
 }
 
+# The glass alone, per door, for a door whose frame is a pattern (lattice,
+# mullion) billed in DOOR_PATTERN_PREMIUM. Until 2026-11-08 such a door took
+# the finished glass door above on top of its pattern, so its frame was
+# billed twice. Clear tempered inserts run $40-$75 a door from the cabinet
+# makers (KraftMaid, Diamond, Schrock); cabinet glass $13-$53/SF by design.
+# The installer sets it with the door's retainer clips, inside the cabinet
+# install. Tiers follow GLASS_DOOR_PREMIUM's ratios (1 : 1.41 : 2.01).
+GLASS_INSERT_PREMIUM = {
+    "Stock": 45,
+    "Semi-Custom": 65,
+    "Custom": 90,
+}
+
 # A door with a pattern in its frame instead of a plain panel, per door on top
-# of the box. The glass is NOT in this: tick Glass on the box for that.
+# of the box. The glass is NOT in this: tick Glass on the box for that, and it
+# is billed as GLASS_INSERT_PREMIUM per door.
 #
 # "lattice" is a diamond-lattice frame. Three reads of what the frame costs
 # over a plain door:
@@ -714,10 +738,15 @@ PREFAB_ISLAND_INSTALL = {
 }
 
 # Crown molding for wall cabinets (per LF, material + install)
+# 2026-11-08: material cut. Semi-Custom was $25 + $11 = $36/LF against crown
+# at $5-$23/LF installed and paint-grade $8-$25/LF installed (Inch
+# Calculator, Bob Vila, Angi). Material is MDF $4-$10/LF, common hardwood
+# $10-$15/LF; cabinet crown is finished to match, so each tier sits at the
+# top of its material's band. Install stays inside $3-$12/LF.
 CROWN_MOLDING_PRICING = {
-    "Stock": 13,         # basic MDF crown, per LF material, +8%
-    "Semi-Custom": 25,   # solid wood crown, per LF material, +14%
-    "Custom": 45,        # decorative multi-piece crown, per LF material, +18%
+    "Stock": 8,          # MDF crown, per LF material; was 13
+    "Semi-Custom": 14,   # solid wood crown, per LF material; was 25
+    "Custom": 26,        # decorative multi-piece crown, per LF material; was 45
     "install_per_lf": 11,  # labor per LF (market $6-$12), +10%
 }
 
@@ -1098,11 +1127,18 @@ BACKSPLASH_TYPE_OPTIONS = list(BACKSPLASH_TYPES.keys())
 # ceiling, since these rates include fabrication, template, edge and
 # removal of the old top.
 # Granite and Marble verified in range and left alone.
+#
+# 2026-11-08: Granite 95 -> 80. Standard-grade granite installed in
+# Northern Virginia runs $50-$75/SF (Mayflower VA; a Sterling VA guide puts
+# the stone at $15-$60 of it), and the general local range $50-$100 only
+# reaches past that for premium slabs. Set like quartz: the local
+# standard-grade ceiling plus removal of the old top ($4-$7/SF). A premium
+# or exotic slab is a product picked in an upgrade option.
 COUNTERTOP_MATERIALS = {
     "Laminate": {"rate": 35, "label": "Laminate"},
     "Solid Surface": {"rate": 72, "label": "Solid Surface (Corian)"},
     "Butcher Block": {"rate": 70, "label": "Butcher Block"},
-    "Granite": {"rate": 95, "label": "Granite"},
+    "Granite": {"rate": 80, "label": "Granite"},
     "Quartz": {"rate": 90, "label": "Quartz"},
     "Quartzite": {"rate": 112, "label": "Quartzite"},
     "Marble": {"rate": 140, "label": "Marble"},

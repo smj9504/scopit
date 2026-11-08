@@ -13,6 +13,8 @@ from app.domains.tools.modules.cabinet_estimate.pricing import (
     DOOR_PATTERN_PREMIUM,
     DOOR_STYLE_MULTIPLIER,
     DOOR_STYLES,
+    GLASS_DOOR_PREMIUM,
+    GLASS_INSERT_PREMIUM,
     SPECIALTY_PREMIUM,
     STANDARD_WIDTHS,
     WIDE_BOX_EFFICIENCY,
@@ -270,19 +272,50 @@ def test_lattice_band_costs_more_and_counts_the_doors_it_covers():
     assert set(DOOR_PATTERN_PREMIUM) == set(DOOR_PATTERN_LABELS)
 
 
-def test_mullions_are_billed_per_door_with_the_glass_on_its_own_line():
-    box = BoxInput(
-        code="W3042", cab_type="wall", location="perimeter", width_inches=30, height_inches=42,
-        is_specialty=False, specialty_type=None, has_glass_door=True, qty=1, door_pattern="mullion",
+def _glass_box(code, width, height, pattern=None, qty=1):
+    return BoxInput(
+        code=code, cab_type="wall", location="perimeter", width_inches=width, height_inches=height,
+        is_specialty=False, specialty_type=None, has_glass_door=True, qty=qty, door_pattern=pattern,
     )
-    result = _estimate([box])
+
+
+def test_mullions_are_billed_per_door_with_the_glass_on_its_own_line():
+    result = _estimate([_glass_box("W3042", 30, 42, "mullion")])
     line = _line(result, "Glass Mullion Door")
     assert line.description == "Glass Mullion Door - W3042"
     assert (line.quantity, line.unit_price) == (2, DOOR_PATTERN_PREMIUM["lattice"]["Stock"])
-    assert line.notes.endswith("glass not included")
-    # The glass insert is its own line, as for any glass box.
-    assert _line(result, "Glass Door - W3042").quantity == 1
+    assert line.notes.endswith("glass on the Glass Inserts line")
+    # The glass alone, one insert per door
+    glass = _line(result, "Glass Inserts - W3042")
+    assert (glass.quantity, glass.unit_price) == (2, GLASS_INSERT_PREMIUM["Stock"])
     assert DOOR_PATTERN_LABELS["mullion"] == "Glass Mullion"
+
+
+def test_a_patterned_glass_door_does_not_also_pay_for_a_finished_glass_door():
+    # Seen in a market check: a W2436 billed the mullion frame per door and
+    # the finished glass door (frame and glass) on top, so its frame twice.
+    result = _estimate([_glass_box("W2436", 24, 36, "mullion")], tier="Semi-Custom")
+    assert _lines(result, "Glass Door - W2436") == []
+    frame = _line(result, "Glass Mullion Door - W2436").total
+    glass = _line(result, "Glass Inserts - W2436").total
+    assert (frame, glass) == (2 * 190, 2 * GLASS_INSERT_PREMIUM["Semi-Custom"])
+    # Less than the frame plus the finished glass door it used to pay
+    assert frame + glass < 2 * 190 + GLASS_DOOR_PREMIUM["Semi-Custom"]
+
+
+def test_a_lattice_door_without_glass_gets_none():
+    box = _box("W3030", "wall", 30, 30, pattern="lattice")
+    result = _estimate([box])
+    assert _line(result, "Diamond Lattice Door").notes.endswith("no glass")
+    assert _lines(result, "Glass") == []
+
+
+def test_a_plain_glass_door_is_still_one_finished_door_per_cabinet():
+    result = _estimate([_glass_box("W3030", 30, 30, qty=2)])
+    line = _line(result, "Glass Door - W3030")
+    assert (line.quantity, line.unit_price) == (2, GLASS_DOOR_PREMIUM["Stock"])
+    assert _lines(result, "Glass Inserts") == []
+    assert "Glass door upgrade applied to 2 cabinet(s)" in result.warning_flags
 
 
 def test_a_three_door_corner_with_lattice_pays_for_all_three_doors():

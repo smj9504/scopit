@@ -35,6 +35,7 @@ from .pricing import (
     FINISH_MULTIPLIER,
     FLAT_PRICES,
     GLASS_DOOR_PREMIUM,
+    GLASS_INSERT_PREMIUM,
     ISLAND_PANEL_PRICING,
     LIGHT_RAIL_PRICING,
     MATERIAL_MULTIPLIER,
@@ -146,6 +147,35 @@ def _door_count(box: BoxInput) -> int:
         covered = 24 if box.cab_type == "base" else 12
         return _plain_door_count(box.width_inches - covered)
     return _plain_door_count(box.width_inches)
+
+
+def _pattern_doors(box: BoxInput) -> int:
+    """Doors that carry the box's door pattern; 0 for a plain door."""
+    if box.door_pattern not in DOOR_PATTERN_PREMIUM:
+        return 0
+    return _door_count(box)
+
+
+def _merge_repeated_lines(items: List["LineItem"]) -> List["LineItem"]:
+    """One line per charge. Each box adds its own premium lines, so two
+    W2436s drawn in the plan read on the estimate as the same glass door
+    billed twice. Lines alike in all but quantity become one line that
+    carries both quantities."""
+    merged: List[LineItem] = []
+    first_of: dict = {}
+    for item in items:
+        key = (
+            item.description, item.unit, item.unit_price, item.category,
+            item.location, item.notes, item.material_share,
+        )
+        first = first_of.get(key)
+        if first is None:
+            first_of[key] = item
+            merged.append(item)
+            continue
+        first.quantity = round(first.quantity + item.quantity, 4)
+        first.total = round(first.total + item.total, 2)
+    return merged
 
 
 @dataclass
@@ -572,8 +602,15 @@ def _calc_location_cabinets(
             ),
         ))
 
-    # ── Glass door premiums ──
-    glass_boxes = [b for b in boxes if b.has_glass_door]
+    # ── Glass ──
+    # A plain glass door is a finished door, frame and glass, billed once
+    # per cabinet. A door with a pattern in its frame pays for that frame
+    # per door below, so its glass is billed as the glass alone, per door:
+    # the finished glass door on top of the pattern charged for the frame
+    # twice.
+    glass_boxes = [
+        b for b in boxes if b.has_glass_door and not _pattern_doors(b)
+    ]
     if glass_boxes:
         glass_premium = GLASS_DOOR_PREMIUM.get(
             tier, GLASS_DOOR_PREMIUM["Stock"],
@@ -597,16 +634,37 @@ def _calc_location_cabinets(
             ))
         warnings.append(
             f"Glass door upgrade applied to "
-            f"{sum(b.qty for b in glass_boxes)} door(s)"
+            f"{sum(b.qty for b in glass_boxes)} cabinet(s)"
             + (f" ({loc_label})" if loc_label else "")
         )
 
+    insert_unit = GLASS_INSERT_PREMIUM.get(tier, GLASS_INSERT_PREMIUM["Stock"])
+    for box in boxes:
+        doors = _pattern_doors(box)
+        if not (box.has_glass_door and doors):
+            continue
+        insert_qty = doors * box.qty
+        line_items.append(LineItem(
+            description=f"Glass Inserts - {box.code}",
+            quantity=insert_qty,
+            unit="EA",
+            unit_price=insert_unit,
+            total=round(insert_unit * insert_qty, 2),
+            material_share=MATERIAL_SHARE["cabinet_supply"],
+            category="premium",
+            location=loc,
+            notes=(
+                f"{doors} per cabinet, tempered glass for the "
+                f"{DOOR_PATTERN_LABELS[box.door_pattern]} doors; {tier} tier"
+            ),
+        ))
+
     # ── Door pattern premiums ──
     for box in boxes:
-        pattern_prices = DOOR_PATTERN_PREMIUM.get(box.door_pattern or "")
-        doors = _door_count(box)
-        if not pattern_prices or doors == 0:
+        doors = _pattern_doors(box)
+        if not doors:
             continue
+        pattern_prices = DOOR_PATTERN_PREMIUM[box.door_pattern]
         pattern_unit = pattern_prices.get(tier, pattern_prices["Stock"])
         pattern_qty = doors * box.qty
         line_items.append(LineItem(
@@ -620,7 +678,11 @@ def _calc_location_cabinets(
             material_share=MATERIAL_SHARE["cabinet_supply"],
             category="premium",
             location=loc,
-            notes=f"{doors} per cabinet, {tier} tier; glass not included",
+            notes=(
+                f"{doors} per cabinet, {tier} tier; frame only, "
+                + ("glass on the Glass Inserts line" if box.has_glass_door
+                   else "no glass")
+            ),
         ))
 
     # ── Installation ──
@@ -1266,6 +1328,18 @@ def calculate_estimate(
         )
         ep_inst = ISLAND_PANEL_PRICING["install_per_sf"]
         ep_sqft = round(island_end_panel_sqft, 2)
+        # Two ends as deep as the island (cabinets back to back are twice
+        # as deep; a seating overhang the panel may run out under), even at
+        # 42" bar height. More is usually the island's length typed into
+        # the LF box.
+        end_depth_in = 48 if two_sided else 24 + (island_seating_overhang_in or 0)
+        ends_sf = round(2 * end_depth_in / 12 * 42 / 12, 1)
+        if ep_sqft > ends_sf:
+            warnings.append(
+                f"Island end panels: {ep_sqft:g} SF is more than two "
+                f"{end_depth_in:g}\"-deep ends reach even at 42\" high "
+                f"({ends_sf:g} SF). Measure the panels."
+            )
         ep_mat_total = round(ep_sqft * ep_mat, 2)
         ep_inst_total = round(ep_sqft * ep_inst, 2)
         line_items.append(LineItem(
@@ -2328,6 +2402,8 @@ def calculate_estimate(
                 ),
             ))
 
+    line_items[:] = _merge_repeated_lines(line_items)
+
     # ── 13. Calculate totals ──
     # Raw subtotal before O&P
     raw_subtotal = round(
@@ -2562,7 +2638,8 @@ def calculate_estimate(
         ),
         total=total,
         methodology_notes=methodology,
-        warning_flags=warnings,
+        # Two boxes of one code raise the same note twice
+        warning_flags=list(dict.fromkeys(warnings)),
         base_lf=base_lf,
         wall_lf=wall_lf,
         tall_count=tall_count,
