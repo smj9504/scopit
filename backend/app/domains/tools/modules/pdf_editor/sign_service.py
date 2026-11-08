@@ -1536,8 +1536,11 @@ class SignService:
             pg = field.get("page", 1)
             fields_by_page.setdefault(pg, []).append(field)
 
-        for i, page in enumerate(reader.pages):
+        for i, source in enumerate(reader.pages):
             page_num = i + 1
+            # Merge into the writer's copy: pypdf 7 refuses to rewrite the
+            # contents of a page that only belongs to a reader
+            page = writer.add_page(source)
             page_fields = fields_by_page.get(page_num, [])
             if page_fields:
                 media_box = page.mediabox
@@ -1614,8 +1617,6 @@ class SignService:
                 packet.seek(0)
                 overlay = PdfReader(packet)
                 page.merge_page(overlay.pages[0])
-
-            writer.add_page(page)
 
         with open(output_path, "wb") as f:
             writer.write(f)
