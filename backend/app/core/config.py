@@ -149,6 +149,15 @@ class Settings(BaseSettings):
     PRODUCT_EXTRACT_EFFORT: str = "low"
 
     # ===================
+    # Bathroom Estimator
+    # ===================
+    # The Claude model (ANTHROPIC_API_KEY) that writes a bathroom estimate's
+    # PDF overview note from its scope; without a key the note comes from a
+    # template. Counts against the company's daily AI allowance.
+    BATHROOM_NOTE_MODEL: str = "claude-haiku-5-5"
+    BATHROOM_NOTE_EFFORT: str = "low"
+
+    # ===================
     # File Storage
     # ===================
     STORAGE_PROVIDER: str = "local"  # local, r2

@@ -1,7 +1,7 @@
 """A throwaway SQLite database for the Cabinet Estimator's service tests.
 
-Holds the cabinet and product tables plus the company and customer tables
-they read; the Postgres-only column types are stood in for by JSON.
+Holds the cabinet, product and price tables plus the company and customer
+tables they read; the Postgres-only column types are stood in for by JSON.
 """
 import uuid
 
@@ -21,6 +21,7 @@ from app.domains.tools.modules.cabinet_estimate.models import (
     CabinetEstimateLineItem,
     CabinetSketch,
 )
+from app.domains.unit_prices.models import PriceBook, UnitPriceChange, UnitPriceOverride
 
 COMPANY_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 OTHER_COMPANY_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -45,8 +46,8 @@ def _array_on_sqlite(type_, compiler, **kw):
 
 def make_session(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'kitchen.db'}")
-    for model in (Company, Customer, Product, CabinetEstimate, CabinetBox,
-                  CabinetEstimateLineItem, CabinetEstimateHistory, CabinetSketch):
+    for model in (Company, Customer, Product, PriceBook, UnitPriceOverride, UnitPriceChange,
+                  CabinetEstimate, CabinetBox, CabinetEstimateLineItem, CabinetEstimateHistory, CabinetSketch):
         model.__table__.create(engine)
     session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
     session.add_all([

@@ -69,8 +69,8 @@ const KitchenGroupCompareDrawer: React.FC<KitchenGroupCompareDrawerProps> = ({ o
   });
   // Shared with the estimate page: the product slots' names and order
   const { data: pricingInfo } = useQuery({
-    queryKey: ['cabinet-pricing-info'],
-    queryFn: () => cabinetEstimateService.getPricingInfo(),
+    queryKey: ['cabinet-pricing-info', estimate.id],
+    queryFn: () => cabinetEstimateService.getPricingInfo(estimate.id),
     staleTime: 1000 * 60 * 30,
     enabled: open,
   });

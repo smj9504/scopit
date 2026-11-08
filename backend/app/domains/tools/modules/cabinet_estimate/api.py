@@ -18,9 +18,12 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
 from app.domains.tools.dependencies import require_tool_access
+from app.domains.unit_prices.service import UnitPriceService
+from app.domains.unit_prices.tables import resolved, use_prices
 from app.domains.user.models import User
 
 from .pricing import (
+    APPLIANCE_RESET_PRICES,
     APPLIANCE_RR_PRICING,
     BACKSPLASH_TYPES,
     COUNTERTOP_BACKSPLASH_PER_LF,
@@ -89,8 +92,25 @@ def _or_404(result):
 # ── Pricing info (for the form's dropdowns) ──
 
 @router.get("/pricing-info", response_model=PricingInfoResponse)
-def get_pricing_info(current_user: User = Depends(_gate)):
-    """Options and pricing constants for the estimate form."""
+def get_pricing_info(
+    estimate_id: Optional[str] = Query(
+        None, description="Quote this estimate's prices (its price book, or its company's today)",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Options and pricing constants for the estimate form.
+
+    With an estimate, the rates are the ones it is priced with; without,
+    the defaults."""
+    if not estimate_id:
+        return resolved(_pricing_info())
+    estimate = _or_404(_service(db, current_user).find(estimate_id))
+    with use_prices(UnitPriceService(db).prices_for("cabinet", estimate)):
+        return resolved(_pricing_info())
+
+
+def _pricing_info() -> Dict[str, Any]:
     return {
         "tiers": CabinetTier.choices(),
         "materials": BoxMaterial.choices(),
@@ -129,7 +149,11 @@ def get_pricing_info(current_user: User = Depends(_gate)):
         "prefab_island_pricing": PREFAB_ISLAND_PRICING,
         "prefab_island_install": PREFAB_ISLAND_INSTALL,
         "tall_cabinet_types": TALL_CABINET_TYPES,
-        "appliance_rr_pricing": APPLIANCE_RR_PRICING,
+        # Insurance basis, priced from the company's table when it has one
+        "appliance_rr_pricing": {
+            key: {**info, "cost": APPLIANCE_RESET_PRICES[Basis.INSURANCE_DR.value].get(key, info["cost"])}
+            for key, info in APPLIANCE_RR_PRICING.items()
+        },
         "countertop_materials": COUNTERTOP_MATERIALS,
         "countertop_backsplash_per_lf": COUNTERTOP_BACKSPLASH_PER_LF,
         "countertop_support_rule": COUNTERTOP_SUPPORT_RULE,
@@ -323,6 +347,26 @@ def calculate_estimate(
         if data is not None:
             _or_404(service.update_estimate(estimate_id, data, skip_full_read=True))
         result = _or_404(service.calculate(estimate_id, changed_by_id=current_user.id))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
+    return result
+
+
+@router.post("/{estimate_id}/use-current-prices", response_model=CabinetEstimateResponse)
+def use_current_prices(
+    estimate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_gate),
+):
+    """Reprice the estimate's whole job at today's prices (the defaults with
+    the company's own figures). Until this is asked for, an estimate keeps
+    the prices it was first priced with."""
+    try:
+        result = _or_404(_service(db, current_user).use_current_prices(
+            estimate_id, changed_by_id=current_user.id,
+        ))
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

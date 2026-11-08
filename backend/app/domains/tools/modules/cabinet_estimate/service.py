@@ -17,6 +17,9 @@ from uuid import UUID
 from sqlalchemy import and_, desc, func, or_
 from sqlalchemy.orm import Session, selectinload
 
+from app.domains.unit_prices.service import UnitPriceService
+from app.domains.unit_prices.tables import use_prices
+
 from .calculator import BoxInput, calculate_estimate
 from .models import (
     CabinetBox,
@@ -34,6 +37,9 @@ logger = logging.getLogger(__name__)
 # Facts about the job rather than the scope: every estimate of a kitchen job
 # shares them, so changing one estimate's changes them all.
 GROUP_SHARED_FIELDS = ("customer_id", "claim_number", "property_address", "zip_code")
+
+# The price catalog cabinet estimates are priced from (unit_prices)
+PRICE_DOMAIN = "cabinet"
 
 # Columns a copy never takes from its source: its identity, its place in a
 # job and its bookkeeping. Everything else is the scope and is copied, so a
@@ -391,72 +397,78 @@ class CabinetEstimateService:
         def flag(value, default=False):
             return default if value is None else bool(value)
 
-        result = calculate_estimate(
-            boxes=box_inputs,
-            tier=e.tier,
-            zip_code=e.zip_code or "",
-            box_material=e.box_material,
-            finish=e.finish,
-            door_style=e.door_style,
-            overlay_style=e.overlay_style,
-            pricing_basis=e.pricing_basis,
-            include_demo=e.include_demo,
-            include_install=e.include_install,
-            include_delivery=e.include_delivery,
-            include_plumbing=e.include_plumbing,
-            sink_type=e.sink_type or "single",
-            include_aav=flag(e.include_aav),
-            include_air_gap=flag(e.include_air_gap),
-            include_soap_dispenser=flag(e.include_soap_dispenser),
-            include_instant_hot=flag(e.include_instant_hot),
-            include_dw_hookup=flag(e.include_dw_hookup),
-            include_countertop_reset=e.include_countertop_reset,
-            include_hardware=flag(e.include_hardware, True),
-            include_crown_molding=flag(e.include_crown_molding),
-            include_backsplash=flag(e.include_backsplash),
-            backsplash_type=e.backsplash_type,
-            backsplash_sqft=e.backsplash_sqft,
-            include_toe_kick=flag(e.include_toe_kick, True),
-            include_quarter_round=flag(e.include_quarter_round),
-            include_countertop=flag(e.include_countertop),
-            countertop_material=e.countertop_material,
-            countertop_sqft=e.countertop_sqft,
-            include_countertop_backsplash=flag(e.include_countertop_backsplash),
-            countertop_backsplash_lf=e.countertop_backsplash_lf,
-            island_countertop_material=e.island_countertop_material,
-            island_countertop_sqft=e.island_countertop_sqft,
-            include_drywall_repair=flag(e.include_drywall_repair),
-            drywall_repair_type=e.drywall_repair_type or "patch",
-            drywall_repair_sqft=e.drywall_repair_sqft,
-            include_painting=flag(e.include_painting),
-            painting_sqft=e.painting_sqft,
-            include_appliance_rr=flag(e.include_appliance_rr),
-            appliance_list=e.appliance_list,
-            include_dumpster=flag(e.include_dumpster, True),
-            include_electrical=flag(e.include_electrical),
-            include_permit=flag(e.include_permit),
-            filler_count=e.filler_count or 0,
-            angled_joint_count=e.angled_joint_count or 0,
-            countertop_support_count=e.countertop_support_count or 0,
-            island_seating_overhang_in=e.island_seating_overhang_in,
-            end_panel_counts=e.end_panel_counts,
-            dishwasher_return_panel_count=e.dishwasher_return_panel_count or 0,
-            include_light_rail=flag(e.include_light_rail),
-            light_rail_lf=e.light_rail_lf,
-            outlet_relocation_count=e.outlet_relocation_count or 0,
-            delivery_floor=e.delivery_floor or 1,
-            island_type=e.island_type or "custom",
-            island_prefab_size=e.island_prefab_size,
-            island_prefab_price=e.island_prefab_price,
-            island_end_panel_sqft=e.island_end_panel_sqft or 0,
-            island_back_panel_sqft=e.island_back_panel_sqft or 0,
-            island_two_sided=bool(e.island_two_sided),
-            overhead_pct=e.overhead_pct if e.overhead_pct is not None else 0.15,
-            profit_pct=e.profit_pct if e.profit_pct is not None else 0.15,
-            target_total=e.target_total,
-            # The restoration is priced from the rate tables alone
-            products=clean_selections(e.selections) if e.kind == "option" else None,
+        # Priced with the prices it was first priced with (a price book),
+        # pinned now if this is the first time
+        book = UnitPriceService(self.db).book_for(
+            PRICE_DOMAIN, estimate, self._group_members(estimate),
         )
+        with use_prices(book.prices):
+            result = calculate_estimate(
+                boxes=box_inputs,
+                tier=e.tier,
+                zip_code=e.zip_code or "",
+                box_material=e.box_material,
+                finish=e.finish,
+                door_style=e.door_style,
+                overlay_style=e.overlay_style,
+                pricing_basis=e.pricing_basis,
+                include_demo=e.include_demo,
+                include_install=e.include_install,
+                include_delivery=e.include_delivery,
+                include_plumbing=e.include_plumbing,
+                sink_type=e.sink_type or "single",
+                include_aav=flag(e.include_aav),
+                include_air_gap=flag(e.include_air_gap),
+                include_soap_dispenser=flag(e.include_soap_dispenser),
+                include_instant_hot=flag(e.include_instant_hot),
+                include_dw_hookup=flag(e.include_dw_hookup),
+                include_countertop_reset=e.include_countertop_reset,
+                include_hardware=flag(e.include_hardware, True),
+                include_crown_molding=flag(e.include_crown_molding),
+                include_backsplash=flag(e.include_backsplash),
+                backsplash_type=e.backsplash_type,
+                backsplash_sqft=e.backsplash_sqft,
+                include_toe_kick=flag(e.include_toe_kick, True),
+                include_quarter_round=flag(e.include_quarter_round),
+                include_countertop=flag(e.include_countertop),
+                countertop_material=e.countertop_material,
+                countertop_sqft=e.countertop_sqft,
+                include_countertop_backsplash=flag(e.include_countertop_backsplash),
+                countertop_backsplash_lf=e.countertop_backsplash_lf,
+                island_countertop_material=e.island_countertop_material,
+                island_countertop_sqft=e.island_countertop_sqft,
+                include_drywall_repair=flag(e.include_drywall_repair),
+                drywall_repair_type=e.drywall_repair_type or "patch",
+                drywall_repair_sqft=e.drywall_repair_sqft,
+                include_painting=flag(e.include_painting),
+                painting_sqft=e.painting_sqft,
+                include_appliance_rr=flag(e.include_appliance_rr),
+                appliance_list=e.appliance_list,
+                include_dumpster=flag(e.include_dumpster, True),
+                include_electrical=flag(e.include_electrical),
+                include_permit=flag(e.include_permit),
+                filler_count=e.filler_count or 0,
+                angled_joint_count=e.angled_joint_count or 0,
+                countertop_support_count=e.countertop_support_count or 0,
+                island_seating_overhang_in=e.island_seating_overhang_in,
+                end_panel_counts=e.end_panel_counts,
+                dishwasher_return_panel_count=e.dishwasher_return_panel_count or 0,
+                include_light_rail=flag(e.include_light_rail),
+                light_rail_lf=e.light_rail_lf,
+                outlet_relocation_count=e.outlet_relocation_count or 0,
+                delivery_floor=e.delivery_floor or 1,
+                island_type=e.island_type or "custom",
+                island_prefab_size=e.island_prefab_size,
+                island_prefab_price=e.island_prefab_price,
+                island_end_panel_sqft=e.island_end_panel_sqft or 0,
+                island_back_panel_sqft=e.island_back_panel_sqft or 0,
+                island_two_sided=bool(e.island_two_sided),
+                overhead_pct=e.overhead_pct if e.overhead_pct is not None else 0.15,
+                profit_pct=e.profit_pct if e.profit_pct is not None else 0.15,
+                target_total=e.target_total,
+                # The restoration is priced from the rate tables alone
+                products=clean_selections(e.selections) if e.kind == "option" else None,
+            )
 
         if save_history:
             self._save_history(estimate, changed_by_id, "Calculation executed")
@@ -496,6 +508,21 @@ class CabinetEstimateService:
         self.db.flush()
         return self._full(estimate.id)
 
+    def use_current_prices(self, estimate_id, changed_by_id=None) -> Optional[Dict[str, Any]]:
+        """Move a whole job onto today's prices (the defaults with the
+        company's figures) and reprice every estimate of it that was priced."""
+        estimate = self.find(estimate_id)
+        if not estimate:
+            return None
+        members = self._group_members(estimate)
+        UnitPriceService(self.db).repin_group(PRICE_DOMAIN, members, self.company_id)
+        for member in members:
+            if not member.line_items:
+                continue
+            self._recalculate_quietly(member.id, changed_by_id, "Repriced at current prices")
+        self.db.flush()
+        return self._full(estimate.id)
+
     # ── Clone ──
 
     def clone_estimate(self, estimate_id, created_by_id=None) -> Optional[Dict[str, Any]]:
@@ -521,6 +548,8 @@ class CabinetEstimateService:
             "notes": "Cloned from estimate",
             # A restoration never carries products
             "selections": source.selections if remodel else None,
+            # A new job is priced at today's prices when it is calculated
+            "price_book_id": None,
             "subtotal": 0, "overhead_amount": 0, "profit_amount": 0,
             "adjustment_factor": None, "total": 0,
             "methodology_notes": None, "warning_flags": [],
@@ -827,6 +856,7 @@ class CabinetEstimateService:
         ]
         result["client_name"] = estimate.customer.name if estimate.customer else None
         result["company_info"] = self._company_info()
+        result["price_book"] = UnitPriceService(self.db).book_summary(PRICE_DOMAIN, estimate)
         return result
 
     def _company_info(self) -> Optional[Dict[str, Any]]:

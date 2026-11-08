@@ -27,6 +27,10 @@ const CabinetEstimateTool = lazy(
   () => import('@/pages/app/tools/cabinet/CabinetEstimateListPage')
 );
 
+const BathroomEstimateTool = lazy(
+  () => import('@/pages/app/tools/bathroom/BathroomEstimateListPage')
+);
+
 const PdfEditorTool = lazy(
   () => import('./pdf-editor/PdfEditorTool')
 );
@@ -36,6 +40,7 @@ export const TOOL_COMPONENT_REGISTRY: Record<string, ComponentType<ToolComponent
   packing: PackingTool,
   item_recommender: ItemRecommenderTool,
   cabinet_estimate: CabinetEstimateTool,
+  bathroom_estimate: BathroomEstimateTool,
   pdf_editor: PdfEditorTool,
 };
 

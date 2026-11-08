@@ -9,9 +9,12 @@ import math
 from dataclasses import dataclass
 from typing import List, Optional
 
+from app.domains.unit_prices.tables import material_share as price_share
+
 from .appliance_labor import appliance_pricing_dict
 from .pricing import (
     ANGLED_JOINT_PRICING,
+    APPLIANCE_RESET_PRICES,
     BACKSPLASH_TYPES,
     BASE_RATES,
     COUNTERTOP_ANGLED_CUT_EACH,
@@ -22,7 +25,6 @@ from .pricing import (
     CROWN_MOLDING_PRICING,
     DEFAULT_OVERHEAD_PCT,
     DEFAULT_PROFIT_PCT,
-    DISHWASHER_RETURN_PANEL,
     DOOR_PATTERN_LABELS,
     DOOR_PATTERN_PREMIUM,
     DOOR_STYLE_MULTIPLIER,
@@ -31,6 +33,7 @@ from .pricing import (
     END_PANEL_TYPES,
     FILLER_PRICING,
     FINISH_MULTIPLIER,
+    FLAT_PRICES,
     GLASS_DOOR_PREMIUM,
     ISLAND_PANEL_PRICING,
     LIGHT_RAIL_PRICING,
@@ -41,7 +44,6 @@ from .pricing import (
     PAINTED_FINISHES,
     PREFAB_ISLAND_INSTALL,
     PREFAB_ISLAND_PRICING,
-    RANGE_END_PANEL_EACH,
     SCOPE_ITEMS,
     SPECIALTY_PREMIUM,
     SPECIALTY_PREMIUM_TIER_SCALE,
@@ -553,14 +555,14 @@ def _calc_location_cabinets(
         panel_qty = panels * box.qty
         if panel_qty <= 0:
             continue
-        panel_total = round(RANGE_END_PANEL_EACH * panel_qty, 2)
+        panel_total = round(FLAT_PRICES["RANGE_END_PANEL_EACH"] * panel_qty, 2)
         line_items.append(LineItem(
             description=(
                 f"Range End Panel (Finished) - {box.code}"
             ),
             quantity=panel_qty,
             unit="EA",
-            unit_price=RANGE_END_PANEL_EACH,
+            unit_price=FLAT_PRICES["RANGE_END_PANEL_EACH"],
             total=panel_total,
             material_share=MATERIAL_SHARE["cabinet_supply"],
             category="premium",
@@ -902,7 +904,9 @@ def _calc_location_cabinets(
             unit_price=tk_unit,
             total=tk_total,
             notes=trim_notes,
-            material_share=MATERIAL_SHARE["toe_kick"],
+            material_share=price_share(
+                "SCOPE_ITEMS.toe_kick_per_lf", MATERIAL_SHARE["toe_kick"],
+            ),
             category="install",
             location=loc,
         ))
@@ -922,12 +926,24 @@ def _calc_location_cabinets(
             unit_price=qr_unit,
             total=qr_total,
             notes=trim_notes,
-            material_share=MATERIAL_SHARE["quarter_round"],
+            material_share=price_share(
+                "SCOPE_ITEMS.quarter_round_per_lf", MATERIAL_SHARE["quarter_round"],
+            ),
             category="install",
             location=loc,
         ))
 
     return line_items, base_lf, wall_lf, tall_count
+
+
+def _blended_share(parts: List[tuple], default: float) -> float:
+    """Material share of a line summed from several prices: each part's
+    amount at its own price's share (unit_prices.tables.material_share)."""
+    whole = sum(amount for amount, _ in parts)
+    if whole <= 0:
+        return default
+    material = sum(amount * price_share(path, default) for amount, path in parts)
+    return round(material / whole, 4)
 
 
 def _apply_material_labor_split(line_items: List[LineItem]) -> None:
@@ -1529,53 +1545,53 @@ def calculate_estimate(
             faucet_line,
             (
                 "P-Trap Assembly (sink drain)",
-                SCOPE_ITEMS["p_trap_assembly"], 1 * sink_count, 0.56,
+                SCOPE_ITEMS["p_trap_assembly"], 1 * sink_count, price_share("SCOPE_ITEMS.p_trap_assembly", 0.56),
                 "Part + marginal labor; crew already on site",
             ),
             (
                 "Supply Line - Braided (hot/cold)",
-                SCOPE_ITEMS["supply_line_each"], 2 * sink_count, 0.42,
+                SCOPE_ITEMS["supply_line_each"], 2 * sink_count, price_share("SCOPE_ITEMS.supply_line_each", 0.42),
                 None,
             ),
             (
                 "Angle Stop Valve (hot/cold)",
-                SCOPE_ITEMS["angle_stop_each"], 2 * sink_count, 0.38,
+                SCOPE_ITEMS["angle_stop_each"], 2 * sink_count, price_share("SCOPE_ITEMS.angle_stop_each", 0.38),
                 None,
             ),
         ]
         if include_aav:
             under_sink.append((
                 "Air Admittance Valve / Loop Vent",
-                SCOPE_ITEMS["aav_vent"], 1, 0.44,
+                SCOPE_ITEMS["aav_vent"], 1, price_share("SCOPE_ITEMS.aav_vent", 0.44),
                 "Island or where a stack vent is impractical",
             ))
         if include_air_gap:
             under_sink.append((
                 "Dishwasher Air Gap (countertop)",
-                SCOPE_ITEMS["air_gap"], 1, 0.35,
+                SCOPE_ITEMS["air_gap"], 1, price_share("SCOPE_ITEMS.air_gap", 0.35),
                 "Countertop penetration, reset",
             ))
         if include_soap_dispenser:
             under_sink.append((
                 "Soap Dispenser (countertop)",
-                SCOPE_ITEMS["soap_dispenser"], 1, 0.46,
+                SCOPE_ITEMS["soap_dispenser"], 1, price_share("SCOPE_ITEMS.soap_dispenser", 0.46),
                 "Countertop penetration, reset",
             ))
         if include_instant_hot:
             under_sink.append((
                 "Instant Hot Water Dispenser",
-                SCOPE_ITEMS["instant_hot_dispenser"], 1, 0.63,
+                SCOPE_ITEMS["instant_hot_dispenser"], 1, price_share("SCOPE_ITEMS.instant_hot_dispenser", 0.63),
                 "Unit + tank mount, 2-3 hr install",
             ))
         if include_dw_hookup:
             under_sink.extend([
                 (
                     "DW Supply Line - Braided",
-                    SCOPE_ITEMS["dw_supply_line"], 1, 0.42, None,
+                    SCOPE_ITEMS["dw_supply_line"], 1, price_share("SCOPE_ITEMS.dw_supply_line", 0.42), None,
                 ),
                 (
                     "DW Angle Stop Valve",
-                    SCOPE_ITEMS["dw_angle_stop"], 1, 0.38, None,
+                    SCOPE_ITEMS["dw_angle_stop"], 1, price_share("SCOPE_ITEMS.dw_angle_stop", 0.38), None,
                 ),
             ])
 
@@ -1641,11 +1657,13 @@ def calculate_estimate(
             ))
 
     # Site protection & cleanup
-    site_prot_cost = round(
-        SCOPE_ITEMS["site_protection_base"]
-        + total_lf
-        * SCOPE_ITEMS["site_protection_per_lf"], 2,
-    )
+    site_prot_base = SCOPE_ITEMS["site_protection_base"]
+    site_prot_lf = total_lf * SCOPE_ITEMS["site_protection_per_lf"]
+    site_prot_cost = round(site_prot_base + site_prot_lf, 2)
+    site_prot_share = _blended_share([
+        (site_prot_base, "SCOPE_ITEMS.site_protection_base"),
+        (site_prot_lf, "SCOPE_ITEMS.site_protection_per_lf"),
+    ], MATERIAL_SHARE["site_protection"])
     line_items.append(LineItem(
         description=(
             "Site Protection "
@@ -1655,22 +1673,25 @@ def calculate_estimate(
         unit="EA",
         unit_price=site_prot_cost,
         total=site_prot_cost,
-        material_share=MATERIAL_SHARE["site_protection"],
+        material_share=site_prot_share,
         category="misc",
         location="shared",
     ))
 
-    cleanup_cost = round(
-        SCOPE_ITEMS["cleanup_base"]
-        + total_lf * SCOPE_ITEMS["cleanup_per_lf"], 2,
-    )
+    cleanup_base = SCOPE_ITEMS["cleanup_base"]
+    cleanup_lf = total_lf * SCOPE_ITEMS["cleanup_per_lf"]
+    cleanup_cost = round(cleanup_base + cleanup_lf, 2)
+    cleanup_share = _blended_share([
+        (cleanup_base, "SCOPE_ITEMS.cleanup_base"),
+        (cleanup_lf, "SCOPE_ITEMS.cleanup_per_lf"),
+    ], MATERIAL_SHARE["cleanup"])
     line_items.append(LineItem(
         description="Final Cleanup & Debris Removal",
         quantity=1,
         unit="EA",
         unit_price=cleanup_cost,
         total=cleanup_cost,
-        material_share=MATERIAL_SHARE["cleanup"],
+        material_share=cleanup_share,
         category="misc",
         location="shared",
     ))
@@ -1785,7 +1806,10 @@ def calculate_estimate(
     def _product_countertop_line(sqft: float, table_material: Optional[str], loc: str) -> LineItem:
         mat = table_material or "Quartz"
         table_rate = COUNTERTOP_MATERIALS.get(mat, {"rate": 90})["rate"]
-        labor = round(table_rate * (1 - MATERIAL_SHARE["countertop"]), 2)
+        table_share = price_share(
+            f"COUNTERTOP_MATERIALS.{mat}.rate", MATERIAL_SHARE["countertop"],
+        )
+        labor = round(table_rate * (1 - table_share), 2)
         material = round(with_handling(ct_product_sf) * COUNTERTOP_OVERAGE, 2)
         unit = round(material + labor, 2)
         return LineItem(
@@ -1833,7 +1857,9 @@ def calculate_estimate(
             unit="SF",
             unit_price=ct_rate,
             total=ct_total,
-            material_share=MATERIAL_SHARE["countertop"],
+            material_share=price_share(
+                f"COUNTERTOP_MATERIALS.{ct_mat}.rate", MATERIAL_SHARE["countertop"],
+            ),
             category="countertop",
             location="perimeter",
         ))
@@ -1863,7 +1889,9 @@ def calculate_estimate(
             unit="SF",
             unit_price=ict_rate,
             total=ict_total,
-            material_share=MATERIAL_SHARE["countertop"],
+            material_share=price_share(
+                f"COUNTERTOP_MATERIALS.{ict_mat}.rate", MATERIAL_SHARE["countertop"],
+            ),
             category="countertop",
             location="island",
         ))
@@ -1922,7 +1950,9 @@ def calculate_estimate(
             unit="LF",
             unit_price=cb_rate,
             total=cb_total,
-            material_share=MATERIAL_SHARE["countertop"],
+            material_share=price_share(
+                f"COUNTERTOP_BACKSPLASH_PER_LF.{cb_mat}", MATERIAL_SHARE["countertop"],
+            ),
             category="countertop",
             location="perimeter",
         ))
@@ -1933,7 +1963,9 @@ def calculate_estimate(
         dw_type = drywall_repair_type or "patch"
         if dw_type == "rr":
             dw_rate = SCOPE_ITEMS["drywall_rr_per_sf"]
-            dw_share = MATERIAL_SHARE["drywall_rr"]
+            dw_share = price_share(
+                "SCOPE_ITEMS.drywall_rr_per_sf", MATERIAL_SHARE["drywall_rr"],
+            )
             dw_desc = (
                 "R&R Sheetrock "
                 "(behind cabinets)"
@@ -1942,7 +1974,9 @@ def calculate_estimate(
             dw_rate = SCOPE_ITEMS[
                 "drywall_patch_per_sf"
             ]
-            dw_share = MATERIAL_SHARE["drywall_patch"]
+            dw_share = price_share(
+                "SCOPE_ITEMS.drywall_patch_per_sf", MATERIAL_SHARE["drywall_patch"],
+            )
             dw_desc = (
                 "Drywall Patch & Repair "
                 "(nail holes, minor damage)"
@@ -1977,7 +2011,9 @@ def calculate_estimate(
             unit="SF",
             unit_price=prep_rate,
             total=prep_total,
-            material_share=MATERIAL_SHARE["paint_prep"],
+            material_share=price_share(
+                "SCOPE_ITEMS.paint_prep_per_sf", MATERIAL_SHARE["paint_prep"],
+            ),
             category="finishing",
             location="perimeter",
         ))
@@ -1987,7 +2023,9 @@ def calculate_estimate(
             unit="SF",
             unit_price=paint_rate,
             total=paint_total,
-            material_share=MATERIAL_SHARE["paint_finish"],
+            material_share=price_share(
+                "SCOPE_ITEMS.paint_primer_paint_per_sf", MATERIAL_SHARE["paint_finish"],
+            ),
             category="finishing",
             location="perimeter",
         ))
@@ -2005,7 +2043,8 @@ def calculate_estimate(
             info = appliance_prices.get(atype)
             if not info or aqty <= 0:
                 continue
-            item_cost = info["cost"] * aqty
+            cost = APPLIANCE_RESET_PRICES.get(basis.value, {}).get(atype, info["cost"])
+            item_cost = cost * aqty
             app_total += item_cost
             label = info["label"]
             if aqty > 1:
@@ -2042,7 +2081,9 @@ def calculate_estimate(
             unit="EA",
             unit_price=elec_cost,
             total=elec_cost,
-            material_share=MATERIAL_SHARE["electrical"],
+            material_share=price_share(
+                "SCOPE_ITEMS.electrical_disconnect_reconnect", MATERIAL_SHARE["electrical"],
+            ),
             category="misc",
             location="shared",
             notes="Licensed electrician",
@@ -2062,7 +2103,9 @@ def calculate_estimate(
             unit="EA",
             unit_price=outlet_unit,
             total=outlet_total,
-            material_share=MATERIAL_SHARE["outlet_relocation"],
+            material_share=price_share(
+                "SCOPE_ITEMS.outlet_relocation_each", MATERIAL_SHARE["outlet_relocation"],
+            ),
             category="misc",
             location="shared",
             notes=(
@@ -2177,12 +2220,12 @@ def calculate_estimate(
             description="Dishwasher Return Panel",
             quantity=dishwasher_return_panel_count,
             unit="EA",
-            unit_price=DISHWASHER_RETURN_PANEL,
+            unit_price=FLAT_PRICES["DISHWASHER_RETURN_PANEL"],
             total=round(
                 dishwasher_return_panel_count
-                * DISHWASHER_RETURN_PANEL, 2,
+                * FLAT_PRICES["DISHWASHER_RETURN_PANEL"], 2,
             ),
-            material_share=0.65,
+            material_share=price_share("DISHWASHER_RETURN_PANEL", 0.65),
             category="premium",
             location="shared",
             notes="Finished filler beside the dishwasher opening",

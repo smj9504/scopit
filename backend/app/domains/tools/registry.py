@@ -54,6 +54,16 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         can_create_estimate=True,
         tags=["kitchen", "cabinets", "rebuild", "remodel"],
     ),
+    "bathroom_estimate": ToolDefinition(
+        id="bathroom_estimate",
+        name="Bathroom Estimator",
+        description="Sketch the bathroom, price its demo, fixtures, tile, plumbing and electrical, and compare upgrade options in 3D.",
+        icon="ExperimentOutlined",
+        category="Estimation",
+        required_plan="free",
+        can_create_estimate=True,
+        tags=["bathroom", "remodel", "rebuild", "tile"],
+    ),
     "item_recommender": ToolDefinition(
         id="item_recommender",
         name="Item Recommender",

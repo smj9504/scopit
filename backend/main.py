@@ -34,6 +34,7 @@ from app.domains.settings.api import router as settings_router
 from app.domains.support.api import admin_router as support_admin_router
 from app.domains.support.api import router as support_router
 from app.domains.tools.api import router as tools_router
+from app.domains.tools.modules.bathroom_estimate.api import router as bathroom_estimate_router
 from app.domains.tools.modules.cabinet_estimate.api import router as cabinet_estimate_router
 from app.domains.tools.modules.item_recommender.api import router as item_recommender_router
 from app.domains.tools.modules.packing.api import router as packing_router
@@ -48,6 +49,7 @@ from app.domains.tools.modules.pdf_editor.in_person_api import router as sign_in
 from app.domains.tools.modules.pdf_editor.sign_api import public_router as sign_public_router
 from app.domains.tools.modules.pdf_editor.sign_api import router as sign_router
 from app.domains.tools.modules.roof_analyzer.api import router as roof_analyzer_router
+from app.domains.unit_prices.api import router as unit_prices_router
 
 
 @asynccontextmanager
@@ -232,7 +234,9 @@ app.include_router(packing_router, prefix="/api/tools/packing", tags=["Packing E
 app.include_router(packing_demo_router, prefix="/api/demo/packing", tags=["Packing Demo"])
 app.include_router(item_recommender_router, prefix="/api/tools/item-recommender", tags=["Item Recommender"])
 app.include_router(cabinet_estimate_router, prefix="/api/tools/cabinet-estimate", tags=["Cabinet Estimator"])
+app.include_router(bathroom_estimate_router, prefix="/api/tools/bathroom-estimate", tags=["Bathroom Estimator"])
 app.include_router(product_library_router, prefix="/api/products", tags=["Product Library"])
+app.include_router(unit_prices_router, prefix="/api/unit-prices", tags=["Unit Prices"])
 app.include_router(pdf_editor_router, prefix="/api/tools/pdf-editor", tags=["PDF Editor"])
 app.include_router(sign_in_person_router, prefix="/api/tools/pdf-editor/sign/in-person", tags=["E-Sign In Person"])
 app.include_router(sign_router, prefix="/api/tools/pdf-editor/sign", tags=["E-Sign"])

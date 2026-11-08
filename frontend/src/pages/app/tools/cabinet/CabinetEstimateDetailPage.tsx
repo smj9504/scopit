@@ -378,9 +378,10 @@ const CabinetEstimateDetail: React.FC = () => {
   const [backPanelHeight, setBackPanelHeight] = useState<number>(2.875);
 
   // ── Fetch pricing options ──
+  // The rates this estimate is priced with (its price book, or the company's today)
   const { data: pricingInfo } = useQuery({
-    queryKey: ['cabinet-pricing-info'],
-    queryFn: () => cabinetEstimateService.getPricingInfo(),
+    queryKey: ['cabinet-pricing-info', id],
+    queryFn: () => cabinetEstimateService.getPricingInfo(id),
     staleTime: 1000 * 60 * 30,
   });
 

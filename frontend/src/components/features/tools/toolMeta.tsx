@@ -68,6 +68,17 @@ const CabinetIcon: React.FC<ToolIconProps> = (p) => (
   </StrokeIcon>
 );
 
+/** A bathtub: the rim, the tub, its feet and a faucet. */
+const BathtubIcon: React.FC<ToolIconProps> = (p) => (
+  <StrokeIcon {...p}>
+    <path d="M3 12h18" />
+    <path d="M4 12v3a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-3" />
+    <path d="M7 19l-1 2" />
+    <path d="M17 19l1 2" />
+    <path d="M6 12V6a2 2 0 0 1 3.5-1.3" />
+  </StrokeIcon>
+);
+
 const MagnifierIcon: React.FC<ToolIconProps> = (p) => (
   <StrokeIcon {...p}>
     <circle cx="11" cy="11" r="7" />
@@ -160,6 +171,17 @@ export const TOOL_META: Record<string, ToolMeta> = {
     description: 'Sketch the kitchen, price its cabinets and the work around them, and show upgrade options in 3D.',
     savesSessions: false,
   },
+  bathroom_estimate: {
+    id: 'bathroom_estimate',
+    navLabel: 'Bathroom Estimator',
+    shortLabel: 'Bathroom',
+    Icon: BathtubIcon,
+    jobTypes: ['interior'],
+    allJobs: false,
+    jobLabel: 'Interior',
+    description: 'Sketch the bathroom, price demo, tile, fixtures and the trades behind the walls, and show upgrade options in 3D.',
+    savesSessions: false,
+  },
   roof_analyzer: {
     id: 'roof_analyzer',
     navLabel: 'Roof Analyzer',
@@ -201,6 +223,7 @@ export const TOOL_META: Record<string, ToolMeta> = {
 export const TOOL_ORDER: string[] = [
   'packing',
   'cabinet_estimate',
+  'bathroom_estimate',
   'roof_analyzer',
   'item_recommender',
   'pdf_editor',

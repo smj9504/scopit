@@ -3,6 +3,7 @@
  */
 
 import type { ProductSnapshot } from '@/types/productLibrary';
+import type { PriceBookSummary } from '@/types/unitPrices';
 
 // ── Enums ──
 
@@ -204,6 +205,8 @@ export interface CabinetEstimate {
   option_label?: string | null;
   option_order?: number;
   group_members?: KitchenGroupMember[];
+  /** The prices it is priced with: when they're from, and whether today's differ */
+  price_book?: PriceBookSummary | null;
   /** An option's products from the library, by slot (PricingInfo.selection_slots). Copies. */
   selections?: Record<string, ProductSnapshot> | null;
 

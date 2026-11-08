@@ -54,6 +54,12 @@ class CabinetEstimate(Base):
     scopit_estimate_id = Column(
         UUID(as_uuid=True), ForeignKey("estimates.id", ondelete="SET NULL"), nullable=True,
     )
+    # The prices it is priced with (unit_prices.PriceBook), set the first
+    # time it is calculated: a later default update or company price change
+    # doesn't move it. NULL until then; a copy in the same job keeps it.
+    price_book_id = Column(
+        UUID(as_uuid=True), ForeignKey("price_books.id", ondelete="SET NULL"), nullable=True,
+    )
 
     # ── Estimate group ──
     # Every member is a full estimate of its own; group_id is the first

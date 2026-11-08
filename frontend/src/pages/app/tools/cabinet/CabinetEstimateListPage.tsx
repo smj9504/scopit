@@ -26,8 +26,12 @@ import {
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { AppstoreOutlined } from '@ant-design/icons';
-import { PRODUCT_LIBRARY_PATH, cabinetEstimatePath } from '@/components/features/tools/cabinet-estimate/paths';
+import { AppstoreOutlined, DollarOutlined } from '@ant-design/icons';
+import {
+  CABINET_PRICES_PATH,
+  PRODUCT_LIBRARY_PATH,
+  cabinetEstimatePath,
+} from '@/components/features/tools/cabinet-estimate/paths';
 import { cabinetEstimateService } from '@/services/cabinetEstimateService';
 import type { CabinetEstimate, EstimateStatus, KitchenProjectType } from '@/types/cabinetEstimate';
 import { memberName } from '@/types/cabinetEstimate';
@@ -361,6 +365,11 @@ const CabinetEstimateList: React.FC = () => {
         title={<Title level={5} style={{ margin: 0 }}>Kitchen jobs</Title>}
         extra={
           <Space>
+            <Tooltip title="Your company's prices for kitchen estimates">
+              <Button icon={<DollarOutlined />} onClick={() => navigate(CABINET_PRICES_PATH)} aria-label="Prices">
+                {isMobile ? null : 'Prices'}
+              </Button>
+            </Tooltip>
             <Tooltip title="The products upgrade options are built from">
               <Button icon={<AppstoreOutlined />} onClick={() => navigate(PRODUCT_LIBRARY_PATH)}>
                 {isMobile ? 'Products' : 'Product library'}

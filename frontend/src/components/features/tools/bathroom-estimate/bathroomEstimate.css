@@ -1,0 +1,282 @@
+/*
+ * Bathroom estimate (be-*), ported from MJ Estimate.
+ *
+ * The detail page: on a phone the page is the sheet — the tab cards give
+ * their width back, the tab bar stays under the app header while a long
+ * scope form scrolls, the sketch fills the screen, and Save / Calculate sit
+ * at the thumb. The colour tokens and ui-* pieces it shares with the
+ * Cabinet Estimator come from cabinet-estimate/cabinetEstimate.css; the
+ * sketch has its own (sketch/sketch.css).
+ */
+
+:root {
+  /* The one token the bathroom uses that the kitchen doesn't */
+  --color-neutral-100: #f3f4f6;
+}
+
+.be-sketch-frame {
+  height: 700px;
+}
+
+/* ── Rows on a phone (MJ Estimate's ui-row) ── */
+
+.be-page .ui-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: var(--color-surface);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.be-page .ui-row:active {
+  background: var(--color-ink-hover);
+}
+.be-page .ui-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.be-page .ui-row-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--color-neutral-900);
+}
+
+/* Line items on a phone: one row per item, the figures under it */
+.be-li-rows .ui-row {
+  padding: 10px 4px 10px 12px;
+}
+.be-li-figures {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.be-li-total {
+  color: var(--color-neutral-900);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.be-li-subtotal {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Covers the app's bottom nav (z-index 100) while the estimate is open */
+.be-action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 101;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: saturate(180%) blur(8px);
+  -webkit-backdrop-filter: saturate(180%) blur(8px);
+  border-top: 1px solid var(--color-neutral-200);
+}
+.be-action-bar > .ant-btn {
+  flex: 1;
+  height: 40px;
+}
+
+@media (max-width: 767.98px) {
+  .be-page .be-tab-card.ant-card {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  .be-page .be-tab-card.ant-card > .ant-card-body,
+  .be-page .be-sketch-card.ant-card > .ant-card-body {
+    padding: 0 !important;
+  }
+
+  /* The tab bar stays under the 56px app header, edge to edge */
+  .be-page .be-tabs > .ant-tabs-nav {
+    position: sticky;
+    top: 56px;
+    z-index: 5;
+    margin: 0 -16px 12px;
+    padding: 0 16px;
+    background: var(--color-surface);
+  }
+  /* A tab opens just under the stuck tab bar (header + bar + gap) */
+  .be-page .be-tabs > .ant-tabs-content-holder {
+    scroll-margin-top: 114px;
+  }
+
+  /* Scope panels give their width back */
+  .be-page .be-tab-card .ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    padding: 12px;
+  }
+  /* Line item rows run edge to edge inside their phase */
+  .be-page .be-phases.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    padding: 0;
+  }
+  /* A long phase name wraps beside the arrow, not under it */
+  .be-page .be-phases.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+    flex-wrap: nowrap !important;
+  }
+
+  /* The canvas fills the screen between the tab bar and the action bar */
+  .be-sketch-frame {
+    height: max(360px, calc(100vh - 178px - env(safe-area-inset-bottom, 0px)));
+    height: max(360px, calc(100dvh - 178px - env(safe-area-inset-bottom, 0px)));
+  }
+}
+
+/* Phones and touch: small buttons grow to a thumb-sized target */
+@media (max-width: 767.98px), (pointer: coarse) {
+  .be-tab-card .ant-btn-sm,
+  .be-modal .ant-btn-sm {
+    height: 32px;
+  }
+  .be-tab-card .ant-btn-sm.ant-btn-icon-only,
+  .be-modal .ant-btn-sm.ant-btn-icon-only {
+    width: 32px;
+  }
+}
+
+/* iOS Safari zooms the page into any focused field under 16px */
+@media (max-width: 767.98px) and (pointer: coarse) {
+  .be-page .ant-input,
+  .be-page .ant-input-affix-wrapper,
+  .be-page .ant-input-number-input,
+  .be-page .ant-select-selector,
+  .be-modal .ant-input,
+  .be-modal .ant-input-number-input,
+  .be-modal .ant-select-selector {
+    font-size: 16px;
+  }
+}
+
+/* ── Phone modal sheet (useSheetModal) ──
+ * Below md a modal rises from the bottom edge at full width. Header and
+ * footer stay put, the body scrolls between them, and footer buttons share
+ * the row at a thumb-sized 40px. */
+@media (max-width: 767.98px) {
+  .ui-sheet.ant-modal-wrap {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+  }
+  .ui-sheet .ant-modal {
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  .ui-sheet .ant-modal .ant-modal-content {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - 12px);
+    padding: 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: var(--shadow-elevated);
+  }
+  .ui-sheet--tall .ant-modal .ant-modal-content {
+    height: calc(100vh - 12px);
+    height: calc(100dvh - 12px);
+  }
+  .ui-sheet .ant-modal .ant-modal-close {
+    top: 8px;
+    inset-inline-end: 6px;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+  }
+  .ui-sheet .ant-modal .ant-modal-header {
+    flex-shrink: 0;
+    margin: 0;
+    padding: 18px 52px 12px 16px;
+    border-bottom: 1px solid var(--color-neutral-200);
+  }
+  .ui-sheet .ant-modal .ant-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ui-sheet .ant-modal .ant-modal-footer {
+    flex-shrink: 0;
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-neutral-200);
+  }
+  .ui-sheet .ant-modal .ant-modal-footer > .ant-btn {
+    flex: 1 1 auto;
+    height: 40px;
+    margin: 0 !important;
+  }
+}
+
+.ui-sheet-up-enter,
+.ui-sheet-up-appear,
+.ui-sheet-up-leave {
+  animation-duration: 0.32s;
+  animation-fill-mode: both;
+  animation-play-state: paused;
+}
+.ui-sheet-up-enter,
+.ui-sheet-up-appear {
+  transform: translateY(100%);
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ui-sheet-up-leave {
+  animation-duration: 0.2s;
+  animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+.ui-sheet-up-enter.ui-sheet-up-enter-active,
+.ui-sheet-up-appear.ui-sheet-up-appear-active {
+  animation-name: ui-sheet-in;
+  animation-play-state: running;
+}
+.ui-sheet-up-leave.ui-sheet-up-leave-active {
+  animation-name: ui-sheet-out;
+  animation-play-state: running;
+  pointer-events: none;
+}
+@keyframes ui-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes ui-sheet-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-sheet-up-enter,
+  .ui-sheet-up-appear,
+  .ui-sheet-up-leave {
+    transform: none;
+    animation-duration: 0.01s;
+  }
+}

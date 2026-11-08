@@ -1,0 +1,503 @@
+/*
+ * Bathroom sketch (bes-*): a white sheet with the plan on it. One row of
+ * tools above, a panel beside it that shows what to add and the takeoff,
+ * or the settings of whatever is selected. Built from the White Sheet tokens.
+ */
+
+.bes-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 300px;
+  background: var(--color-surface);
+}
+
+/* ── Tools ── */
+
+.bes-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: var(--color-surface);
+}
+.bes-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.bes-toolbar-end {
+  margin-left: auto;
+  gap: 6px;
+}
+.bes-toolbar-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--color-neutral-200);
+}
+
+.ant-btn.bes-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.ant-btn.bes-tool:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.ant-btn.bes-tool.is-selected,
+.ant-btn.bes-tool.is-selected:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-selected);
+  font-weight: 500;
+}
+.bes-tool .anticon,
+.bes-tool svg {
+  flex-shrink: 0;
+}
+.bes-tool-caret {
+  font-size: 10px;
+  color: var(--color-neutral-600);
+  margin-left: -2px;
+}
+
+.bes-mark-option {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+  line-height: 1.35;
+}
+.bes-mark-option-desc {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+.ant-btn.bes-save {
+  min-width: 72px;
+}
+
+/* ── Canvas and what floats on it ── */
+
+.bes-main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.bes-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The active tool, in words, and how to stop */
+.bes-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 4px 4px 4px 12px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-elevated);
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.bes-hint-tool {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+  white-space: nowrap;
+}
+.bes-hint-text {
+  min-width: 0;
+}
+
+/* Zoom and view, bottom right */
+.bes-view {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-elevated);
+}
+.bes-view .ant-btn {
+  color: var(--color-neutral-700);
+}
+.bes-view .ant-btn:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.bes-zoom {
+  min-width: 42px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Nothing drawn yet */
+.bes-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  width: min(340px, calc(100% - 32px));
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-elevated);
+  text-align: center;
+}
+.bes-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-neutral-900);
+}
+.bes-empty-text {
+  margin: 4px 0 16px;
+  font-size: 14px;
+  color: var(--color-neutral-600);
+}
+.bes-empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Phones: the panel is a sheet, opened from here */
+.bes-sheet-open {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: calc(100% - 140px);
+}
+.ant-btn.bes-sheet-open {
+  height: 36px;
+  border: none;
+  box-shadow: var(--shadow-elevated);
+}
+
+/* ── Panel ── */
+
+.bes-panel {
+  flex-shrink: 0;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-neutral-200);
+  scrollbar-width: thin;
+}
+.bes-panel--sheet {
+  border-left: none;
+}
+
+.bes-section {
+  padding: 12px 16px 16px;
+}
+.bes-section + .bes-section {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.bes-section-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--color-neutral-900);
+}
+
+/* Fixtures to add, two to a row */
+.bes-add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.ant-btn.bes-add {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-900);
+}
+.ant-btn.bes-add svg {
+  color: var(--color-neutral-600);
+}
+.ant-btn.bes-add:not(:disabled):hover {
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.bes-layout-link.ant-btn {
+  margin-top: 8px;
+  padding: 0 8px;
+  height: 28px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+
+/* A row you can click: a room, a zone */
+.bes-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* the hover wash reaches past the text, which stays on the section's edge */
+  width: calc(100% + 16px);
+  min-height: 34px;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  color: var(--color-neutral-900);
+  cursor: pointer;
+}
+.bes-row:hover {
+  background: var(--color-ink-hover);
+}
+.bes-row:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: -1px;
+}
+.bes-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bes-row-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+}
+.bes-row-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bes-row-none {
+  color: var(--color-neutral-600);
+}
+.bes-row-chevron {
+  font-size: 10px;
+  color: var(--color-neutral-600);
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.bes-row[aria-expanded='true'] .bes-row-chevron {
+  transform: rotate(90deg);
+}
+.bes-row--child {
+  min-height: 30px;
+  padding-left: 24px;
+  font-size: 13px;
+}
+.bes-row--static {
+  cursor: default;
+}
+.bes-row--static:hover {
+  background: transparent;
+}
+.bes-row-action.ant-btn {
+  height: 24px;
+  padding: 0 6px;
+  font-size: 13px;
+}
+
+/* The canvas's colour for a zone, as a legend */
+.bes-swatch {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(55, 53, 47, 0.16);
+}
+
+/* A tile zone's spec, opened under its row */
+.bes-tile-detail {
+  padding: 4px 0 8px 24px;
+}
+
+/* ── Inspector: the selected thing ── */
+
+.bes-inspector-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 8px 8px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: var(--color-surface);
+}
+.bes-inspector-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.bes-inspector-body {
+  padding: 8px 16px 16px;
+}
+
+.bes-group-title {
+  margin: 16px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--color-neutral-900);
+}
+
+/* Label beside its control, Notion property style */
+.bes-field {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  min-height: 40px;
+  padding: 4px 0;
+}
+.bes-field-label {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--color-neutral-600);
+}
+.bes-field-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.bes-field-control > .ant-select,
+.bes-field-control > .ant-input,
+.bes-field-control > .bes-grow {
+  flex: 1;
+  min-width: 0;
+}
+.bes-field-value {
+  font-size: 14px;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.bes-field-hint {
+  grid-column: 2;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+}
+.bes-times {
+  color: var(--color-neutral-600);
+  font-size: 13px;
+}
+.bes-unit {
+  color: var(--color-neutral-600);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.bes-field .ant-input-number {
+  width: 72px;
+}
+.bes-field .ant-input-number.bes-num-pair {
+  width: 60px;
+}
+
+.bes-inspector-action.ant-btn {
+  margin-top: 12px;
+}
+
+/* The wall finish drawing sits in the inspector's flow */
+.bes-wall-finish {
+  margin-top: 12px;
+}
+
+@media (max-width: 767.98px) {
+  .bes-toolbar {
+    padding: 6px;
+    gap: 2px;
+  }
+  .ant-btn.bes-tool {
+    padding: 0 8px;
+  }
+  .bes-tool-label {
+    display: none;
+  }
+  .bes-toolbar-sep {
+    margin: 0 2px;
+  }
+  .bes-hint {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    transform: none;
+    max-width: none;
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .bes-view {
+    right: 8px;
+    bottom: 8px;
+  }
+  /* Room for the sheet button beside the zoom buttons */
+  .bes-zoom {
+    display: none;
+  }
+  .ant-btn.bes-save {
+    min-width: 0;
+  }
+  .ant-btn.bes-sheet-open {
+    left: 8px;
+    bottom: 8px;
+    transform: none;
+    max-width: calc(100% - 176px);
+  }
+  .bes-field {
+    grid-template-columns: 112px minmax(0, 1fr);
+  }
+  .bes-field .ant-input-number {
+    width: 84px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bes-row-chevron {
+    transition: none;
+  }
+}

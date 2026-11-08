@@ -9,6 +9,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { ToolCard } from '@/components/features/tools/ToolCard';
 import { pdfEditorApi } from '@/components/features/tools/pdf-editor/pdfEditorApi';
 import { cabinetEstimateService } from '@/services/cabinetEstimateService';
+import { bathroomEstimateService } from '@/services/bathroomEstimateService';
 import {
   JOB_TYPES,
   JobTypeKey,
@@ -82,6 +83,23 @@ const CabinetUsage: React.FC = () => {
   );
 };
 
+const BathroomUsage: React.FC = () => {
+  const { data } = useQuery({
+    queryKey: ['bathroom-estimates', 'summary'],
+    queryFn: () => bathroomEstimateService.list({ grouped: true, page: 1, page_size: 1 }),
+    staleTime: 60000,
+  });
+  if (!data) return null;
+  if (data.total === 0) return <>No bathrooms yet</>;
+  const newest = data.items[0];
+  return (
+    <>
+      {plural(data.total, 'bathroom job', 'bathroom jobs')}
+      {newest?.created_at ? ` · ${newestLabel(newest.created_at)}` : ''}
+    </>
+  );
+};
+
 function renderUsage(tool: Tool): React.ReactNode {
   // Locked tools show their plan requirement instead (see ToolCard).
   if (!tool.hasAccess) return undefined;
@@ -94,6 +112,8 @@ function renderUsage(tool: Tool): React.ReactNode {
       return <PdfUsage />;
     case 'cabinet_estimate':
       return <CabinetUsage />;
+    case 'bathroom_estimate':
+      return <BathroomUsage />;
     case 'item_recommender':
       return 'No saved history';
     default:

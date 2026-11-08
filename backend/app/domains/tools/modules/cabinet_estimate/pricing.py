@@ -277,6 +277,14 @@ SINK_BY_BASE = {
 SINK_BASE_FALLBACK = (30, 42)
 
 
+# The prices above as a table a company can price: {base: {single, double}}.
+# sink_for_base reads them from here, the widths from SINK_BY_BASE.
+SINK_PRICES = {
+    base: {"single": single, "double": double}
+    for base, (_sink_w, single, double) in SINK_BY_BASE.items()
+}
+
+
 def sink_for_base(base_width: int) -> tuple:
     """Pick (sink_width, single_price, double_price) for a sink base.
 
@@ -286,15 +294,17 @@ def sink_for_base(base_width: int) -> tuple:
     """
     if not SINK_BY_BASE:
         return 30, 305, 458
-    if base_width in SINK_BY_BASE:
-        return SINK_BY_BASE[base_width]
     lo, hi = SINK_BASE_FALLBACK
-    if base_width < lo:
-        return SINK_BY_BASE[lo]
-    if base_width > hi:
-        return SINK_BY_BASE[hi]
-    nearest = min(SINK_BY_BASE, key=lambda k: (abs(k - base_width), k))
-    return SINK_BY_BASE[nearest]
+    if base_width in SINK_BY_BASE:
+        base = base_width
+    elif base_width < lo:
+        base = lo
+    elif base_width > hi:
+        base = hi
+    else:
+        base = min(SINK_BY_BASE, key=lambda k: (abs(k - base_width), k))
+    prices = SINK_PRICES[base]
+    return SINK_BY_BASE[base][0], prices["single"], prices["double"]
 
 
 # A double bowl needs roughly 30" of sink to be usable; below that the two
@@ -995,6 +1005,16 @@ SCOPE_ITEMS = {
 # callers keep working. Prefer appliance_table(basis) in new code.
 APPLIANCE_RR_PRICING = appliance_pricing_dict(Basis.INSURANCE_DR)
 
+# Each basis's detach & reset price per appliance, as a table a company can
+# price. The hours model makes the defaults; the calculator reads the price
+# from here.
+APPLIANCE_RESET_PRICES = {
+    basis.value: {
+        key: info["cost"] for key, info in appliance_pricing_dict(basis).items()
+    }
+    for basis in (Basis.INSURANCE_DR, Basis.RETAIL_INSTALL)
+}
+
 # ── Material / labor split ──
 # Share of a line item that is NON-LABOR cost - material, equipment, and hard
 # fees. The remainder is crew time. Lines whose rate table already separates
@@ -1554,3 +1574,18 @@ CABINET_REFINISH_PER_LF = Rate(
     includes=frozenset({Includes.FINISH, Includes.SMALL_PARTS}),
     note="refinish existing boxes; NOT new cabinets, NOT wall paint",
 )
+
+
+# ══════════════════════════════════════════════════════════════════
+# Company prices
+# ══════════════════════════════════════════════════════════════════
+# The tables listed in price_catalog.py are wrapped in place, so a company's
+# own prices and an estimate's pinned price book answer for them while it is
+# calculated (app/domains/unit_prices). Outside a calculation they read as
+# the defaults above. The constants it lists (RANGE_END_PANEL_EACH, ...) are
+# read through FLAT_PRICES["RANGE_END_PANEL_EACH"].
+from app.domains.unit_prices.catalog import install as _install_price_tables  # noqa: E402
+
+from .price_catalog import PRICE_TABLES as _PRICE_TABLES  # noqa: E402
+
+_install_price_tables("cabinet", "Kitchen Cabinet", globals(), _PRICE_TABLES)

@@ -15,7 +15,7 @@ Office and admin staff at small restoration contracting companies remain the pri
 Scopit is a toolkit of work tools for restoration contractors. Each tool stands on its own and serves the job types it belongs to; the results land in Scopit estimates and invoices, which are the shared home base of the product. Success means a company gets each kind of job priced, signed, and invoiced with less re-typing and less friction than juggling separate tools.
 
 Users do three separate kinds of jobs, and tools map to them:
-- Interior restoration (water, fire): Packing & Moving Estimator (contents pack-out), Cabinet Estimator (kitchen cabinet rebuild), Item Recommender, PDF & E-Sign, estimates/invoices
+- Interior restoration (water, fire): Packing & Moving Estimator (contents pack-out), Cabinet Estimator (kitchen cabinet rebuild), Bathroom Estimator (bathroom rebuild or remodel), Item Recommender, PDF & E-Sign, estimates/invoices
 - Roofing: Roof Analyzer, Item Recommender, PDF & E-Sign, estimates/invoices
 - Moving and storage only: Packing & Moving Estimator, PDF & E-Sign, estimates/invoices
 
@@ -33,6 +33,8 @@ A set of job-specific tools that feed one estimate. Scopit is not positioned aga
 - Company-wide line item library shared across users, with private items per creator; Excel import
 - Packing & Moving Estimator: room presets or AI photo analysis identify contents; prices packing labor, materials (in catalog sell units), moving (van by workday and weight), and off-site storage (by the unit sizes a facility stocks); PDF and Excel reports; a session can become a Scopit estimate
 - Cabinet Estimator: a kitchen's cabinet boxes, counted off a layout sketch (walls, cabinets, appliances; front elevations and a 3D view), priced with the work around them (demo, install, countertop, backsplash, plumbing, appliance detach & reset, trim, permit) on insurance-claim or retail-remodel rates; an insurance job's restoration plus upgrade options built from a company product library, compared side by side; PDF quote, design quote with drawings, customer proposal of all options, supplier purchase order (Excel); a calculated estimate or option becomes a Scopit estimate. Ported from the owner's MJ Estimate (2026-11-08)
+- Bathroom Estimator: a bathroom drawn on a floor plan (walls, fixtures, tile zones, damage and drywall marks; a 3D view), priced phase by phase (demo, plumbing and electrical rough-in, substrate and waterproofing, tile, fixtures, paint and trim, punch list) with detach & reset, water-damage repairs and hand-edited line items; an insurance job's restoration plus upgrade options built from the shared product library (vanity, tile, toilet, tub...), a remodel's current layout to price moved plumbing and walls against, options compared side by side; detailed or clean PDF with the sketch, customer proposal of all options, overview note; a calculated estimate or option becomes a Scopit estimate. Ported from the owner's MJ Estimate (2026-11-08)
+- Company prices for the Cabinet and Bathroom Estimators: each tool's default prices can be overridden per company, material and labor apart (an admin or manager edits, everyone with the tool sees; every change is recorded). An estimate keeps the prices it was first calculated with (a price book) until someone chooses "Use current prices", so a price change never moves a quote already sent. Ported from MJ Estimate (2026-11-08)
 - Roof Analyzer: reads EagleView roof reports and shows roof faces, slopes, and areas
 - Item Recommender: searches line items by work type and groups recommendations into pre-work, main, materials, trim, and post-work
 - PDF Editor & E-Sign: annotate and merge PDFs, auto-fill templates from customer and company data, send documents for signature via a public signing link, or sign in person on the company's own phone or tablet (pick the customer and one or more documents, fill what's blank, hand over the device)
@@ -47,6 +49,8 @@ A set of job-specific tools that feed one estimate. Scopit is not positioned aga
 - Company-wide and private line item libraries with AI-powered recommendations
 - Packing tool with AI photo analysis (Anthropic Vision, beta), item taxonomy, and PDF/Excel reports; packing session to estimate
 - Cabinet Estimator (sketch, 3D view, priced kitchen cabinet estimate with options, PDFs, purchase order, to estimate); product library reads listings with Claude. MJ Estimate's 3D "AI photo" (Gemini) is on hold and hidden (owner, 2026-11-08); do not present it as available
+- Bathroom Estimator (sketch, 3D view, phase-priced bathroom estimate with options and layout changes, PDFs, to estimate); overview note written by Claude when a key is set, from a template otherwise
+- Company prices over the Cabinet and Bathroom Estimators' defaults, with price books that keep a calculated estimate on its prices until repriced
 - Roof Analyzer (EagleView report upload, faces, slopes, areas)
 - Item Recommender (grouped line item recommendations by work type)
 - PDF editor with field-mapping templates, e-signature requests, and in-person signing
