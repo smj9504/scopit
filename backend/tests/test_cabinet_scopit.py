@@ -204,6 +204,46 @@ def test_the_proposal_names_the_zip_once(ours):
     assert "20850, 20850" not in text
 
 
+# ── Overhead and profit ──
+
+def _quartz(estimate):
+    return next(li for li in estimate["line_items"] if li["description"].startswith("Countertop - Quartz"))
+
+
+def test_a_new_job_carries_no_overhead_or_profit(ours):
+    # Optional: the estimator adds them on the job when it takes them
+    estimate = ours.calculate(new_job(ours)["id"])
+    assert (estimate["overhead_pct"], estimate["profit_pct"]) == (0, 0)
+    assert (estimate["overhead_amount"], estimate["profit_amount"]) == (0, 0)
+    assert _quartz(estimate)["unit_price"] == 90  # the rate as it stands
+
+
+def test_overhead_and_profit_set_on_a_job_still_apply(ours):
+    estimate = ours.calculate(new_job(ours, overhead_pct=0.10, profit_pct=0.10)["id"])
+    assert _quartz(estimate)["unit_price"] == pytest.approx(90 * 1.2)
+    assert estimate["overhead_amount"] > 0 and estimate["profit_amount"] > 0
+
+
+@pytest.mark.parametrize("op, label", [
+    ({}, "Total difference "),
+    ({"overhead_pct": 0.10, "profit_pct": 0.05}, "Total difference (with overhead and profit)"),
+])
+def test_the_proposal_names_overhead_and_profit_only_when_the_job_has_them(ours, op, label):
+    from pypdf import PdfReader
+
+    from app.domains.tools.modules.cabinet_estimate.export_service import CabinetExportService
+
+    restore = ours.calculate(new_job(ours, **op)["id"])
+    option = ours.add_option(restore["id"])
+    ours.update_estimate(option["id"], CabinetEstimateUpdate(tier="Semi-Custom"))
+    ours.calculate(option["id"])
+    pdf = CabinetExportService().generate_proposal_pdf(ours.get_group(restore["id"]))
+    text = " ".join(" ".join((page.extract_text() or "").split()) for page in PdfReader(pdf).pages)
+    assert label in text
+    if not op:
+        assert "overhead and profit" not in text
+
+
 def test_the_claim_number_goes_in_the_description(ours):
     estimate = ours.calculate(new_job(ours, claim_number="CL-9")["id"])
     assert to_estimate_payload(estimate)["description"] == "Claim #: CL-9"

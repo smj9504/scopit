@@ -507,8 +507,9 @@ const CabinetEstimateDetail: React.FC = () => {
         island_countertop_sqft: estimate.island_countertop_sqft,
         overview_text: estimate.overview_text,
         target_total: estimate.target_total || null,
-        overhead_pct: (estimate.overhead_pct ?? 0.15) * 100,
-        profit_pct: (estimate.profit_pct ?? 0.15) * 100,
+        // O&P is optional: none unless the job adds it
+        overhead_pct: (estimate.overhead_pct ?? 0) * 100,
+        profit_pct: (estimate.profit_pct ?? 0) * 100,
         notes: estimate.notes,
       });
       const allBoxes = estimate.boxes.map((b) => ({

@@ -392,7 +392,12 @@ def generate_proposal_pdf(
                         money(c["option"]) if c["option"] else "—",
                         signed(c["difference"]),
                     ])
-                rows.append(["Total difference (with overhead and profit)", "", "", signed(over(option))])
+                # O&P is optional; name it only when the job carries it
+                with_op = (option.get("overhead_pct") or 0) + (option.get("profit_pct") or 0) > 0
+                rows.append([
+                    "Total difference (with overhead and profit)" if with_op else "Total difference",
+                    "", "", signed(over(option)),
+                ])
                 change_table = Table(rows, colWidths=[usable_w * 0.49, usable_w * 0.17, usable_w * 0.17,
                                                       usable_w * 0.17], repeatRows=1)
                 change_table.setStyle(table_style([

@@ -194,10 +194,10 @@ def test_a_chosen_product_prices_its_material_and_our_labor_stays(service, sessi
         option = service.set_selection(option["id"], slot, str(product.id))
     assert option["selections"]["countertop"]["title"] == "Calacatta Quartz"
 
-    # Line prices carry overhead and profit; the restoration's quartz line
-    # ($90/sf on the table) shows by how much
+    # Line prices carry overhead and profit, none on a new job; the
+    # restoration's quartz line ($90/sf on the table) shows by how much
     o_and_p = line(restore, "Countertop - Quartz")["unit_price"] / 90
-    assert o_and_p == pytest.approx(1.30, abs=0.01)
+    assert o_and_p == pytest.approx(1.00, abs=0.01)
 
     # Countertop: $58/sf × 1.15 handling × 1.10 overage, plus the labor share
     # of the quartz rate ($90 × 0.45)

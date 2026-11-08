@@ -28,7 +28,7 @@ from .models import (
     CabinetEstimateLineItem,
     CabinetSketch,
 )
-from .pricing import DOOR_PATTERN_LABELS
+from .pricing import DEFAULT_OVERHEAD_PCT, DEFAULT_PROFIT_PCT, DOOR_PATTERN_LABELS
 from .schemas import CabinetEstimateCreate, CabinetEstimateUpdate
 from .selections import SLOT_CATEGORY, SLOT_KEYS, clean_selections
 
@@ -463,8 +463,8 @@ class CabinetEstimateService:
                 island_end_panel_sqft=e.island_end_panel_sqft or 0,
                 island_back_panel_sqft=e.island_back_panel_sqft or 0,
                 island_two_sided=bool(e.island_two_sided),
-                overhead_pct=e.overhead_pct if e.overhead_pct is not None else 0.15,
-                profit_pct=e.profit_pct if e.profit_pct is not None else 0.15,
+                overhead_pct=e.overhead_pct if e.overhead_pct is not None else DEFAULT_OVERHEAD_PCT,
+                profit_pct=e.profit_pct if e.profit_pct is not None else DEFAULT_PROFIT_PCT,
                 target_total=e.target_total,
                 # The restoration is priced from the rate tables alone
                 products=clean_selections(e.selections) if e.kind == "option" else None,

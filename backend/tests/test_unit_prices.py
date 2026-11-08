@@ -289,8 +289,8 @@ def test_a_company_split_carries_into_the_kitchen_lines(kitchen, prices):
     priced = kitchen.calculate(kitchen_job(kitchen)["id"])
     toe = line(priced, "Toe Kick")
     assert toe["material_total"] == pytest.approx(toe["total"] * 0.2, abs=0.02)
-    # 10/LF before O&P, the default being 10 as well: only the split moved
-    assert toe["unit_price"] == pytest.approx(10 * 1.30, abs=0.01)
+    # 10/LF with no O&P on a new job, the default being 10 as well: only the split moved
+    assert toe["unit_price"] == pytest.approx(10, abs=0.01)
 
 
 def test_a_company_appliance_and_sink_price_reach_the_kitchen(kitchen, prices):
@@ -302,8 +302,8 @@ def test_a_company_appliance_and_sink_price_reach_the_kitchen(kitchen, prices):
     })
     fresh = kitchen.calculate(kitchen_job(
         kitchen, include_appliance_rr=True, appliance_list=[{"type": "dishwasher", "qty": 1}])["id"])
-    assert line(fresh, "Detach & Reset Appliances")["unit_price"] == pytest.approx(500 * 1.30, abs=0.01)
-    assert line(fresh, "Undermount SS Single Bowl Sink")["unit_price"] == pytest.approx(999 * 1.30, abs=0.01)
+    assert line(fresh, "Detach & Reset Appliances")["unit_price"] == pytest.approx(500, abs=0.01)
+    assert line(fresh, "Undermount SS Single Bowl Sink")["unit_price"] == pytest.approx(999, abs=0.01)
     assert line(base, "Detach & Reset Appliances")["unit_price"] != line(fresh, "Detach & Reset Appliances")["unit_price"]
 
 

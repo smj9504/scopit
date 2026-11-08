@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from app.domains.unit_prices.schemas import PriceBookSummary
 
+from .pricing import DEFAULT_OVERHEAD_PCT, DEFAULT_PROFIT_PCT
+
 # ── Enums / Constants ──
 
 class CabinetTier:
@@ -231,8 +233,8 @@ class CabinetEstimateBase(BaseModel):
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
     target_total: Optional[float] = None
-    overhead_pct: float = 0.15
-    profit_pct: float = 0.15
+    overhead_pct: float = DEFAULT_OVERHEAD_PCT
+    profit_pct: float = DEFAULT_PROFIT_PCT
     notes: Optional[str] = None
 
 
@@ -427,9 +429,9 @@ class CabinetEstimateResponse(BaseModel):
     overview_text: Optional[str] = None
     target_total: Optional[float] = None
     subtotal: float = 0
-    overhead_pct: float = 0.15
+    overhead_pct: float = DEFAULT_OVERHEAD_PCT
     overhead_amount: float = 0
-    profit_pct: float = 0.15
+    profit_pct: float = DEFAULT_PROFIT_PCT
     profit_amount: float = 0
     adjustment_factor: Optional[float] = None
     total: float = 0

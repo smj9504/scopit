@@ -1074,9 +1074,13 @@ MATERIAL_SHARE = {
     "permit": 1.00,              # a fee, not crew time
 }
 
-# Default O&P percentages (mixed material+labor project standard: 25-35%)
-DEFAULT_OVERHEAD_PCT = 0.15
-DEFAULT_PROFIT_PCT = 0.15
+# Default O&P percentages. O&P is optional (2026-11-08, the owner's call): a
+# new job starts at 0% and the estimator adds overhead and profit on the
+# job's Overhead & Profit fields when the job takes them. The rates above
+# are market prices as they stand, so O&P comes on top of them. (Was 15% +
+# 15%, the mixed material+labor standard of 25-35%.)
+DEFAULT_OVERHEAD_PCT = 0.0
+DEFAULT_PROFIT_PCT = 0.0
 
 # ── Sales tax: deliberately NOT implemented ──
 # The 2026-09-18 pricing review recommended adding a sales-tax line
