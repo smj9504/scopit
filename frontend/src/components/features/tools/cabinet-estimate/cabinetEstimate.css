@@ -80,12 +80,13 @@
   background: var(--tag-red-bg);
 }
 
-/* View tabs */
+/* View tabs: one weight in every state, so the selected one is marked by its fill alone */
 .ant-btn.ui-view-tab {
   height: 26px;
   padding: 0 8px;
   border-radius: 6px;
   font-size: 13px;
+  font-weight: 500;
   color: var(--color-neutral-600);
 }
 .ant-btn.ui-view-tab:not(:disabled):hover {
@@ -95,7 +96,6 @@
 .ant-btn.ui-view-tab.is-selected {
   color: var(--color-neutral-900);
   background: var(--color-ink-selected);
-  font-weight: 500;
 }
 
 /* ── Estimate bar ── */
@@ -122,17 +122,9 @@
   margin-left: auto;
   gap: 8px;
 }
-/* Narrower, the views and the job's estimates wrap under each other, beside the actions */
+/* The views keep their width; narrower, the actions wrap onto the next line */
 .ce-bar > .ce-bar-start {
-  flex: 1 1 0;
-  row-gap: 6px;
-}
-.ce-bar-sep {
-  flex-shrink: 0;
-  width: 1px;
-  height: 18px;
-  margin: 0 6px;
-  background: var(--color-neutral-200);
+  flex: none;
 }
 .ce-save-state {
   display: inline-flex;
@@ -156,31 +148,95 @@
   background: var(--color-warning);
 }
 
-/* The estimates of the job, one line each: name and total. Centred in the
- * tab (baseline alignment pinned the text to the top of the grey fill);
- * one line-height keeps the two sizes' baselines level. */
-.ant-btn.ce-member {
+/* ── The job's estimates ──
+ * Document tabs above the estimate bar: the open estimate is underlined on
+ * the row's rule, so it never reads as a second set of view tabs. A tab
+ * shows its total once there is one. */
+.ce-job {
+  display: flex;
+  align-items: stretch;
+  gap: 20px;
+  min-height: 40px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  /* The rule is the row's background, so the open tab's underline covers it */
+  background: linear-gradient(var(--color-neutral-200), var(--color-neutral-200)) bottom / 100% 1px no-repeat;
+}
+.ce-job-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.ce-job-item.is-current::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--color-neutral-900);
+}
+.ce-job-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-}
-.ant-btn.ce-member > span {
+  gap: 8px;
+  height: 100%;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 18px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease-out;
 }
-.ce-member-total {
+.ce-job-tab:hover,
+.ce-job-tab[aria-current] {
+  color: var(--color-neutral-900);
+}
+.ce-job-tab[aria-current] {
+  cursor: default;
+}
+.ce-job-tab:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.ce-job-total {
   font-size: 12px;
+  font-weight: 400;
   color: var(--color-neutral-600);
   font-variant-numeric: tabular-nums;
 }
-.ant-btn.ce-member.is-selected .ce-member-total {
-  color: var(--color-neutral-700);
+.ant-btn.ce-job-more {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
 }
+.ce-job > .ant-btn.ce-quiet {
+  flex-shrink: 0;
+  align-self: center;
+}
+.ant-btn.ce-job-add {
+  margin-left: -8px;
+}
+.ant-btn.ce-job-compare {
+  margin-left: auto;
+}
+
 .ant-btn.ce-quiet {
   height: 26px;
   padding: 0 8px;
   border-radius: 6px;
   font-size: 13px;
-  color: var(--color-neutral-700);
+  font-weight: 500;
+  color: var(--color-neutral-600);
 }
 .ant-btn.ce-quiet:not(:disabled):hover {
   color: var(--color-neutral-900);

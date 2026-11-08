@@ -50,7 +50,7 @@ import CabinetPurchaseOrder from '@/components/features/tools/cabinet-estimate/C
 import CabinetEstimateHistory from '@/components/features/tools/cabinet-estimate/CabinetEstimateHistory';
 import CabinetSketchEditor from '@/components/features/tools/cabinet-estimate/sketch/CabinetSketchEditor';
 import KitchenDesignQuoteModal from '@/components/features/tools/cabinet-estimate/KitchenDesignQuoteModal';
-import KitchenGroupBar from '@/components/features/tools/cabinet-estimate/KitchenGroupBar';
+import KitchenGroupBar, { KitchenJobType } from '@/components/features/tools/cabinet-estimate/KitchenGroupBar';
 import KitchenGroupCompareDrawer from '@/components/features/tools/cabinet-estimate/KitchenGroupCompareDrawer';
 import KitchenSelections from '@/components/features/tools/cabinet-estimate/KitchenSelections';
 import { boxKey } from '@/components/features/tools/cabinet-estimate/sketch/cabinetSketchLayout';
@@ -1172,6 +1172,7 @@ const CabinetEstimateDetail: React.FC = () => {
           {estimate.claim_number ? ` · Claim ${estimate.claim_number}` : ''}
         </Text>
       )}
+      <KitchenJobType estimate={estimate} guardUnsaved={guardUnsaved} />
     </Space>
   );
 
@@ -1361,9 +1362,15 @@ const CabinetEstimateDetail: React.FC = () => {
 
   return (
     <div className="ce-page" style={{ padding: '12px 8px' }}>
-      <div style={{ marginBottom: 8 }}>{titleBar}</div>
+      <div style={{ marginBottom: 4 }}>{titleBar}</div>
 
-      {/* One bar: the views, the job's estimates, and what you do with this one */}
+      {/* The job's estimates, then the open estimate's views and what you do with it */}
+      <KitchenGroupBar
+        estimate={estimate}
+        onOpen={openMember}
+        guardUnsaved={guardUnsaved}
+        onCompare={() => setCompareOpen(true)}
+      />
       <div className="ce-bar">
         <div className="ce-bar-start">
           <div role="tablist" aria-label="Estimate views" style={{ display: 'flex', gap: 2 }}>
@@ -1382,13 +1389,6 @@ const CabinetEstimateDetail: React.FC = () => {
               </Tooltip>
             ))}
           </div>
-          <span className="ce-bar-sep" aria-hidden="true" />
-          <KitchenGroupBar
-            estimate={estimate}
-            onOpen={openMember}
-            guardUnsaved={guardUnsaved}
-            onCompare={() => setCompareOpen(true)}
-          />
         </div>
         <div className="ce-bar-end">
           <span className={`ce-save-state ${saveState.cls}`}>
