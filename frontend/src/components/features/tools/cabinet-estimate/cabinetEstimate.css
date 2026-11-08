@@ -156,11 +156,16 @@
   background: var(--color-warning);
 }
 
-/* The estimates of the job, one line each: name and total */
+/* The estimates of the job, one line each: name and total. Centred in the
+ * tab (baseline alignment pinned the text to the top of the grey fill);
+ * one line-height keeps the two sizes' baselines level. */
 .ant-btn.ce-member {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
+}
+.ant-btn.ce-member > span {
+  line-height: 18px;
 }
 .ce-member-total {
   font-size: 12px;
