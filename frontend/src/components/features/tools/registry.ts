@@ -23,6 +23,10 @@ const ItemRecommenderTool = lazy(
   () => import('./item-recommender/ItemRecommenderTool')
 );
 
+const CabinetEstimateTool = lazy(
+  () => import('@/pages/app/tools/cabinet/CabinetEstimateListPage')
+);
+
 const PdfEditorTool = lazy(
   () => import('./pdf-editor/PdfEditorTool')
 );
@@ -31,6 +35,7 @@ export const TOOL_COMPONENT_REGISTRY: Record<string, ComponentType<ToolComponent
   roof_analyzer: RoofAnalyzerTool,
   packing: PackingTool,
   item_recommender: ItemRecommenderTool,
+  cabinet_estimate: CabinetEstimateTool,
   pdf_editor: PdfEditorTool,
 };
 

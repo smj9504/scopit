@@ -8,6 +8,7 @@ import { useTools, useToolSessionSummary } from '@/hooks/useTools';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { ToolCard } from '@/components/features/tools/ToolCard';
 import { pdfEditorApi } from '@/components/features/tools/pdf-editor/pdfEditorApi';
+import { cabinetEstimateService } from '@/services/cabinetEstimateService';
 import {
   JOB_TYPES,
   JobTypeKey,
@@ -64,6 +65,23 @@ const PdfUsage: React.FC = () => {
   );
 };
 
+const CabinetUsage: React.FC = () => {
+  const { data } = useQuery({
+    queryKey: ['cabinet-estimates', 'summary'],
+    queryFn: () => cabinetEstimateService.list({ grouped: true, page: 1, page_size: 1 }),
+    staleTime: 60000,
+  });
+  if (!data) return null;
+  if (data.total === 0) return <>No kitchens yet</>;
+  const newest = data.items[0];
+  return (
+    <>
+      {plural(data.total, 'kitchen job', 'kitchen jobs')}
+      {newest?.created_at ? ` · ${newestLabel(newest.created_at)}` : ''}
+    </>
+  );
+};
+
 function renderUsage(tool: Tool): React.ReactNode {
   // Locked tools show their plan requirement instead (see ToolCard).
   if (!tool.hasAccess) return undefined;
@@ -74,6 +92,8 @@ function renderUsage(tool: Tool): React.ReactNode {
       return <SessionUsage toolId="roof_analyzer" one="report" many="reports" />;
     case 'pdf_editor':
       return <PdfUsage />;
+    case 'cabinet_estimate':
+      return <CabinetUsage />;
     case 'item_recommender':
       return 'No saved history';
     default:

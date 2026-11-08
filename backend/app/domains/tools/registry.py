@@ -44,6 +44,16 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         can_create_estimate=True,
         tags=["moving", "packing", "contents"],
     ),
+    "cabinet_estimate": ToolDefinition(
+        id="cabinet_estimate",
+        name="Cabinet Estimator",
+        description="Count kitchen cabinets on a layout sketch, price the cabinets and the work around them, and compare upgrade options in 3D.",
+        icon="AppstoreOutlined",
+        category="Estimation",
+        required_plan="free",
+        can_create_estimate=True,
+        tags=["kitchen", "cabinets", "rebuild", "remodel"],
+    ),
     "item_recommender": ToolDefinition(
         id="item_recommender",
         name="Item Recommender",

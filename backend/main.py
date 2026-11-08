@@ -29,10 +29,12 @@ from app.domains.dashboard.api import router as dashboard_router
 from app.domains.estimate.api import router as estimate_router
 from app.domains.invoice.api import router as invoice_router
 from app.domains.line_item.api import router as line_item_router
+from app.domains.product_library.api import router as product_library_router
 from app.domains.settings.api import router as settings_router
 from app.domains.support.api import admin_router as support_admin_router
 from app.domains.support.api import router as support_router
 from app.domains.tools.api import router as tools_router
+from app.domains.tools.modules.cabinet_estimate.api import router as cabinet_estimate_router
 from app.domains.tools.modules.item_recommender.api import router as item_recommender_router
 from app.domains.tools.modules.packing.api import router as packing_router
 from app.domains.tools.modules.packing.demo_api import router as packing_demo_router
@@ -229,6 +231,8 @@ app.include_router(roof_analyzer_router, prefix="/api/tools/roof-analyzer", tags
 app.include_router(packing_router, prefix="/api/tools/packing", tags=["Packing Estimator"])
 app.include_router(packing_demo_router, prefix="/api/demo/packing", tags=["Packing Demo"])
 app.include_router(item_recommender_router, prefix="/api/tools/item-recommender", tags=["Item Recommender"])
+app.include_router(cabinet_estimate_router, prefix="/api/tools/cabinet-estimate", tags=["Cabinet Estimator"])
+app.include_router(product_library_router, prefix="/api/products", tags=["Product Library"])
 app.include_router(pdf_editor_router, prefix="/api/tools/pdf-editor", tags=["PDF Editor"])
 app.include_router(sign_in_person_router, prefix="/api/tools/pdf-editor/sign/in-person", tags=["E-Sign In Person"])
 app.include_router(sign_router, prefix="/api/tools/pdf-editor/sign", tags=["E-Sign"])

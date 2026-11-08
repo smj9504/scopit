@@ -58,6 +58,16 @@ const HouseIcon: React.FC<ToolIconProps> = (p) => (
   </StrokeIcon>
 );
 
+/** A two-door cabinet. */
+const CabinetIcon: React.FC<ToolIconProps> = (p) => (
+  <StrokeIcon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="1.5" />
+    <path d="M12 4v16" />
+    <path d="M9.5 10.5v3" />
+    <path d="M14.5 10.5v3" />
+  </StrokeIcon>
+);
+
 const MagnifierIcon: React.FC<ToolIconProps> = (p) => (
   <StrokeIcon {...p}>
     <circle cx="11" cy="11" r="7" />
@@ -139,6 +149,17 @@ export const TOOL_META: Record<string, ToolMeta> = {
     savesSessions: true,
     sessionPath: (sessionId) => `/app/tools/packing/${sessionId}`,
   },
+  cabinet_estimate: {
+    id: 'cabinet_estimate',
+    navLabel: 'Cabinet Estimator',
+    shortLabel: 'Cabinets',
+    Icon: CabinetIcon,
+    jobTypes: ['interior'],
+    allJobs: false,
+    jobLabel: 'Interior',
+    description: 'Sketch the kitchen, price its cabinets and the work around them, and show upgrade options in 3D.',
+    savesSessions: false,
+  },
   roof_analyzer: {
     id: 'roof_analyzer',
     navLabel: 'Roof Analyzer',
@@ -177,7 +198,13 @@ export const TOOL_META: Record<string, ToolMeta> = {
 };
 
 /** Display order everywhere tools are listed. */
-export const TOOL_ORDER: string[] = ['packing', 'roof_analyzer', 'item_recommender', 'pdf_editor'];
+export const TOOL_ORDER: string[] = [
+  'packing',
+  'cabinet_estimate',
+  'roof_analyzer',
+  'item_recommender',
+  'pdf_editor',
+];
 
 export const ORDERED_TOOL_META: ToolMeta[] = TOOL_ORDER.map((id) => TOOL_META[id]);
 

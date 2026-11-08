@@ -1,0 +1,668 @@
+/*
+ * Kitchen cabinet estimate (ce-*), ported from MJ Estimate.
+ *
+ * One bar of estimate actions, the drawing filling the window, and a panel
+ * beside it (Inspect / Cabinets / Estimate) that shows what is selected or
+ * the estimate's figures.
+ */
+
+/* ── Tokens ──
+ * The names the ported components use, set to Scopit's palette
+ * (styles/theme.ts). On :root because modals and drawers render outside
+ * the page. */
+:root {
+  --color-primary: #2563eb;
+  --color-neutral-900: #111827;
+  --color-neutral-700: #374151;
+  --color-neutral-600: #4b5563;
+  --color-neutral-400: #d1d5db;
+  --color-neutral-200: #e5e7eb;
+  --color-neutral-50: #f9fafb;
+  --color-ink-hover: rgba(17, 24, 39, 0.06);
+  --color-ink-selected: rgba(17, 24, 39, 0.08);
+  --color-row-selected: #eff6ff;
+  --color-surface: #ffffff;
+  --color-success: #047857;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --tag-red-bg: #fef2f2;
+  --tag-orange-bg: #fffbeb;
+  --tag-orange-text: #b45309;
+  --shadow-elevated: rgba(17, 24, 39, 0.05) 0 0 0 1px, rgba(17, 24, 39, 0.1) 0 3px 6px, rgba(17, 24, 39, 0.16) 0 9px 24px;
+}
+
+/* ── Shared pieces (MJ Estimate's ui-* classes) ── */
+
+/* Flat section: a Card that reads as a heading + content on the page */
+.ui-sheet-card.ant-card {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+.ui-sheet-card.ant-card > .ant-card-head {
+  min-height: 0;
+  padding: 0 0 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  font-size: 16px;
+}
+.ui-sheet-card.ant-card > .ant-card-head .ant-card-head-title {
+  padding: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.ui-sheet-card.ant-card > .ant-card-head .ant-card-extra {
+  padding: 0;
+}
+.ui-sheet-card.ant-card > .ant-card-body {
+  padding: 6px 0 0 !important;
+}
+@media (max-width: 576px) {
+  .ui-sheet-card.ant-card > .ant-card-head .ant-card-head-wrapper {
+    align-items: flex-start;
+  }
+  .ui-sheet-card.ant-card > .ant-card-head .ant-card-head-title {
+    white-space: normal;
+    overflow: visible;
+  }
+}
+
+/* Quiet icon buttons: grey until hovered; destructive ones turn red on hover */
+.ant-btn.ui-icon-btn {
+  color: var(--color-neutral-600);
+}
+.ant-btn.ui-icon-btn:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.ant-btn.ui-icon-btn--danger:not(:disabled):hover {
+  color: var(--color-error);
+  background: var(--tag-red-bg);
+}
+
+/* View tabs */
+.ant-btn.ui-view-tab {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.ant-btn.ui-view-tab:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.ant-btn.ui-view-tab.is-selected {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-selected);
+  font-weight: 500;
+}
+
+/* ── Estimate bar ── */
+
+.ce-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 44px;
+  padding: 0 0 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.ce-bar-start,
+.ce-bar-end {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.ce-bar-end {
+  margin-left: auto;
+  gap: 8px;
+}
+/* Narrower, the views and the job's estimates wrap under each other, beside the actions */
+.ce-bar > .ce-bar-start {
+  flex: 1 1 0;
+  row-gap: 6px;
+}
+.ce-bar-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--color-neutral-200);
+}
+.ce-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+}
+.ce-save-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+.ce-save-state.is-dirty {
+  color: var(--color-neutral-900);
+}
+.ce-save-state.is-dirty .ce-save-state-dot,
+.ce-save-state.is-saving .ce-save-state-dot {
+  background: var(--color-warning);
+}
+
+/* The estimates of the job, one line each: name and total */
+.ant-btn.ce-member {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ce-member-total {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.ant-btn.ce-member.is-selected .ce-member-total {
+  color: var(--color-neutral-700);
+}
+.ant-btn.ce-quiet {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.ant-btn.ce-quiet:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+
+/* ── Side by side: drawing | divider | panel ── */
+
+.ce-split {
+  display: grid;
+  min-height: 0;
+}
+.ce-split-canvas {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.ce-divider {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+.ce-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 1px;
+  background: var(--color-neutral-200);
+  transition: background-color 120ms ease-out;
+}
+.ce-divider:hover::before,
+.ce-divider.is-dragging::before,
+.ce-divider:focus-visible::before {
+  left: 4px;
+  width: 3px;
+  background: var(--color-primary);
+}
+.ce-divider:focus-visible {
+  outline: none;
+}
+
+.ce-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-surface);
+}
+.ce-panel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 0 0 8px 4px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.ce-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 4px 0 12px;
+  scrollbar-width: thin;
+}
+.ce-panel-pane {
+  padding: 12px 4px 24px 0;
+}
+
+/* ── Panel content ── */
+
+.ce-section {
+  padding: 12px 0 16px;
+}
+.ce-section + .ce-section {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.ce-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--color-neutral-900);
+}
+.ce-section-meta {
+  font-weight: 400;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The estimate's total, and whether it still matches the inputs */
+.ce-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ce-total-value {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.ce-total-none {
+  font-size: 15px;
+  color: var(--color-neutral-600);
+}
+.ce-stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 6px 6px 10px;
+  border-radius: 6px;
+  background: var(--tag-orange-bg);
+  color: var(--tag-orange-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Label beside its value or control, Notion property style */
+.ce-field {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  min-height: 32px;
+  padding: 2px 0;
+}
+.ce-field-label {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--color-neutral-600);
+}
+.ce-field-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.ce-field-value.is-empty {
+  color: var(--color-neutral-600);
+}
+
+/* A row you can click or act on: a cabinet, a takeoff count */
+.ce-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 12px);
+  min-height: 32px;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--color-neutral-900);
+}
+.ce-row.is-link {
+  cursor: pointer;
+}
+.ce-row.is-link:hover,
+.ce-row.is-hinted {
+  background: var(--color-ink-hover);
+}
+.ce-row.is-selected,
+.ce-row.is-selected:hover {
+  background: var(--color-row-selected, #eef5fc);
+  box-shadow: inset 0 0 0 1px rgba(31, 116, 201, 0.25);
+}
+.ce-row:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: -1px;
+}
+.ce-row-code {
+  flex-shrink: 0;
+  min-width: 52px;
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  color: var(--color-neutral-900);
+}
+.ce-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-neutral-700);
+}
+.ce-row-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ce-row-value {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ce-row .ant-input-number {
+  width: 56px;
+  flex-shrink: 0;
+}
+.ce-row-action.ant-btn {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 13px;
+}
+/* A row's quiet delete shows on hover or focus */
+.ce-row .ce-row-remove {
+  opacity: 0;
+}
+.ce-row:hover .ce-row-remove,
+.ce-row:focus-within .ce-row-remove,
+.ce-row .ce-row-remove:focus-visible {
+  opacity: 1;
+}
+.ce-add.ant-select {
+  width: 100%;
+  margin-top: 6px;
+}
+.ce-hint-text {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-neutral-600);
+}
+
+/* The selected cabinet's settings, docked in the panel */
+.ce-inspect-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.ce-inspect-title {
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.ce-inspect-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
+/* ── The Estimate form in the panel: one column, label above control ── */
+
+.ce-panel-form .ant-row > .ant-col {
+  flex: 0 0 100%;
+  max-width: 100%;
+}
+.ce-panel-form .ant-form-item {
+  margin-bottom: 12px;
+}
+.ce-panel-form .ant-form-item-label > label {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.ce-panel-form .ui-sheet-card.ant-card > .ant-card-head,
+.ce-panel-form .ui-sheet-card.ant-card > .ant-card-head .ant-card-head-title {
+  font-size: 14px;
+}
+
+/* Section sheets in the form, both layouts */
+.ce-form .ui-sheet-card.ant-card {
+  margin-bottom: 28px;
+}
+.ce-form .ui-sheet-card.ant-card > .ant-card-body {
+  padding-top: 12px !important;
+}
+
+/* ── Sketch tools ── */
+
+.ce-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 0 0 8px;
+}
+.ce-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.ce-toolbar-end {
+  margin-left: auto;
+  gap: 4px;
+}
+.ce-toolbar-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--color-neutral-200);
+}
+.ant-btn.ce-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.ant-btn.ce-tool:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.ant-btn.ce-tool.is-selected,
+.ant-btn.ce-tool.is-selected:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-selected);
+  font-weight: 500;
+}
+/* The cabinet pickers read as tools until one is open */
+.ce-picker.ant-select .ant-select-selector {
+  border-radius: 6px;
+  font-size: 13px;
+}
+.ce-picker.ant-select-borderless:not(.ant-select-disabled):hover .ant-select-selector {
+  background: var(--color-ink-hover);
+}
+.ce-picker.ant-select .ant-select-selection-placeholder {
+  color: var(--color-neutral-700);
+}
+
+/* The drawing, and what floats on it */
+.ce-stage {
+  position: relative;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-neutral-50);
+}
+.ce-stage:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+.ce-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 4px 4px 4px 12px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-elevated);
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.ce-hint-tool {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+  white-space: nowrap;
+}
+.ce-view {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-elevated);
+}
+.ce-view .ant-btn {
+  color: var(--color-neutral-700);
+}
+.ce-view .ant-btn:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.ce-view .ant-btn.is-selected {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-selected);
+}
+.ce-zoom {
+  min-width: 46px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+
+/* What the plan counts, under the drawing when the panel isn't beside it */
+.ce-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding-top: 8px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.ce-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.ce-count-value {
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.ce-count .ant-btn-link {
+  height: auto;
+  padding: 0 0 0 4px;
+  font-size: 13px;
+}
+
+.ce-help {
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-neutral-700);
+}
+.ce-help p {
+  margin: 0 0 8px;
+}
+.ce-keys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 4px 0 8px;
+}
+.ce-keys kbd {
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  padding: 0 5px;
+  border: 1px solid var(--color-neutral-400);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--color-neutral-50);
+  color: var(--color-neutral-900);
+  white-space: nowrap;
+}
+
+/* Read aloud, never seen */
+.ce-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ce-divider::before {
+    transition: none;
+  }
+}

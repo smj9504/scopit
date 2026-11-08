@@ -40,3 +40,28 @@ def require_tool_access(tool_id: str):
         return current_user
 
     return dependency
+
+
+def require_any_tool_access(*tool_ids: str):
+    """
+    Like require_tool_access, for something several tools share (the product
+    library: the Cabinet and Bathroom Estimators): access to any one of them
+    is enough.
+    """
+    async def dependency(
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        service = ToolAccessService(db)
+        tools = [t for t in (get_tool(tool_id) for tool_id in tool_ids) if t]
+        if not tools:
+            raise NotFoundException("Tool", ", ".join(tool_ids))
+        if not any(service.can_access_tool(t.id, current_user) for t in tools):
+            names = " or ".join(t.name for t in tools)
+            raise ForbiddenException(
+                f"Your current plan does not include access to {names}. "
+                "Please upgrade to unlock this tool."
+            )
+        return current_user
+
+    return dependency

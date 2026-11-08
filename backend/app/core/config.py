@@ -134,6 +134,21 @@ class Settings(BaseSettings):
     AI_VISION_ROOMS_PER_COMPANY_PER_DAY: int = 150
 
     # ===================
+    # Cabinet Estimator
+    # ===================
+    # The 3D view's "AI photo": a Gemini image model redraws the realistic
+    # render as a photo of the finished kitchen. On hold: its button is hidden
+    # (AI_PHOTO_ENABLED in CabinetSketchEditor.tsx), and the endpoint answers
+    # 503 until a key is set.
+    GEMINI_API_KEY: Optional[str] = None
+    CABINET_AI_PHOTO_MODEL: str = "gemini-nano-banana-2.1"
+    # Product library: the Claude model (ANTHROPIC_API_KEY) that reads a
+    # product's details off a retailer page or a screenshot of one.
+    PRODUCT_EXTRACT_MODEL: str = "claude-haiku-5-5"
+    # low | medium | high | xhigh | max; empty for models without effort.
+    PRODUCT_EXTRACT_EFFORT: str = "low"
+
+    # ===================
     # File Storage
     # ===================
     STORAGE_PROVIDER: str = "local"  # local, r2

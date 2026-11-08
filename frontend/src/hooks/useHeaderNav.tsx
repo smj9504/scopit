@@ -2,7 +2,7 @@
  * Scopit - Header Navigation Context
  * Allows child pages to set back navigation in the app header.
  */
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useLayoutEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 
 interface BackNav {
@@ -28,8 +28,11 @@ export const HeaderNavProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setBackNavState(nav);
   }, []);
 
-  // Clear back nav on route change
-  useEffect(() => {
+  // Clear back nav on route change. A layout effect, so it runs before the
+  // new page's own useBackNav effect: a page that mounts in the same commit
+  // as the route change (e.g. switching between two estimates on one route)
+  // would otherwise set its back nav and have it cleared right after.
+  useLayoutEffect(() => {
     setBackNavState(null);
   }, [location.pathname]);
 
