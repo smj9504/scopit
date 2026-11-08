@@ -208,6 +208,78 @@ def test_a_half_cent_line_rounds_up_as_the_scopit_estimate_does():
     assert payload_sum(payload) == 1014.33
 
 
+def test_a_line_the_calculator_rounded_down_keeps_its_quantity():
+    # Two lines of a real MJ master bath, as the calculator prices them: its
+    # float round() takes 138.1 × 2.55 = 352.155 down to 352.15 and
+    # 43.75 × 20.46 = 895.125 down to 895.12, where the Scopit estimate
+    # rounds both half up
+    estimate = {"total": 2465.14, "line_items": [
+        {"phase": 3, "display_order": 0, "description": "Waterproofing - Paint-on membrane",
+         "quantity": 138.1, "unit": "SF", "unit_price": 2.55, "total": 352.15},
+        {"phase": 4, "display_order": 1, "description": "Bathtub surround tile complete",
+         "quantity": 43.75, "unit": "SF", "unit_price": 20.46, "total": 895.12},
+        {"phase": 5, "display_order": 2, "description": "Shower door - Framed Sliding",
+         "quantity": 1, "unit": "EA", "unit_price": 1217.87, "total": 1217.87},
+    ]}
+    payload = to_estimate_payload(estimate)
+    items = {it["name"]: it for s in payload["sections"] for it in s["items"]}
+    membrane = items["Waterproofing - Paint-on membrane"]
+    surround = items["Bathtub surround tile complete"]
+    assert (membrane["quantity"], membrane["unit"], membrane["unit_price"]) == (138.1, "SF", 2.55)
+    assert (surround["quantity"], surround["unit"], surround["unit_price"]) == (43.75, "SF", 20.46)
+    # The one-unit line gives back the two cents the others round up
+    assert items["Shower door - Framed Sliding"]["unit_price"] == 1217.85
+    assert payload_sum(payload) == 2465.14
+    assert all("_total" not in it for it in items.values())
+
+
+def test_with_no_one_unit_line_a_half_cent_line_goes_over_as_its_total():
+    estimate = {"total": 352.15, "line_items": [
+        {"phase": 3, "description": "Waterproofing - Paint-on membrane",
+         "quantity": 138.1, "unit": "SF", "unit_price": 2.55, "total": 352.15},
+    ]}
+    payload = to_estimate_payload(estimate)
+    item = payload["sections"][0]["items"][0]
+    assert (item["quantity"], item["unit"], item["unit_price"]) == (1.0, "LS", 352.15)
+    assert item["description"].startswith("138.1 SF at $2.55")
+    assert payload_sum(payload) == 352.15
+
+
+def test_no_line_goes_over_taxable(ours):
+    estimate = ours.calculate(new_job(ours)["id"])
+    items = [it for s in to_estimate_payload(estimate)["sections"] for it in s["items"]]
+    assert items and not any(it["is_taxable"] for it in items)
+
+
+def test_a_company_with_a_sales_tax_still_gets_the_bathroom_total(ours, session):
+    """The calculator already puts material tax in its prices; the company's
+    default tax rate must not charge it again on the Scopit estimate."""
+    from types import SimpleNamespace
+
+    from app.domains.company.models import Company
+    from app.domains.estimate.models import (
+        Estimate,
+        EstimateAdjustment,
+        EstimateItem,
+        EstimatePayment,
+        EstimateSection,
+    )
+    from app.domains.settings.models import EstimateStatusConfig
+    from app.domains.tools.estimate_writer import write_estimate
+
+    for model in (EstimateStatusConfig, Estimate, EstimateSection, EstimateItem,
+                  EstimateAdjustment, EstimatePayment):
+        model.__table__.create(session.connection())
+    session.get(Company, COMPANY_ID).default_tax_rate = Decimal("6.000")
+    estimate = ours.calculate(new_job(ours)["id"])
+
+    written, _ = write_estimate(
+        session, SimpleNamespace(company_id=COMPANY_ID, id=None), to_estimate_payload(estimate),
+    )
+    assert written.tax_amount == 0
+    assert written.total == Decimal(str(round(estimate["total"], 2)))
+
+
 def test_the_title_names_the_room_the_option_and_the_address(ours):
     restore = new_job(ours)
     option = ours.add_option(restore["id"])

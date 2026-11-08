@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resizeRoomEdge, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './beGeometry';
+import { outlineMeasures, resizeRoomEdge, showerDoorPosition, showerDoorSpan, showerFrontPanels, wallAreaSF } from './beGeometry';
 
 describe('showerDoorPosition', () => {
   it('puts a glass door where it is set, and in the middle when it is not', () => {
@@ -72,5 +72,33 @@ describe('resizeRoomEdge', () => {
 
   it('gives up on an edge with no length', () => {
     expect(resizeRoomEdge([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 10, y: 10 }], 0, 40)).toBeNull();
+  });
+});
+
+describe('outlineMeasures', () => {
+  it('measures a room that is not a rectangle by its outline, not its bounding box', () => {
+    // A master bath drawn at 40 px a foot: 10'6" x 7'7.5" with the toilet alcove
+    // out to the left and the door wall cut across a corner. Its box is 13' x 7'8".
+    const room = [
+      { x: 280, y: -560 }, { x: 700, y: -560 }, { x: 700, y: -255 }, { x: 460, y: -255 },
+      { x: 385, y: -330 }, { x: 185, y: -330 }, { x: 185, y: -435 }, { x: 280, y: -435 },
+    ];
+    const { floorSF, perimeterLF } = outlineMeasures(room, 40);
+    expect(floorSF).toBeCloseTo(79.62, 2);
+    expect(perimeterLF).toBeCloseTo(39.9, 1);
+  });
+
+  it('gives a rectangle its length times width, whichever way it was drawn', () => {
+    const cw = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 320 }, { x: 0, y: 320 }];
+    expect(outlineMeasures(cw, 40)).toEqual({ floorSF: 40, perimeterLF: 26 });
+    expect(outlineMeasures([...cw].reverse(), 40)).toEqual({ floorSF: 40, perimeterLF: 26 });
+  });
+});
+
+describe('wallAreaSF', () => {
+  it('is the length round in feet times the ceiling height in feet', () => {
+    // 39.9 LF at an 8' ceiling. Worked out over 144 it came to 26.6, 12x too small.
+    expect(wallAreaSF(39.9, 96)).toBeCloseTo(319.2, 1);
+    expect(wallAreaSF(26, 108)).toBe(234);
   });
 });

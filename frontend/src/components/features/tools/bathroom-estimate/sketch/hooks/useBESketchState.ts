@@ -34,6 +34,7 @@ import {
   DEFAULT_INSULATION_COSTS,
 } from '@/types/bathroomSketch';
 import { generateTileZones } from '../utils/beTileZoneGenerator';
+import { wallAreaSF as roomWallSF } from '../utils/beGeometry';
 import { findClosedWallLoop } from '../utils/beWallLoop';
 
 let _idCounter = 0;
@@ -195,7 +196,7 @@ export function useBESketchState(initialData?: BESketchData) {
             areaPx2 = Math.abs(areaPx2) / 2;
             const floorAreaSF = areaPx2 / (ppf * ppf);
             const perimeterLF = pxToInches(perimeterPx, ppf) / 12;
-            const wallAreaSF = (perimeterLF * 96) / 144;
+            const wallAreaSF = roomWallSF(perimeterLF, 96);
 
             const parentRoomId = findParentRoom(d.rooms, loop.boundary);
             const room: BERoom = {
@@ -261,7 +262,7 @@ export function useBESketchState(initialData?: BESketchData) {
       const floorAreaSF = areaPx2 / (ppf * ppf);
       const perimeterLF = pxToInches(perimeterPx, ppf) / 12;
       const heightInches = 96;
-      const wallAreaSF = (perimeterLF * heightInches) / 144;
+      const wallAreaSF = roomWallSF(perimeterLF, heightInches);
 
       mutate((d) => {
         // Auto-detect parent room
@@ -333,7 +334,7 @@ export function useBESketchState(initialData?: BESketchData) {
 
       mutate((d) => {
         const room = d.rooms.find((r) => r.id === id);
-        const wallAreaSF = (perimeterLF * (room?.heightInches || 96)) / 144;
+        const wallAreaSF = roomWallSF(perimeterLF, room?.heightInches || 96);
 
         // Sync walls to match new boundary edges
         let newWalls = d.walls;
@@ -389,7 +390,7 @@ export function useBESketchState(initialData?: BESketchData) {
           ...d,
           walls: d.walls.map((w) => (own.has(w.id) ? { ...w, heightInches } : w)),
           rooms: d.rooms.map((r) => (r.id === id
-            ? { ...r, heightInches, wallAreaSF: Math.round(((r.perimeterLF * heightInches) / 144) * 100) / 100 }
+            ? { ...r, heightInches, wallAreaSF: Math.round(roomWallSF(r.perimeterLF, heightInches) * 100) / 100 }
             : r)),
         };
       });

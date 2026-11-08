@@ -27,7 +27,7 @@ import { soffitAreas } from './utils/soffit';
 import { cabinetsFromSketch, lightsFromSketch, type FixtureRow } from '../fixtureRows';
 import { mirrorsFromSketch, type MirrorRow } from '../mirrorRows';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { showerDoorPosition } from './utils/beGeometry';
+import { outlineMeasures, showerDoorPosition, wallAreaSF as roomWallSF } from './utils/beGeometry';
 import { roomWallFinishTotals } from './utils/wallFinish';
 import { useBESketchState } from './hooks/useBESketchState';
 import BESketchToolbar, { MARK_TOOLS, type BESketchView } from './BESketchToolbar';
@@ -199,14 +199,15 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     // Floor SF: the whole room (primary + additional rooms). The calculator
     // takes the tub, shower and vanity footprints off for the tile and its
     // underlayment, and uses the whole room for the ceiling and paint prep;
-    // taking them off here too took them off twice.
-    let totalFloorSF = widthFt * depthFt;
+    // taking them off here too took them off twice. Measured from the room's
+    // outline: its bounding box overcounts a room that isn't a rectangle.
+    const outline = outlineMeasures(bathroom.boundary, ppf);
+    let totalFloorSF = outline.floorSF;
 
     // Wall SF: primary room + additional rooms, minus door/window openings
     const heightFt = (bathroom.heightInches || 96) / 12;
     sync.height_ft = Math.round(heightFt * 100) / 100;
-    const perimeterFt = 2 * (widthFt + depthFt);
-    const grossWallSF = perimeterFt * heightFt;
+    const grossWallSF = roomWallSF(outline.perimeterLF, bathroom.heightInches || 96);
 
     // Deduct door/window openings from wall area
     let doorWindowDeductSF = 0;
@@ -222,7 +223,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     for (const rm of rooms) {
       if (rm.id === bathroom.id || rm.parentRoomId) continue;
       totalFloorSF += rm.netFloorAreaSF || rm.floorAreaSF || 0;
-      totalWallSF += rm.wallAreaSF || 0;
+      // From the outline: sketches saved before 2026-11-08 store a wall area 12× too small
+      if (rm.boundary.length >= 3) totalWallSF += roomWallSF(outlineMeasures(rm.boundary, ppf).perimeterLF, rm.heightInches || 96);
     }
 
     sync.floor_sf = Math.round(totalFloorSF * 10) / 10;
@@ -521,7 +523,10 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
         if (sWalls >= 3) perim += sD;
         deductSF += (perim * sTileH) / 144;
       }
-      fullPaintWallSF = Math.max(0, Math.round((bathroom.wallAreaSF - deductSF) * 10) / 10);
+      // The room's walls from its outline: the wall area stored on rooms saved
+      // before 2026-11-08 is 12× too small, which left nothing to paint here
+      const roomWalls = roomWallSF(outlineMeasures(bathroom.boundary, ppf).perimeterLF, bathroom.heightInches || 96);
+      fullPaintWallSF = Math.max(0, Math.round((roomWalls - deductSF) * 10) / 10);
     }
 
     // Ceiling: use floor SF as ceiling area

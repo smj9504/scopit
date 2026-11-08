@@ -157,3 +157,23 @@ export function resizeRoomEdge(boundary: Pt2[], edgeIdx: number, newLengthPx: nu
   }
   return b;
 }
+
+/**
+ * An outline's floor, SF, and its length round, LF, at `ppf` pixels a foot.
+ * Measured from the outline itself, so a room that isn't a rectangle (a cut
+ * corner, an alcove) counts only the floor it has, not its bounding box.
+ */
+export function outlineMeasures(boundary: Pt2[], ppf: number): { floorSF: number; perimeterLF: number } {
+  let area2 = 0;
+  let perimeterPx = 0;
+  for (let i = 0; i < boundary.length; i++) {
+    const a = boundary[i];
+    const b = boundary[(i + 1) % boundary.length];
+    area2 += a.x * b.y - b.x * a.y;
+    perimeterPx += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return { floorSF: Math.abs(area2) / 2 / (ppf * ppf), perimeterLF: perimeterPx / ppf };
+}
+
+/** A room's walls, SF: its length round (LF) times its ceiling height (inches). */
+export const wallAreaSF = (perimeterLF: number, heightInches: number): number => (perimeterLF * heightInches) / 12;

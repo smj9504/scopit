@@ -45,7 +45,7 @@ import {
   presetOf,
 } from './utils/plumbingPoints';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
+import { resizeRoomEdge, showerDoorPosition, wallAreaSF } from './utils/beGeometry';
 import BEWallFinishEditor from './BEWallFinishEditor';
 
 // ── Names ──
@@ -975,7 +975,8 @@ const RoomInspector: React.FC<{ room: BERoom; api: BESketchStateAPI }> = ({ room
         {room.floorAreaSF} SF
         {room.netFloorAreaSF !== room.floorAreaSF && <span className="bes-unit"> · {room.netFloorAreaSF} SF net</span>}
       </Fact>
-      <Fact label="Walls">{room.wallAreaSF} SF</Fact>
+      {/* From the perimeter: rooms saved before 2026-11-08 store a wall area 12× too small */}
+      <Fact label="Walls">{Math.round(wallAreaSF(room.perimeterLF, room.heightInches || 96) * 10) / 10} SF</Fact>
       <Fact label="Perimeter">{room.perimeterLF} LF</Fact>
       <Field label="Ceiling" hint={`${feetInches((room.heightInches || 96) / 12)}. Sets its walls' height; a lower part (over a tub) is a soffit.`}>
         <Num
