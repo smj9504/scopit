@@ -239,7 +239,7 @@ export function handleNewsletter(request: Request, env: Env, deps: HandlerDeps =
 
     const provider = createNewsletterProvider(env, ctx.deps.fetch);
     try {
-      await provider.subscribe(parsed.value.email, { referrerUrl: siteUrl(env, '/for-adjusters/') });
+      await provider.subscribe(parsed.value.email, { referrerUrl: siteUrl(env, '/for-adjusters/'), ip: ctx.ip });
     } catch (err) {
       console.error('[newsletter] subscribe failed', err);
       return errorResponse(502, 'We could not sign you up just now. Please try again later.');

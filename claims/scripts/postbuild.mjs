@@ -11,6 +11,9 @@
  */
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { loadBuildEnv } from './build-env.mjs';
+
+loadBuildEnv();
 
 const DIST = new URL('../dist/', import.meta.url).pathname;
 const errors = [];
@@ -56,6 +59,9 @@ for (const file of htmlFiles) {
 if (process.env.CLAIMS_ENV === 'production') {
   for (const p of pages) {
     if (/DEV FIXTURE/i.test(p.html)) errors.push(`${p.rel}: dev fixture data in a production build.`);
+    if (p.html.includes('1x00000000000000000000AA')) {
+      errors.push(`${p.rel}: Turnstile test site key in a production build. Set PUBLIC_TURNSTILE_SITE_KEY.`);
+    }
   }
 }
 

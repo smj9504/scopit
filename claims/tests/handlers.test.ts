@@ -29,7 +29,7 @@ beforeEach(() => {
     CLAIMS_SITE: ORIGIN,
     TURNSTILE_SECRET_KEY: 'secret',
     RESEND_API_KEY: 're_test',
-    EMAIL_FROM: 'Scopit Claims <claims@send.scopit.work>',
+    EMAIL_FROM: 'Scopit Claims <claims@mail.scopit.work>',
     ADMIN_NOTIFY_EMAIL: 'admin@scopit.test',
     BUTTONDOWN_API_KEY: 'bd_test',
     IP_HASH_SALT: 'salt',
@@ -206,7 +206,8 @@ describe('POST /api/newsletter', () => {
     const res = await handleNewsletter(post('/api/newsletter', { email: 'pa@example.com', 'cf-turnstile-response': 'token' }), env, deps(f));
     expect(res.status).toBe(200);
     const call = f.calls.find((c) => c.url.startsWith('https://api.buttondown.com/'));
-    expect(call?.body).toMatchObject({ email_address: 'pa@example.com', tags: ['scopit-claims-adjuster-notes'] });
+    expect(call?.body).toMatchObject({ email_address: 'pa@example.com', tags: ['scopit-claims-adjuster-notes'], ip_address: '203.0.113.7' });
+    expect(call?.body).not.toHaveProperty('type');
     expect((call?.init?.headers as Record<string, string>).Authorization).toBe('Token bd_test');
   });
 

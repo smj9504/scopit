@@ -1,5 +1,10 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import { loadBuildEnv } from './scripts/build-env.mjs';
+
+// On Cloudflare Pages, take this environment's settings from wrangler.toml.
+const cfEnvironment = loadBuildEnv();
+if (cfEnvironment) console.log(`[claims] Cloudflare build: using wrangler.toml env "${cfEnvironment}"`);
 
 /**
  * Where the site is served. Both are build-time settings so the same code can

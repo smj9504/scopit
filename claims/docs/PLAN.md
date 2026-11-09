@@ -13,7 +13,7 @@ Built from the "Build Scopit Claims (production website)" brief. This records wh
 | Storage | **Cloudflare D1** (not KV) | Listings, licenses, and inquiries are relational; verification needs queries like "verified and not expired". D1 is SQLite, so the same SQL runs on Turso if you move to Vercel |
 | Spam | Cloudflare Turnstile + per-IP rate limit (salted hash) + Origin check | |
 | Email | Resend via one adapter (`src/server/email.ts`) | Swappable; a log provider is used locally and is refused in production |
-| Newsletter | Buttondown via one adapter (`src/server/newsletter.ts`) | Double opt-in is a Buttondown setting; subscribers are created unconfirmed |
+| Newsletter | Buttondown via one adapter (`src/server/newsletter.ts`) | Buttondown applies double opt-in to every API signup by default, and the adapter never bypasses it |
 | Analytics | Plausible (optional, cookieless) + Search Console via DNS | **No cookie banner needed**: no cookies, no ad trackers, nothing that requires consent |
 | Admin | **Password-protected `/admin`** (one Pages Function, no JS) + documented D1 SQL fallback | Lighter to run day to day than SQL by hand; tiny attack surface; add Cloudflare Access on top |
 | Directory data | D1 is the source of truth; pages are built from it at build time via the D1 REST API | Keeps every public page static; approvals trigger a rebuild; a nightly rebuild drops expired licenses |
@@ -42,7 +42,7 @@ Built from the "Build Scopit Claims (production website)" brief. This records wh
 5. Legal drafts, SEO (OG images, sitemap, robots, JSON-LD), security headers, accessibility and performance passes
 6. Deployment guide, launch checklist, CI
 
-Checks at the end: `astro check` 0 errors; 48 unit and integration tests; 22 pages pass `verify-dist`; axe-core finds no violations at 360px or 1280px; Lighthouse mobile scores 100 for Performance, Accessibility, and Best Practices, and 100 for SEO on indexable pages (CLS 0). End to end on `wrangler pages dev` with local D1: apply, verify, approve, inquiry.
+Checks at the end: `astro check` 0 errors; 51 unit and integration tests; 22 pages pass `verify-dist`; axe-core finds no violations at 360px or 1280px; Lighthouse mobile scores 100 for Performance, Accessibility, and Best Practices, and 100 for SEO on indexable pages (CLS 0). End to end on `wrangler pages dev` with local D1: apply, verify, approve, inquiry.
 
 ## Open questions (need a decision)
 

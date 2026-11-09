@@ -2,10 +2,11 @@
  * Newsletter signup behind one small adapter so the provider can be swapped.
  * Default: Buttondown (https://docs.buttondown.com/api-subscribers-create).
  *
- * Double opt-in: turn on "Require double opt-in / confirmation" in the
- * Buttondown newsletter settings. Subscribers created here are not marked as
- * already confirmed, so Buttondown sends its confirmation email and the
- * address is not added until the person clicks it.
+ * Double opt-in: Buttondown applies it by default to subscribers created
+ * through the API (they get a confirmation email and stay "unactivated" until
+ * they click it). It is skipped only if the request sends type "regular",
+ * which this adapter never does. Unknown fields are rejected by Buttondown
+ * (422), so only documented fields are sent.
  */
 import { ConfigError, isProduction, type Env } from './env';
 
@@ -53,8 +54,9 @@ export function createNewsletterProvider(env: Env, fetchImpl: typeof fetch = fet
       });
       if (res.ok) return;
       const detail = await res.text().catch(() => '');
-      // Already on the list: treat as success so we never reveal who is subscribed.
-      if (res.status === 400 && /already|exists|duplicate/i.test(detail)) return;
+      // Already on the list (Buttondown answers 400 email_already_exists; 409 is
+      // also documented): treat as success so we never reveal who is subscribed.
+      if ((res.status === 400 || res.status === 409) && /already|exists|duplicate/i.test(detail)) return;
       throw new NewsletterError(`Buttondown responded ${res.status}: ${detail.slice(0, 300)}`);
     },
   };

@@ -12,10 +12,11 @@
  *   - placeholder D1 database ids in wrangler.toml
  * Warnings:
  *   - photo slots with no real photo yet (// TODO: real photo)
- *   - production build variables not present in this shell
+ *   - Cloudflare secrets that cannot be checked from the repository
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parse } from 'smol-toml';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const blockers = [];
@@ -48,12 +49,15 @@ const wrangler = await readFile(join(ROOT, 'wrangler.toml'), 'utf8');
 if (/database_id = "00000000-0000-0000-0000-00000000000[01]"/.test(wrangler)) {
   blockers.push('wrangler.toml: replace the placeholder D1 database_id values (see docs/DEPLOY.md)');
 }
+const prodVars = parse(wrangler).env?.production?.vars ?? {};
+for (const key of ['PUBLIC_TURNSTILE_SITE_KEY', 'CLAIMS_SITE', 'PUBLIC_CONTACT_EMAIL']) {
+  if (!prodVars[key]) blockers.push(`wrangler.toml [env.production.vars]: ${key} is empty`);
+}
+if (prodVars.CLAIMS_ENV !== 'production') blockers.push('wrangler.toml [env.production.vars]: CLAIMS_ENV must be "production"');
 
 warnings.push('src/pages/index.astro: home hero photo slot has no real photo yet (// TODO: real photo)');
 
-for (const name of ['PUBLIC_TURNSTILE_SITE_KEY', 'CF_ACCOUNT_ID', 'CF_D1_DATABASE_ID', 'CF_D1_API_TOKEN']) {
-  if (!process.env[name]) warnings.push(`${name} is not set in this shell (it must be set in the Cloudflare Pages build settings)`);
-}
+warnings.push('Cloudflare secrets cannot be checked from here: CF_D1_API_TOKEN, CF_ACCOUNT_ID (build) and the runtime secrets in docs/DEPLOY.md section 3');
 
 console.log('Scopit Claims launch check\n');
 if (blockers.length) console.log(`BLOCKERS (${blockers.length})\n- ${blockers.join('\n- ')}\n`);
