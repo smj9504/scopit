@@ -1,0 +1,277 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageHead from '../../components/PageHead.astro';
+import Disclosure from '../../components/Disclosure.astro';
+import FormShell from '../../components/forms/FormShell.astro';
+import Field from '../../components/forms/Field.astro';
+import { getAdjusters } from '../../content-helpers';
+import { breadcrumbLd } from '../../seo/jsonld';
+import { href } from '../../site';
+import { INQUIRY_CONSENT, INQUIRY_RETENTION_DAYS, LIMITS, LOSS_TYPES, REPAIR_STATUSES, STATES } from '../../shared/constants';
+
+const adjusters = await getAdjusters();
+const crumbs = [
+  { name: 'Home', path: '/' },
+  { name: 'Find an adjuster', path: '/find-an-adjuster/' },
+  { name: 'Send a message', path: '/find-an-adjuster/inquiry/' },
+];
+---
+
+<BaseLayout
+  title="Send a message to public adjusters you choose"
+  description="Send one message to up to three license-verified public adjusters you pick. It goes only to them. Scopit does not charge for this."
+  path="/find-an-adjuster/inquiry/"
+  section="homeowners"
+  jsonLd={[breadcrumbLd(crumbs)]}
+  noindex
+  turnstile={adjusters.length > 0}
+>
+  <PageHead
+    crumbs={crumbs}
+    label="Directory · Message"
+    title="Send a message to adjusters <mark>you choose</mark>"
+    lede={`Your message goes only to the adjusters you select, up to ${LIMITS.maxAdjustersPerInquiry}. They reply to you directly. Scopit does not charge for this and never sells your information.`}
+  >
+    <Disclosure class="inq-disclosure" />
+  </PageHead>
+
+  <div class="container section inquiry">
+    {
+      adjusters.length === 0 ? (
+        <section class="block" aria-labelledby="empty-title">
+          <h2 id="empty-title">No adjusters are listed yet</h2>
+          <p>
+            There is no one to message yet. See the <a href={href('/find-an-adjuster/')}>directory</a> for how listings
+            work and how to check a license yourself.
+          </p>
+        </section>
+      ) : (
+        <div class="inquiry__main">
+          <FormShell id="inquiry-form" action="/api/inquiry" submitLabel="Send message" turnstileAction="inquiry">
+            <fieldset>
+              <legend>Your property</legend>
+              <fieldset class="subfieldset" id="propertyState" aria-describedby="propertyState-error">
+                <legend class="field__label">State where the property is</legend>
+                <div class="choice-grid">
+                  {STATES.map((s) => (
+                    <label class="choice" for={`ps-${s.code}`}>
+                      <input class="radio" type="radio" id={`ps-${s.code}`} name="propertyState" value={s.code} required />
+                      <span>{s.name}</span>
+                    </label>
+                  ))}
+                </div>
+                <p class="field__error" id="propertyState-error" />
+              </fieldset>
+              <Field
+                name="lossType"
+                label="Type of damage"
+                as="select"
+                required
+                placeholderOption="Choose one"
+                options={[...LOSS_TYPES.map((l) => ({ value: l.code, label: l.label })), { value: 'other', label: 'Other' }]}
+              />
+              <fieldset class="subfieldset" id="repairStatus" aria-describedby="repairStatus-error">
+                <legend class="field__label">Repairs so far</legend>
+                <div class="choice-grid choice-grid--2">
+                  {REPAIR_STATUSES.map((r) => (
+                    <label class="choice" for={`rs-${r.code}`}>
+                      <input class="radio" type="radio" id={`rs-${r.code}`} name="repairStatus" value={r.code} required />
+                      <span>{r.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p class="field__error" id="repairStatus-error" />
+              </fieldset>
+              <Field name="location" label="City or ZIP code" autocomplete="postal-code" maxlength={LIMITS.locationMax} hint="Helps adjusters know if they cover your area. No street address needed." />
+            </fieldset>
+
+            <fieldset id="adjusters" data-multi="adjusters" data-label="Adjusters" aria-describedby="adjusters-hint adjusters-error">
+              <legend>Choose adjusters (up to {LIMITS.maxAdjustersPerInquiry})</legend>
+              <p class="field__hint" id="adjusters-hint">
+                Only adjusters with a verified license in your property’s state can be chosen. Listed in alphabetical
+                order.
+              </p>
+              <p class="field__error" id="adjusters-error" />
+              <div class="pick-list">
+                {adjusters.map((a) => (
+                  <label class="choice pick" for={`pa-${a.data.slug}`} data-states={a.data.states.join(' ')}>
+                    <input class="check" type="checkbox" id={`pa-${a.data.slug}`} name="adjusters" value={a.data.slug} />
+                    <span>
+                      <strong>{a.data.businessName}</strong>
+                      <span class="pick__meta mono">
+                        Licensed in {a.data.states.join(', ')}
+                        {a.data.fixture && ' · DEV FIXTURE'}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p class="muted pick-empty" id="pick-empty" hidden>
+                No listed adjusters hold a verified license in that state yet.
+              </p>
+            </fieldset>
+
+            <fieldset>
+              <legend>Your message</legend>
+              <div class="form-row form-row--2">
+                <Field name="name" label="Your name" required autocomplete="name" maxlength={LIMITS.nameMax} />
+                <Field name="email" label="Email" type="email" required autocomplete="email" inputmode="email" maxlength={LIMITS.emailMax} />
+              </div>
+              <Field name="phone" label="Phone" type="tel" autocomplete="tel" inputmode="tel" maxlength={LIMITS.phoneMax} />
+              <Field
+                name="message"
+                label="What happened?"
+                as="textarea"
+                required
+                rows={7}
+                maxlength={LIMITS.messageMax}
+                hint={`A few sentences: what was damaged, when, and what has been done so far. Up to ${LIMITS.messageMax} characters.`}
+              />
+            </fieldset>
+
+            <div class="consent">
+              <label class="choice" for="consent">
+                <input class="check" type="checkbox" id="consent" name="consent" value="yes" aria-describedby="consent-error" />
+                <span>{INQUIRY_CONSENT}</span>
+              </label>
+              <p class="field__error" id="consent-error" />
+              <p class="muted consent__note">
+                We keep a record of your message for {INQUIRY_RETENTION_DAYS} days, then delete it. See the{' '}
+                <a href={href('/privacy/')}>Privacy Policy</a>.
+              </p>
+            </div>
+          </FormShell>
+
+          <div class="success-panel" data-success-for="inquiry-form" hidden tabindex="-1" role="status">
+            <h2>Message sent</h2>
+            <p>Your message was sent to:</p>
+            <ul id="sent-to" />
+            <p id="sent-failed" hidden />
+            <p>
+              They may reply by email or phone. A confirmation is on its way to your inbox. Scopit will not contact you
+              about this message.
+            </p>
+            <p>
+              Before you sign anything, read the contract and check the license yourself.{' '}
+              <a href={href('/what-is-a-public-adjuster/')}>What to ask a public adjuster</a>.
+            </p>
+          </div>
+        </div>
+      )
+    }
+  </div>
+</BaseLayout>
+
+<script>
+  import { enhanceForm } from '../../scripts/forms';
+
+  const MAX = 3;
+  const form = document.getElementById('inquiry-form');
+  if (form instanceof HTMLFormElement) {
+    const picks = [...form.querySelectorAll<HTMLLabelElement>('.pick')];
+    const empty = document.getElementById('pick-empty');
+    const boxes = () => picks.map((p) => p.querySelector<HTMLInputElement>('input')!);
+
+    const preselected = (new URLSearchParams(location.search).get('pa') || '').split(',').filter(Boolean);
+    for (const box of boxes()) if (preselected.includes(box.value)) box.checked = true;
+
+    const syncLimit = () => {
+      const checked = boxes().filter((b) => b.checked).length;
+      for (const b of boxes()) b.disabled = !b.checked && checked >= MAX;
+    };
+    const syncState = () => {
+      const state = (form.elements.namedItem('propertyState') as RadioNodeList).value;
+      let visible = 0;
+      for (const p of picks) {
+        const ok = !state || (p.dataset.states || '').split(' ').includes(state);
+        p.hidden = !ok;
+        if (!ok) p.querySelector('input')!.checked = false;
+        else visible++;
+      }
+      if (empty) empty.hidden = visible > 0;
+      syncLimit();
+    };
+    form.addEventListener('change', (e) => {
+      const t = e.target as HTMLInputElement;
+      if (t.name === 'propertyState') syncState();
+      if (t.name === 'adjusters') syncLimit();
+    });
+    syncLimit();
+
+    enhanceForm(form, {
+      validate(f, data) {
+        const errors: Record<string, string> = {};
+        if (!data.propertyState) errors.propertyState = 'Choose the state where the property is.';
+        if (!data.repairStatus) errors.repairStatus = 'Choose where repairs stand.';
+        const chosen = data.adjusters;
+        if (!chosen || (Array.isArray(chosen) && chosen.length === 0)) errors.adjusters = 'Choose at least one adjuster.';
+        f.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('.field [required]').forEach((el) => {
+          if (!el.value.trim()) errors[el.name] = 'This field is required.';
+        });
+        if (!(f.querySelector('#consent') as HTMLInputElement).checked) errors.consent = 'Check the box to agree before sending.';
+        return errors;
+      },
+      onSuccess(reply) {
+        const list = document.getElementById('sent-to');
+        const failed = document.getElementById('sent-failed');
+        if (list) {
+          list.innerHTML = '';
+          for (const name of (reply.sentTo as string[]) || []) {
+            const li = document.createElement('li');
+            li.textContent = name;
+            list.append(li);
+          }
+        }
+        const failedNames = (reply.failed as string[]) || [];
+        if (failed && failedNames.length) {
+          failed.hidden = false;
+          failed.textContent = `We could not reach ${failedNames.join(', ')}. You can contact them using the details on their profile.`;
+        }
+      },
+    });
+  }
+</script>
+
+<style>
+  .inq-disclosure {
+    margin-top: var(--space-3);
+  }
+  .inquiry__main {
+    max-width: 46rem;
+  }
+  .subfieldset {
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 0 var(--space-2) !important;
+    background: transparent !important;
+  }
+  .subfieldset legend {
+    font-size: 1.125rem;
+    margin: 0 0 0.25rem;
+    padding: 0;
+  }
+  .pick strong {
+    display: block;
+  }
+  .pick__meta {
+    display: block;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .pick:has(input:disabled) {
+    opacity: 0.55;
+  }
+  .consent {
+    border: var(--rule);
+    border-radius: var(--radius);
+    background: var(--paper);
+    padding: 0.5rem var(--space-3) var(--space-2);
+  }
+  .consent .choice span {
+    font-weight: 600;
+  }
+  .consent__note {
+    font-size: 1rem;
+    margin: 0.25rem 0 0;
+  }
+</style>

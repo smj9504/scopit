@@ -1,0 +1,204 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageHead from '../../components/PageHead.astro';
+import Disclosure from '../../components/Disclosure.astro';
+import LicenseLines from '../../components/directory/LicenseLines.astro';
+import LicenseLookups from '../../components/directory/LicenseLookups.astro';
+import { getAdjusters, type Adjuster } from '../../content-helpers';
+import { breadcrumbLd } from '../../seo/jsonld';
+import { href } from '../../site';
+import { lossTypeLabel, stateName, type StateCode } from '../../shared/constants';
+import { formatDate } from '../../shared/dates';
+
+export async function getStaticPaths() {
+  const adjusters = await getAdjusters();
+  return adjusters.map((a) => ({ params: { slug: a.data.slug }, props: { adjuster: a } }));
+}
+
+interface Props {
+  adjuster: Adjuster;
+}
+
+const { adjuster } = Astro.props;
+const a = adjuster.data;
+const path = `/find-an-adjuster/${a.slug}/`;
+const crumbs = [
+  { name: 'Home', path: '/' },
+  { name: 'Find an adjuster', path: '/find-an-adjuster/' },
+  { name: a.businessName, path },
+];
+const statesText = a.states.map((s) => stateName(s)).join(', ');
+const description = `${a.businessName}: public adjuster licensed in ${statesText}. License verified by Scopit; see the dates on this page. Free directory, no paid placement.`.slice(0, 160);
+const phoneHref = a.phone ? `tel:${a.phone.replace(/[^\d+]/g, '')}` : null;
+let websiteHost: string | null = null;
+if (a.website) {
+  try {
+    websiteHost = new URL(a.website).hostname.replace(/^www\./, '');
+  } catch {
+    websiteHost = null;
+  }
+}
+---
+
+<BaseLayout
+  title={`${a.businessName}, public adjuster in ${a.states.join(', ')}`}
+  description={description}
+  path={path}
+  section="homeowners"
+  jsonLd={[breadcrumbLd(crumbs)]}
+  noindex={a.fixture}
+>
+  <PageHead crumbs={crumbs} label={`Public adjuster · Licensed in ${statesText}`} title={a.businessName}>
+    <p class="profile-sub">
+      {a.contactName}{a.officeCity && <>, office in {a.officeCity}, {a.officeState}</>}
+    </p>
+  </PageHead>
+
+  <div class="container section profile">
+    <div class="profile__main">
+      {
+        a.fixture && (
+          <p class="notice notice--draft" role="note">
+            <strong>Development fixture.</strong> This is not a real adjuster. It exists only to test the layout locally.
+          </p>
+        )
+      }
+
+      <section aria-labelledby="licenses-title" class="profile__block">
+        <h2 id="licenses-title">Licenses</h2>
+        <p class="muted">
+          Scopit checked each license below against the state’s official license lookup on the date shown. Licenses
+          can change, so check again before you sign a contract.
+        </p>
+        <LicenseLines licenses={a.licenses} />
+      </section>
+
+      <section aria-labelledby="about-title" class="profile__block">
+        <h2 id="about-title">About</h2>
+        <p class="profile__bio">{a.bio}</p>
+        <p class="muted profile__bio-note">Written by the adjuster. Scopit does not check claims made in this description.</p>
+      </section>
+
+      {
+        a.lossTypes.length > 0 && (
+          <section aria-labelledby="loss-title" class="profile__block">
+            <h2 id="loss-title">Types of loss</h2>
+            <ul class="tag-list">
+              {a.lossTypes.map((l) => (
+                <li class="tag">{lossTypeLabel(l)}</li>
+              ))}
+            </ul>
+          </section>
+        )
+      }
+
+      <section class="notice profile__note" aria-label="About this listing">
+        <p>
+          A listing is not a recommendation or endorsement. Scopit does not rate or rank adjusters, does not take part
+          in your claim, and does not receive payment from listed adjusters.
+          {a.listedOn && <> Listed since {formatDate(a.listedOn)}.</>}
+        </p>
+      </section>
+    </div>
+
+    <aside class="profile__aside" aria-labelledby="contact-title">
+      <div class="block contact-card">
+        <p class="label" id="contact-title">Contact</p>
+        <a class="btn btn--primary contact-card__cta" href={`${href('/find-an-adjuster/inquiry/')}?pa=${a.slug}`}>
+          Send a message
+        </a>
+        <p class="contact-card__hint">Your message goes only to the adjusters you choose.</p>
+        {
+          (phoneHref || websiteHost) && (
+            <dl class="contact-card__list">
+              {phoneHref && (
+                <div>
+                  <dt class="label">Phone</dt>
+                  <dd>
+                    <a href={phoneHref}>{a.phone}</a>
+                  </dd>
+                </div>
+              )}
+              {websiteHost && a.website && (
+                <div>
+                  <dt class="label">Website</dt>
+                  <dd>
+                    <a href={a.website} rel="nofollow noopener">
+                      {websiteHost}
+                    </a>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )
+        }
+      </div>
+      <LicenseLookups states={a.states as StateCode[]} title="Check this license yourself" />
+      <Disclosure class="profile__disclosure" />
+    </aside>
+  </div>
+</BaseLayout>
+
+<style>
+  .profile-sub {
+    font-size: 1.2rem;
+    margin: 0;
+  }
+  .profile {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (min-width: 1000px) {
+    .profile {
+      grid-template-columns: minmax(0, 1fr) 21rem;
+      gap: var(--space-5);
+      align-items: start;
+    }
+  }
+  .profile__main {
+    max-width: var(--measure);
+  }
+  .profile__main > .notice:first-child {
+    margin-bottom: var(--space-3);
+  }
+  .profile__block + .profile__block {
+    margin-top: var(--space-4);
+  }
+  .profile__bio {
+    white-space: pre-line;
+  }
+  .profile__bio-note {
+    font-size: 1rem;
+  }
+  .profile__note {
+    margin-top: var(--space-4);
+  }
+  .profile__aside {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .contact-card__cta {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+  .contact-card__hint {
+    font-size: 1rem;
+    color: var(--muted);
+    margin: 0.5rem 0 0;
+  }
+  .contact-card__list {
+    margin: var(--space-2) 0 0;
+    border-top: var(--hair);
+  }
+  .contact-card__list div {
+    padding: 0.6rem 0;
+    border-bottom: var(--hair);
+  }
+  .contact-card__list dd {
+    margin: 0.1rem 0 0;
+    overflow-wrap: anywhere;
+  }
+  .profile__disclosure {
+    display: block;
+  }
+</style>
