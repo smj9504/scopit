@@ -1,0 +1,10 @@
+---
+/** Cornerstone guide, served at /what-is-a-public-adjuster/. */
+import { getEntry } from 'astro:content';
+import GuidePage from '../components/GuidePage.astro';
+
+const guide = await getEntry('guides', 'what-is-a-public-adjuster');
+if (!guide) throw new Error('Missing src/content/guides/what-is-a-public-adjuster.md');
+---
+
+<GuidePage guide={guide} />

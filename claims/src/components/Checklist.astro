@@ -1,0 +1,57 @@
+---
+/**
+ * "Before the plumber leaves" checklist, styled like a clipboard form.
+ * The boxes are real checkboxes so people can tick them on their phone;
+ * nothing is saved or sent anywhere.
+ */
+import { href } from '../site';
+
+interface Item {
+  title: string;
+  detail: string;
+}
+
+interface Props {
+  id?: string;
+  formCode?: string;
+  title: string;
+  items: Item[];
+  footLink?: { label: string; path: string };
+}
+
+const { id = 'checklist', formCode = 'CL-01', title, items, footLink } = Astro.props;
+---
+
+<section class="clipboard" id={id} aria-labelledby={`${id}-title`}>
+  <div class="clipboard__head">
+    <h2 id={`${id}-title`}>{title}</h2>
+    <span class="label">Form {formCode} · {items.length} items</span>
+  </div>
+  <ol class="checklist">
+    {
+      items.map((item, i) => (
+        <li class="checklist__item">
+          <label class="checklist__label" for={`${id}-${i}`}>
+            <span class="checklist__num" aria-hidden="true">
+              {String(i + 1).padStart(2, '0')}
+            </span>
+            <input class="check" type="checkbox" id={`${id}-${i}`} />
+            <span class="checklist__text">
+              <strong>{item.title}</strong>
+              <span>{item.detail}</span>
+            </span>
+          </label>
+        </li>
+      ))
+    }
+  </ol>
+  {
+    footLink && (
+      <div class="clipboard__foot">
+        <p>
+          <a href={href(footLink.path)}>{footLink.label}</a>
+        </p>
+      </div>
+    )
+  }
+</section>

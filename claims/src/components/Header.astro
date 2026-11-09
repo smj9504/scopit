@@ -1,0 +1,217 @@
+---
+/**
+ * Shared header. Two separate nav groups (homeowners, adjusters) so the two
+ * audiences never land in each other's section by accident. No JavaScript:
+ * on small screens the groups stack instead of hiding behind a menu.
+ */
+import { href, type Section } from '../site';
+
+
+
+interface Props {
+  section: Section;
+  /** Site path of the current page, used to mark the current link. */
+  path: string;
+}
+
+const { section, path } = Astro.props;
+
+const homeowners = [
+  { label: 'Guides', path: '/guides/' },
+  { label: 'Find an adjuster', path: '/find-an-adjuster/' },
+];
+const adjusters = [
+  { label: 'Estimating notes', path: '/for-adjusters/notes/' },
+  { label: 'Get listed', path: '/for-adjusters/apply/' },
+];
+
+function isCurrent(linkPath: string) {
+  const clean = linkPath.split('#')[0] ?? linkPath;
+  if (clean === '/for-adjusters/notes/') return path.startsWith('/for-adjusters/notes/');
+  return path === clean || (clean !== '/' && path.startsWith(clean));
+}
+---
+
+<header class="site-header">
+  <div class="container site-header__bar">
+    <a class="brand" href={href('/')} aria-label="Scopit Claims home">
+      <span class="brand__name">Scopit</span>
+      <span class="brand__tag">Claims</span>
+    </a>
+    <a class="site-header__about" href={href('/about/')} aria-current={path === '/about/' ? 'page' : undefined}>About</a>
+  </div>
+  <nav class="site-nav" aria-label="Main">
+    <div class="container site-nav__inner">
+      <div class:list={['nav-group', { 'nav-group--active': section === 'homeowners' }]}>
+        <a class="nav-group__label" href={href('/')} aria-current={path === '/' ? 'page' : undefined}><span class="nav-group__for">For </span>homeowners</a>
+        <ul>
+          {
+            homeowners.map((l) => (
+              <li>
+                <a href={href(l.path)} aria-current={isCurrent(l.path) ? 'page' : undefined}>
+                  {l.label}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+      <div class:list={['nav-group', { 'nav-group--active': section === 'adjusters' }]}>
+        <a class="nav-group__label" href={href('/for-adjusters/')} aria-current={path === '/for-adjusters/' ? 'page' : undefined}
+          ><span class="nav-group__for">For </span>adjusters</a
+        >
+        <ul>
+          {
+            adjusters.map((l) => (
+              <li>
+                <a href={href(l.path)} aria-current={isCurrent(l.path) ? 'page' : undefined}>
+                  {l.label}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </div>
+  </nav>
+</header>
+
+<style>
+  .site-header {
+    border-bottom: var(--rule);
+    background: var(--bg);
+  }
+  .site-header__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 64px;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    color: var(--ink);
+    text-decoration: none;
+    padding: 0.5rem 0;
+  }
+  .brand__name {
+    font-weight: 700;
+    font-size: 1.4rem;
+    letter-spacing: -0.02em;
+  }
+  .brand__tag {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: var(--yellow);
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius);
+  }
+  .site-header__about {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.25rem;
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .site-nav {
+    border-top: var(--hair);
+  }
+  .site-nav__inner {
+    display: grid;
+  }
+  .nav-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 1.25rem;
+    min-height: 48px;
+  }
+  .nav-group + .nav-group {
+    border-top: var(--hair);
+  }
+  .nav-group__label {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .nav-group__label:hover {
+    color: var(--ink);
+    text-decoration: underline;
+  }
+  .nav-group--active .nav-group__label {
+    color: var(--ink);
+  }
+  .nav-group ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.25rem;
+  }
+  .nav-group li a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .nav-group li a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+  }
+  .nav-group a[aria-current='page'] {
+    text-decoration: underline;
+    text-decoration-color: var(--yellow);
+    text-decoration-thickness: 4px;
+    text-underline-offset: 0.3em;
+  }
+  @media (max-width: 599px) {
+    .nav-group {
+      flex-wrap: nowrap;
+      gap: 0 0.85rem;
+    }
+    .nav-group__for {
+      display: none;
+    }
+    .nav-group__label {
+      flex: 0 0 auto;
+      min-width: 6.6rem;
+      font-size: 0.8125rem;
+      letter-spacing: 0.03em;
+    }
+    .nav-group ul {
+      gap: 0 0.85rem;
+    }
+    .nav-group li a {
+      font-size: 1rem;
+    }
+  }
+  @media (min-width: 900px) {
+    .site-nav__inner {
+      grid-template-columns: auto auto;
+      justify-content: start;
+      gap: 0 2.5rem;
+    }
+    .nav-group + .nav-group {
+      border-top: 0;
+      border-left: var(--hair);
+      padding-left: 2.5rem;
+    }
+  }
+</style>

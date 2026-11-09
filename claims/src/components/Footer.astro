@@ -1,0 +1,95 @@
+---
+import { href, SITE } from '../site';
+import { DISCLOSURE, GENERAL_DISCLAIMER } from '../shared/constants';
+
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="disclosure site-footer__disclosure">{DISCLOSURE}</p>
+    <div class="site-footer__cols">
+      <nav aria-label="For homeowners">
+        <p class="label">For homeowners</p>
+        <ul>
+          <li><a href={href('/')}>Home</a></li>
+          <li><a href={href('/guides/')}>Guides</a></li>
+          <li><a href={href('/what-is-a-public-adjuster/')}>What is a public adjuster?</a></li>
+          <li><a href={href('/find-an-adjuster/')}>Find an adjuster</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="For adjusters">
+        <p class="label">For adjusters</p>
+        <ul>
+          <li><a href={href('/for-adjusters/')}>Estimating notes</a></li>
+          <li><a href={href('/for-adjusters/apply/')}>Apply to be listed</a></li>
+          <li><a href={href('/listing-terms/')}>PA Listing Terms</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="About this site">
+        <p class="label">This site</p>
+        <ul>
+          <li><a href={href('/about/')}>About and verification</a></li>
+          <li><a href={href('/contact/')}>Contact</a></li>
+          <li><a href={href('/disclaimer/')}>Disclaimer</a></li>
+          <li><a href={href('/privacy/')}>Privacy</a></li>
+          <li><a href={href('/terms/')}>Terms</a></li>
+        </ul>
+      </nav>
+    </div>
+    <p class="site-footer__legal">{GENERAL_DISCLAIMER}</p>
+    <p class="site-footer__legal mono">
+      © {year} Scopit · <a href={SITE.publisherUrl}>scopit.work</a> · Covers Virginia, Maryland, and the District of Columbia.
+    </p>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    border-top: var(--rule);
+    margin-top: var(--space-5);
+    padding-block: var(--space-4) var(--space-4);
+    background: var(--bg);
+  }
+  .site-footer__disclosure {
+    margin-bottom: var(--space-4);
+  }
+  .site-footer__cols {
+    display: grid;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  @media (min-width: 720px) {
+    .site-footer__cols {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .site-footer ul {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0 0;
+  }
+  .site-footer li a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    color: var(--ink);
+  }
+  .site-footer .label {
+    margin: 0;
+    padding-bottom: 0.5rem;
+    border-bottom: var(--hair);
+  }
+  .site-footer__legal {
+    color: var(--muted);
+    font-size: 1rem;
+    max-width: 70ch;
+    margin-bottom: 0.5rem;
+  }
+  .site-footer__legal.mono {
+    font-size: 0.875rem;
+  }
+  .site-footer__legal a {
+    color: var(--muted);
+  }
+</style>

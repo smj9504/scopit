@@ -1,0 +1,35 @@
+---
+/**
+ * Large image slot reserved for real job-site photos.
+ * TODO: real photo — pass `src` and `alt` (or set `photo` in the guide's
+ * front matter) once Scopit has its own job-site photos. Until then this
+ * renders a neutral placeholder with a fixed aspect ratio, so swapping in a
+ * photo later causes no layout shift. No stock photos of people.
+ */
+interface Props {
+  src?: string;
+  alt?: string;
+  /** CSS aspect-ratio, e.g. "3 / 2". */
+  ratio?: string;
+  caption?: string;
+  /** Load eagerly (hero) or lazily (below the fold). */
+  priority?: boolean;
+  class?: string;
+}
+
+const { src, alt = '', ratio = '3 / 2', caption, priority = false, class: className } = Astro.props;
+// TODO: real photo
+---
+
+<figure class:list={['photo-slot', className]} style={`aspect-ratio: ${ratio}`}>
+  {
+    src ? (
+      <img src={src} alt={alt} loading={priority ? 'eager' : 'lazy'} decoding="async" fetchpriority={priority ? 'high' : 'auto'} />
+    ) : (
+      <span class="photo-slot__label label" aria-hidden="true">
+        Job-site photo
+      </span>
+    )
+  }
+  {caption && src && <figcaption class="sr-only">{caption}</figcaption>}
+</figure>

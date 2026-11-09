@@ -1,0 +1,58 @@
+---
+import { render } from 'astro:content';
+import ArticleLayout from '../../../layouts/ArticleLayout.astro';
+import { getNotes, noteOgImage, notePath, type Note } from '../../../content-helpers';
+import type { RowItem } from '../../../components/RowList.astro';
+
+export async function getStaticPaths() {
+  const notes = await getNotes();
+  return notes.map((note) => ({ params: { slug: note.id }, props: { note, all: notes } }));
+}
+
+interface Props {
+  note: Note;
+  all: Note[];
+}
+
+const { note, all } = Astro.props;
+const { Content, headings } = await render(note);
+const path = notePath(note);
+
+const relatedEntries = note.data.related
+  .map((slug) => all.find((n) => n.id === slug))
+  .filter((n): n is Note => Boolean(n));
+const relatedList = (relatedEntries.length ? relatedEntries : all.filter((n) => n.id !== note.id)).slice(0, 3);
+const related: RowItem[] = relatedList.map((n) => ({
+  title: n.data.title,
+  description: n.data.description,
+  path: notePath(n),
+  lastReviewed: n.data.lastReviewed,
+}));
+
+const crumbs = [
+  { name: 'For adjusters', path: '/for-adjusters/' },
+  { name: 'Estimating notes', path: '/for-adjusters/notes/' },
+  { name: note.data.title, path },
+];
+---
+
+<ArticleLayout
+  audience="adjusters"
+  title={note.data.title}
+  description={note.data.description}
+  summary={note.data.summary}
+  path={path}
+  crumbs={crumbs}
+  label="Estimating note"
+  ogImage={noteOgImage(note)}
+  date={note.data.date}
+  lastReviewed={note.data.lastReviewed}
+  status={note.data.status}
+  sources={note.data.sources}
+  headings={headings}
+  related={related}
+  relatedTitle="More estimating notes"
+  photo={note.data.photo}
+>
+  <Content />
+</ArticleLayout>

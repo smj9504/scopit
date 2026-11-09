@@ -1,0 +1,234 @@
+---
+/**
+ * Article template for homeowner guides and adjuster notes:
+ * summary at top, table of contents, photo slot, body, state rules (guides),
+ * FAQ (only real Q&A), sources, last-reviewed date, disclaimer, related list.
+ */
+import type { MarkdownHeading } from 'astro';
+import BaseLayout from './BaseLayout.astro';
+import PageHead from '../components/PageHead.astro';
+import PhotoSlot from '../components/PhotoSlot.astro';
+import StatusBanner from '../components/StatusBanner.astro';
+import Toc from '../components/article/Toc.astro';
+import Sources from '../components/article/Sources.astro';
+import DisclaimerBox from '../components/article/DisclaimerBox.astro';
+import Faq from '../components/article/Faq.astro';
+import StateRulesTable from '../components/article/StateRulesTable.astro';
+import RowList, { type RowItem } from '../components/RowList.astro';
+import Disclosure from '../components/Disclosure.astro';
+import { articleLd, breadcrumbLd, faqLd, type Crumb } from '../seo/jsonld';
+import { formatDate, toIsoDate } from '../shared/dates';
+import { stateName } from '../shared/constants';
+
+interface Props {
+  audience: 'homeowners' | 'adjusters';
+  title: string;
+  description: string;
+  summary: string;
+  path: string;
+  crumbs: Crumb[];
+  label: string;
+  ogImage: string;
+  date: Date;
+  lastReviewed: Date;
+  status: 'placeholder' | 'draft' | 'published';
+  attorneyReview?: 'not-needed' | 'pending' | 'done';
+  states?: string[];
+  sources: { title: string; publisher: string; url: string }[];
+  faq?: { question: string; answer: string }[];
+  stateRules?: {
+    state: string;
+    topic: string;
+    rule: string;
+    sourceTitle: string;
+    sourceUrl: string;
+    lastReviewed: Date;
+    verified: boolean;
+  }[];
+  headings: MarkdownHeading[];
+  related: RowItem[];
+  relatedTitle: string;
+  photo?: { src: string; alt: string };
+  /** True if the body mentions public adjusters or the directory. */
+  mentionsDirectory?: boolean;
+}
+
+const {
+  audience,
+  title,
+  description,
+  summary,
+  path,
+  crumbs,
+  label,
+  ogImage,
+  date,
+  lastReviewed,
+  status,
+  attorneyReview = 'not-needed',
+  states = [],
+  sources,
+  faq = [],
+  stateRules = [],
+  headings,
+  related,
+  relatedTitle,
+  photo,
+  mentionsDirectory = false,
+} = Astro.props;
+
+const published = status === 'published';
+const jsonLd: Record<string, unknown>[] = [
+  breadcrumbLd(crumbs),
+  articleLd({
+    title,
+    description,
+    path,
+    image: ogImage,
+    datePublished: toIsoDate(date),
+    dateModified: toIsoDate(lastReviewed),
+    section: audience === 'homeowners' ? 'Homeowner guides' : 'Estimating notes',
+  }),
+];
+// FAQPage only for real, published Q&A that is visible on the page.
+if (published && faq.length > 0) jsonLd.push(faqLd(faq));
+
+const extraToc = [
+  ...(stateRules.length ? [{ slug: 'state-rules', text: 'Virginia, Maryland, and DC at a glance' }] : []),
+  ...(faq.length ? [{ slug: 'questions', text: 'Common questions' }] : []),
+  ...(sources.length ? [{ slug: 'sources', text: 'Sources' }] : []),
+];
+---
+
+<BaseLayout
+  title={title}
+  description={description}
+  path={path}
+  section={audience}
+  ogImage={ogImage}
+  ogImageAlt={`${title} — Scopit Claims`}
+  ogType="article"
+  noindex={!published}
+  jsonLd={jsonLd}
+  publishedTime={toIsoDate(date)}
+  modifiedTime={toIsoDate(lastReviewed)}
+>
+  <PageHead crumbs={crumbs} label={label} title={title}>
+    <dl class="article-meta">
+      <div>
+        <dt class="label">Last reviewed</dt>
+        <dd class="mono"><time datetime={toIsoDate(lastReviewed)}>{formatDate(lastReviewed)}</time></dd>
+      </div>
+      {
+        states.length > 0 && (
+          <div>
+            <dt class="label">Applies to</dt>
+            <dd class="mono">{states.map((s) => stateName(s)).join(', ')}</dd>
+          </div>
+        )
+      }
+    </dl>
+  </PageHead>
+
+  <div class="container article">
+    <div class="article__grid">
+      <aside class="article__aside">
+        <Toc headings={headings} extra={extraToc} />
+      </aside>
+      <article class="article__main">
+        <StatusBanner status={status} attorneyReview={attorneyReview} />
+
+        <section class="block article__summary" aria-labelledby="summary-title">
+          <p class="label" id="summary-title">In short</p>
+          <p>{summary}</p>
+        </section>
+
+        <PhotoSlot src={photo?.src} alt={photo?.alt} ratio="16 / 9" class="article__photo" />
+
+        <div class="prose">
+          <slot />
+          <StateRulesTable rows={stateRules} caption={`State rules mentioned in “${title}”, with sources`} />
+          <Faq items={faq} />
+          <Sources sources={sources} lastReviewed={lastReviewed} />
+        </div>
+
+        <DisclaimerBox audience={audience} />
+        {mentionsDirectory && <Disclosure class="article__disclosure" />}
+      </article>
+    </div>
+
+    {
+      related.length > 0 && (
+        <section class="section article__related" aria-labelledby="related">
+          <div class="section__head">
+            <h2 id="related">{relatedTitle}</h2>
+          </div>
+          <RowList items={related} />
+        </section>
+      )
+    }
+  </div>
+</BaseLayout>
+
+<style>
+  .article-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 2.5rem;
+    margin: var(--space-3) 0 0;
+  }
+  .article-meta dt {
+    margin: 0;
+  }
+  .article-meta dd {
+    margin: 0.15rem 0 0;
+    font-size: 1rem;
+  }
+  .article {
+    padding-top: var(--space-4);
+  }
+  .article__grid {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .article__aside {
+    min-width: 0;
+  }
+  .article__main {
+    min-width: 0;
+    max-width: calc(var(--measure) + 2px);
+  }
+  .article__summary {
+    margin-bottom: var(--space-3);
+  }
+  .article__summary .label {
+    margin-bottom: 0.4rem;
+  }
+  .article__summary p:last-child {
+    font-size: 1.2rem;
+    line-height: 1.55;
+  }
+  .article__photo {
+    margin-bottom: var(--space-4);
+  }
+  .article__tail {
+    margin-top: var(--space-2);
+  }
+  .article__disclosure {
+    margin-top: var(--space-3);
+  }
+  .article__related {
+    margin-top: var(--space-4);
+    border-top: var(--rule);
+  }
+  @media (min-width: 1000px) {
+    .article__grid {
+      grid-template-columns: 15rem minmax(0, 1fr);
+      gap: var(--space-5);
+    }
+    .article__aside :global(.toc) {
+      position: sticky;
+      top: 1.5rem;
+    }
+  }
+</style>
