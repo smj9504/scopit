@@ -1,0 +1,15 @@
+---
+/**
+ * The required disclosure line. Shown in the footer of every page and again
+ * near any directory content. Do not hide, shrink below the body size of
+ * nearby text, or reword without a decision.
+ */
+import { DISCLOSURE } from '../shared/constants';
+
+interface Props {
+  class?: string;
+}
+const { class: className } = Astro.props;
+---
+
+<p class:list={['disclosure', className]}>{DISCLOSURE}</p>

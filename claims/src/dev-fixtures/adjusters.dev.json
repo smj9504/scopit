@@ -1,0 +1,69 @@
+{
+  "_warning": "DEV FIXTURE ONLY. These are not real adjusters, businesses, or license numbers. The directory loader refuses to use this file on Cloudflare builds or when CLAIMS_ENV=production. Use `npm run dev:fixtures` to see the directory with sample data locally.",
+  "rows": [
+    {
+      "id": "fixture-0001",
+      "slug": "dev-fixture-alpha-adjusting",
+      "status": "verified",
+      "business_name": "DEV FIXTURE Alpha Adjusting (not real)",
+      "contact_name": "Sample Person A",
+      "email": "fixture-a@example.invalid",
+      "phone": "000-000-0000",
+      "website": "https://example.com",
+      "office_city": "Sampletown",
+      "office_state": "VA",
+      "loss_types": "[\"water\",\"fire\",\"contents\"]",
+      "bio": "This is a development fixture used to test the directory layout. It is not a real public adjuster and must never appear in production.",
+      "approved_on": "2026-01-15",
+      "licenses_json": "[{\"id\":1,\"state\":\"VA\",\"license_number\":\"DEV-FIXTURE-001\",\"expires_on\":\"2099-12-31\",\"verified_on\":\"2026-01-15\"},{\"id\":2,\"state\":\"MD\",\"license_number\":\"DEV-FIXTURE-002\",\"expires_on\":\"2099-12-31\",\"verified_on\":\"2026-01-15\"}]"
+    },
+    {
+      "id": "fixture-0002",
+      "slug": "dev-fixture-beta-claims",
+      "status": "verified",
+      "business_name": "DEV FIXTURE Beta Claims (not real)",
+      "contact_name": "Sample Person B",
+      "email": "fixture-b@example.invalid",
+      "phone": null,
+      "website": null,
+      "office_city": "Example City",
+      "office_state": "DC",
+      "loss_types": "[\"wind-hail\",\"water\"]",
+      "bio": "Development fixture. Has one verified license (DC) and one unverified license (MD) so you can check that unverified licenses are hidden.",
+      "approved_on": "2026-02-01",
+      "licenses_json": "[{\"id\":3,\"state\":\"DC\",\"license_number\":\"DEV-FIXTURE-003\",\"expires_on\":\"2099-12-31\",\"verified_on\":\"2026-02-01\"},{\"id\":4,\"state\":\"MD\",\"license_number\":\"DEV-FIXTURE-004\",\"expires_on\":\"2099-12-31\",\"verified_on\":null}]"
+    },
+    {
+      "id": "fixture-0003",
+      "slug": "dev-fixture-expired-license",
+      "status": "verified",
+      "business_name": "DEV FIXTURE Expired License (must not show)",
+      "contact_name": "Sample Person C",
+      "email": "fixture-c@example.invalid",
+      "phone": null,
+      "website": null,
+      "office_city": null,
+      "office_state": null,
+      "loss_types": "[\"fire\"]",
+      "bio": "Development fixture whose only license has expired. The directory must not show it.",
+      "approved_on": "2025-01-01",
+      "licenses_json": "[{\"id\":5,\"state\":\"VA\",\"license_number\":\"DEV-FIXTURE-005\",\"expires_on\":\"2025-06-30\",\"verified_on\":\"2025-01-01\"}]"
+    },
+    {
+      "id": "fixture-0004",
+      "slug": "dev-fixture-pending",
+      "status": "pending",
+      "business_name": "DEV FIXTURE Pending Application (must not show)",
+      "contact_name": "Sample Person D",
+      "email": "fixture-d@example.invalid",
+      "phone": null,
+      "website": null,
+      "office_city": null,
+      "office_state": null,
+      "loss_types": "[\"water\"]",
+      "bio": "Development fixture that has not been verified. The directory must not show it.",
+      "approved_on": null,
+      "licenses_json": "[{\"id\":6,\"state\":\"MD\",\"license_number\":\"DEV-FIXTURE-006\",\"expires_on\":\"2099-12-31\",\"verified_on\":null}]"
+    }
+  ]
+}

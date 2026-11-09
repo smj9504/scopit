@@ -1,0 +1,80 @@
+---
+interface Props {
+  sources: { title: string; publisher: string; url: string }[];
+  lastReviewed: Date;
+}
+
+import { formatDate, toIsoDate } from '../../shared/dates';
+
+const { sources, lastReviewed } = Astro.props;
+
+function host(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+---
+
+{
+  sources.length > 0 && (
+    <section class="sources" aria-labelledby="sources">
+      <h2 id="sources">Sources</h2>
+      <p class="muted sources__reviewed">
+        Links checked and page last reviewed on <time datetime={toIsoDate(lastReviewed)}>{formatDate(lastReviewed)}</time>.
+      </p>
+      <ol class="sources__list">
+        {sources.map((s, i) => (
+          <li>
+            <span class="sources__num" aria-hidden="true">
+              [{i + 1}]
+            </span>
+            <span>
+              <a href={s.url} rel="noopener">
+                {s.title}
+              </a>
+              <span class="sources__pub">
+                {s.publisher} · {host(s.url)}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+<style>
+  .sources__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    border-top: var(--hair);
+  }
+  .sources__list li {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 0.5rem;
+    padding: 0.75rem 0;
+    border-bottom: var(--hair);
+    font-size: 1rem;
+  }
+  .sources__num {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--muted);
+    padding-top: 0.1rem;
+  }
+  .sources__pub {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-top: 0.15rem;
+    overflow-wrap: anywhere;
+  }
+  .sources__reviewed {
+    font-size: 1rem;
+  }
+</style>

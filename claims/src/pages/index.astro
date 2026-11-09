@@ -1,0 +1,193 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PhotoSlot from '../components/PhotoSlot.astro';
+import Checklist from '../components/Checklist.astro';
+import RowList from '../components/RowList.astro';
+import Disclosure from '../components/Disclosure.astro';
+import { getGuides, guidePath } from '../content-helpers';
+import { organizationLd, websiteLd } from '../seo/jsonld';
+import { href } from '../site';
+import { BEFORE_THE_PLUMBER_LEAVES } from '../data/checklists';
+
+const guides = await getGuides();
+const guideItems = guides.map((g) => ({
+  title: g.data.title,
+  description: g.data.description,
+  path: guidePath(g),
+  lastReviewed: g.data.lastReviewed,
+  flag: g.data.status === 'published' ? undefined : 'Draft',
+}));
+---
+
+<BaseLayout
+  title="Water damage and home insurance claims in VA, MD, and DC"
+  description="Pipe burst or water damage? You may be able to file a home insurance claim. Free plain-language guides for Virginia, Maryland, and DC homeowners."
+  path="/"
+  section="homeowners"
+  jsonLd={[organizationLd(), websiteLd()]}
+>
+  <section class="hero">
+    <div class="container hero__grid">
+      <div class="hero__copy">
+        <p class="label">For homeowners in Virginia, Maryland, and DC</p>
+        <h1>Pipe burst? Water damage? <mark>You may be able to file a claim.</mark></h1>
+        <p class="lede">
+          It’s common to call a plumber, pay for the repair, and move on without checking whether your home insurance
+          could cover part of the damage. These free guides explain how claims work, in plain language.
+        </p>
+        <div class="btn-row">
+          <a class="btn btn--primary" href="#checklist">Start the checklist <span class="btn__arrow" aria-hidden="true">↓</span></a>
+          <a class="btn" href={href('/guides/')}>Read the guides</a>
+        </div>
+        <p class="hero__note mono">Free to read · No sign-up · General information, not legal advice</p>
+      </div>
+      <PhotoSlot ratio="4 / 3" priority class="hero__photo" />
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container home-checklist">
+      <div class="home-checklist__intro">
+        <p class="label">Step one</p>
+        <h2 class="home-checklist__title">Before the plumber leaves</h2>
+        <p>
+          A few minutes of documentation keeps your options open, even if you are not sure you want to file a claim. Tick
+          the boxes as you go. Nothing is saved or sent.
+        </p>
+        <p>
+          <a href={href('/guides/before-you-repair-water-damage-checklist/')}>Read the full checklist guide</a>
+        </p>
+      </div>
+      <Checklist
+        id="checklist"
+        title="Water damage checklist"
+        items={BEFORE_THE_PLUMBER_LEAVES}
+        footLink={{ label: 'Can you still file after repairs are done?', path: '/guides/can-you-file-a-claim-after-repairs/' }}
+      />
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="guides-title">
+    <div class="container">
+      <div class="section__head">
+        <h2 id="guides-title">Guides</h2>
+        <a href={href('/guides/')}>All guides</a>
+      </div>
+      <RowList items={guideItems} label="Guides" />
+    </div>
+  </section>
+
+  <section class="section about-strip" aria-labelledby="about-title">
+    <div class="container about-strip__grid">
+      <div>
+        <p class="label">About this site</p>
+        <h2 id="about-title">Who runs this site</h2>
+      </div>
+      <div class="about-strip__body">
+        <p>
+          Scopit Claims is run by <a href="https://www.scopit.work">Scopit</a>, a company that makes estimating software
+          for restoration contractors. We are not an insurer, agent, adjuster, or law firm, and we never contact
+          homeowners first.
+        </p>
+        <p>
+          If you want help with a claim, our directory lists public adjusters whose licenses we have checked with the
+          state. You decide whether to contact any of them.
+        </p>
+        <ul class="facts">
+          <li><span class="facts__mark" aria-hidden="true">—</span> Free to read. No ads.</li>
+          <li><span class="facts__mark" aria-hidden="true">—</span> We never sell your information. A message goes only to the adjusters you pick.</li>
+          <li><span class="facts__mark" aria-hidden="true">—</span> Adjusters pay nothing to be listed. Listings are in alphabetical order.</li>
+        </ul>
+        <Disclosure />
+        <div class="btn-row about-strip__links">
+          <a class="btn" href={href('/find-an-adjuster/')}>Find a licensed adjuster</a>
+          <a class="btn" href={href('/about/')}>How verification works</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .hero {
+    border-bottom: var(--rule);
+    padding-block: var(--space-4) var(--space-5);
+  }
+  .hero__grid {
+    display: grid;
+    gap: var(--space-4);
+    align-items: center;
+  }
+  .hero h1 {
+    margin-top: var(--space-2);
+    max-width: 18ch;
+  }
+  .hero .lede {
+    margin-bottom: var(--space-3);
+  }
+  .hero__note {
+    margin: var(--space-2) 0 0;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  @media (min-width: 960px) {
+    .hero__grid {
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+      gap: var(--space-5);
+    }
+  }
+  .home-checklist {
+    display: grid;
+    gap: var(--space-4);
+    align-items: start;
+  }
+  .home-checklist__title {
+    margin-top: var(--space-1);
+  }
+  @media (min-width: 960px) {
+    .home-checklist {
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+      gap: var(--space-5);
+    }
+    .home-checklist__intro {
+      position: sticky;
+      top: 1.5rem;
+    }
+  }
+  .about-strip {
+    background: var(--paper);
+    border-top: var(--rule) !important;
+    border-bottom: var(--rule);
+  }
+  .about-strip__grid {
+    display: grid;
+    gap: var(--space-2) var(--space-5);
+  }
+  @media (min-width: 960px) {
+    .about-strip__grid {
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    }
+  }
+  .about-strip__body {
+    max-width: var(--measure);
+  }
+  .facts {
+    list-style: none;
+    padding: 0;
+    margin: var(--space-3) 0;
+    border-top: var(--hair);
+  }
+  .facts li {
+    display: grid;
+    grid-template-columns: 1.5rem 1fr;
+    padding: 0.6rem 0;
+    border-bottom: var(--hair);
+  }
+  .facts__mark {
+    font-family: var(--font-mono);
+    color: var(--muted);
+  }
+  .about-strip__links {
+    margin-top: var(--space-3);
+  }
+</style>

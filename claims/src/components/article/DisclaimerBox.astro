@@ -1,0 +1,39 @@
+---
+import { href } from '../../site';
+
+interface Props {
+  audience: 'homeowners' | 'adjusters';
+}
+const { audience } = Astro.props;
+---
+
+<aside class="notice disclaimer-box" aria-label="Disclaimer">
+  <p class="label">Disclaimer</p>
+  {
+    audience === 'homeowners' ? (
+      <p>
+        This guide is general information, not legal or insurance advice. Scopit is not an insurer, insurance agent,
+        adjuster, or law firm. Policies, deadlines, and state rules differ. For your own situation, read your policy and
+        ask your insurer, a licensed public adjuster, or a lawyer. <a href={href('/disclaimer/')}>Full disclaimer</a>.
+      </p>
+    ) : (
+      <p>
+        Estimating notes are general practice notes from the restoration side. They are not legal advice and not
+        instructions from any insurer. Follow your policy language, your state's rules, and your license obligations.{' '}
+        <a href={href('/disclaimer/')}>Full disclaimer</a>.
+      </p>
+    )
+  }
+</aside>
+
+<style>
+  .disclaimer-box {
+    margin-top: var(--space-4);
+  }
+  .disclaimer-box .label {
+    margin-bottom: 0.4rem;
+  }
+  .disclaimer-box p:last-child {
+    font-size: 1rem;
+  }
+</style>

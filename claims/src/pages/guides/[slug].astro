@@ -1,0 +1,14 @@
+---
+import GuidePage from '../../components/GuidePage.astro';
+import { getGuides } from '../../content-helpers';
+
+export async function getStaticPaths() {
+  const guides = await getGuides();
+  // Guides with a permalink (the cornerstone) are served at their own URL.
+  return guides.filter((g) => !g.data.permalink).map((guide) => ({ params: { slug: guide.id }, props: { guide } }));
+}
+
+const { guide } = Astro.props;
+---
+
+<GuidePage guide={guide} />

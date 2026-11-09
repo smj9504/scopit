@@ -1,0 +1,38 @@
+{
+  "name": "scopit-claims",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Scopit Claims: free educational site and verified public adjuster directory for VA, MD, and DC. Independent of the Scopit app.",
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "dependencies": {
+    "astro": "^7.4.7"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^22.20.5",
+    "satori": "^0.63.2",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.158.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "dev:fixtures": "CLAIMS_DIRECTORY_SOURCE=fixture astro dev",
+    "build": "astro build && node scripts/postbuild.mjs",
+    "build:fixtures": "CLAIMS_DIRECTORY_SOURCE=fixture npm run build",
+    "preview": "wrangler pages dev dist --port 8788",
+    "check": "astro check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "node scripts/verify-dist.mjs",
+    "launch-check": "node scripts/launch-check.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply scopit-claims --local",
+    "db:migrate:remote": "wrangler d1 migrations apply scopit-claims --remote"
+  }
+}

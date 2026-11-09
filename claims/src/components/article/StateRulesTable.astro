@@ -1,0 +1,93 @@
+---
+/**
+ * State rules table. Each row carries its own source link and last-reviewed
+ * date. Rows with verified: false are labeled "Pending review" in place of the
+ * rule text, so an unchecked statement is never presented as fact.
+ */
+import { stateName } from '../../shared/constants';
+import { formatDateShort, toIsoDate } from '../../shared/dates';
+
+interface Row {
+  state: string;
+  topic: string;
+  rule: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  lastReviewed: Date;
+  verified: boolean;
+}
+
+interface Props {
+  rows: Row[];
+  caption: string;
+}
+
+const { rows, caption } = Astro.props;
+const anyPending = rows.some((r) => !r.verified);
+---
+
+{
+  rows.length > 0 && (
+    <section class="state-rules" aria-labelledby="state-rules">
+      <h2 id="state-rules">Virginia, Maryland, and DC at a glance</h2>
+      {anyPending && (
+        <p class="notice notice--draft state-rules__pending">
+          <strong>Needs attorney review before launch.</strong> Rows marked “Pending review” have not been checked yet.
+          Follow the source link for the official text.
+        </p>
+      )}
+      <div class="table-wrap" role="region" aria-labelledby="state-rules-caption" tabindex="0">
+        <table class="table">
+          <caption id="state-rules-caption" class="sr-only">
+            {caption}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">State</th>
+              <th scope="col">Topic</th>
+              <th scope="col">What the rule says</th>
+              <th scope="col">Source</th>
+              <th scope="col">Last reviewed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr>
+                <th scope="row">{stateName(r.state)}</th>
+                <td>{r.topic}</td>
+                <td>{r.verified ? r.rule : <em>Pending review.</em>}</td>
+                <td>
+                  <a href={r.sourceUrl} rel="noopener">
+                    {r.sourceTitle}
+                  </a>
+                </td>
+                <td class="mono">
+                  <time datetime={toIsoDate(r.lastReviewed)}>{formatDateShort(r.lastReviewed)}</time>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .state-rules__pending {
+    margin-bottom: var(--space-2);
+  }
+  .state-rules tbody th {
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+    background: transparent;
+    border-bottom: 1px solid var(--line);
+  }
+  .state-rules td.mono {
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+</style>

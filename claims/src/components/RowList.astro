@@ -1,0 +1,65 @@
+---
+/** Numbered rows with thin dividers, used for guide and note lists. */
+import { href } from '../site';
+import { formatDateShort, toIsoDate } from '../shared/dates';
+
+export interface RowItem {
+  title: string;
+  description: string;
+  path: string;
+  lastReviewed?: Date;
+  flag?: string;
+}
+
+interface Props {
+  items: RowItem[];
+  /** Heading level for the row titles is implicit (rows are links, not headings). */
+  label?: string;
+}
+
+const { items, label } = Astro.props;
+---
+
+<ol class="rows" aria-label={label}>
+  {
+    items.map((item, i) => (
+      <li class="row">
+        <a class="row__link" href={href(item.path)}>
+          <span class="row__num" aria-hidden="true">
+            {String(i + 1).padStart(2, '0')}
+          </span>
+          <span>
+            <span class="row__title">{item.title}</span>
+            <span class="row__desc">{item.description}</span>
+          </span>
+          <span class="row__meta">
+            {item.lastReviewed && (
+              <>
+                Reviewed <time datetime={toIsoDate(item.lastReviewed)}>{formatDateShort(item.lastReviewed)}</time>
+              </>
+            )}
+            {item.flag && <span class="row__flag">{item.flag}</span>}
+          </span>
+        </a>
+      </li>
+    ))
+  }
+</ol>
+
+<style>
+  .row__flag {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0 0.35rem;
+    background: var(--yellow);
+    color: var(--ink);
+    border: 1px solid var(--ink);
+  }
+  @media (min-width: 760px) {
+    .row__flag {
+      display: block;
+      width: fit-content;
+      margin: 0.35rem 0 0 auto;
+    }
+  }
+</style>

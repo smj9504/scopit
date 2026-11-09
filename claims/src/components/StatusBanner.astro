@@ -1,0 +1,46 @@
+---
+/**
+ * Visible flag on any page that is not ready to publish. Placeholder and
+ * draft pages are also noindexed, and `npm run launch-check` fails while any
+ * remain.
+ */
+interface Props {
+  status?: 'placeholder' | 'draft' | 'published';
+  attorneyReview?: 'not-needed' | 'pending' | 'done';
+}
+
+const { status = 'published', attorneyReview = 'not-needed' } = Astro.props;
+const show = status !== 'published' || attorneyReview === 'pending';
+---
+
+{
+  show && (
+    <div class="notice notice--draft status-banner" role="note">
+      {status === 'placeholder' && (
+        <p>
+          <strong>Placeholder.</strong> The final text for this page has not been added yet. Do not rely on it.
+        </p>
+      )}
+      {status === 'draft' && (
+        <p>
+          <strong>Draft.</strong> This page is still being written and checked.
+        </p>
+      )}
+      {attorneyReview === 'pending' && (
+        <p>
+          <strong>Needs attorney review before launch.</strong> Statements about state rules on this page have not been
+          reviewed by a lawyer yet.
+        </p>
+      )}
+    </div>
+  )
+}
+
+<style>
+  .status-banner {
+    margin-bottom: var(--space-3);
+  }
+  .status-banner p + p {
+    margin-top: 0.5rem;
+  }
+</style>

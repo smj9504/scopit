@@ -1,0 +1,66 @@
+---
+import { render } from 'astro:content';
+import ArticleLayout from '../layouts/ArticleLayout.astro';
+import { getGuides, guideOgImage, guidePath, type Guide } from '../content-helpers';
+import type { RowItem } from './RowList.astro';
+
+interface Props {
+  guide: Guide;
+}
+
+const { guide } = Astro.props;
+const { Content, headings } = await render(guide);
+const all = await getGuides();
+const path = guidePath(guide);
+
+const relatedEntries = guide.data.related
+  .map((slug) => all.find((g) => g.id === slug))
+  .filter((g): g is Guide => Boolean(g));
+// Fall back to the other guides in order so every guide links onward.
+const relatedList = (relatedEntries.length ? relatedEntries : all.filter((g) => g.id !== guide.id)).slice(0, 3);
+const related: RowItem[] = relatedList.map((g) => ({
+  title: g.data.title,
+  description: g.data.description,
+  path: guidePath(g),
+  lastReviewed: g.data.lastReviewed,
+}));
+
+const isCornerstone = Boolean(guide.data.permalink);
+const crumbs = isCornerstone
+  ? [
+      { name: 'Home', path: '/' },
+      { name: guide.data.title, path },
+    ]
+  : [
+      { name: 'Home', path: '/' },
+      { name: 'Guides', path: '/guides/' },
+      { name: guide.data.title, path },
+    ];
+const mentionsDirectory = /public adjuster|directory/i.test(`${guide.body ?? ''} ${guide.data.title} ${guide.data.summary}`);
+---
+
+<ArticleLayout
+  audience="homeowners"
+  title={guide.data.title}
+  description={guide.data.description}
+  summary={guide.data.summary}
+  path={path}
+  crumbs={crumbs}
+  label={isCornerstone ? 'Guide · Start here' : 'Guide for homeowners'}
+  ogImage={guideOgImage(guide)}
+  date={guide.data.date}
+  lastReviewed={guide.data.lastReviewed}
+  status={guide.data.status}
+  attorneyReview={guide.data.attorneyReview}
+  states={guide.data.states}
+  sources={guide.data.sources}
+  faq={guide.data.faq}
+  stateRules={guide.data.stateRules}
+  headings={headings}
+  related={related}
+  relatedTitle="Related guides"
+  photo={guide.data.photo}
+  mentionsDirectory={mentionsDirectory}
+>
+  <Content />
+</ArticleLayout>
