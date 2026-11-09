@@ -1,0 +1,165 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageHead from '../../components/PageHead.astro';
+import RowList from '../../components/RowList.astro';
+import Disclosure from '../../components/Disclosure.astro';
+import FormShell from '../../components/forms/FormShell.astro';
+import Field from '../../components/forms/Field.astro';
+import { getNotes, notePath } from '../../content-helpers';
+import { breadcrumbLd } from '../../seo/jsonld';
+import { href } from '../../site';
+
+const notes = await getNotes();
+const items = notes.map((n) => ({
+  title: n.data.title,
+  description: n.data.description,
+  path: notePath(n),
+  lastReviewed: n.data.lastReviewed,
+  flag: n.data.status === 'published' ? undefined : 'Draft',
+}));
+const crumbs = [
+  { name: 'Scopit Claims', path: '/' },
+  { name: 'For adjusters', path: '/for-adjusters/' },
+];
+---
+
+<BaseLayout
+  title="Estimating notes for public adjusters and estimators"
+  description="Practical estimating notes for public adjusters and restoration estimators, plus free, license-verified listing in the VA, MD, and DC directory."
+  path="/for-adjusters/"
+  section="adjusters"
+  jsonLd={[breadcrumbLd(crumbs)]}
+  turnstile
+>
+  <PageHead
+    crumbs={crumbs}
+    label="For public adjusters and estimators"
+    title="Estimating notes from the <mark>restoration side</mark>"
+    lede="Short, practical notes on scope, documentation, and estimates for water, fire, and contents losses. Written by Scopit, the team behind estimating software for restoration contractors."
+  />
+
+  <section class="section" id="notes" aria-labelledby="notes-title">
+    <div class="container">
+      <div class="section__head">
+        <h2 id="notes-title">Estimating notes</h2>
+        <a href={href('/for-adjusters/notes/')}>All notes</a>
+      </div>
+      <RowList items={items} label="Estimating notes" />
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="newsletter-title">
+    <div class="container adj-grid">
+      <div>
+        <p class="label">Newsletter</p>
+        <h2 id="newsletter-title">Get new notes by email</h2>
+        <p>
+          We email when a new note is published. Nothing else. You confirm your address first, and every email has a
+          one-click unsubscribe.
+        </p>
+      </div>
+      <div>
+        <FormShell id="newsletter-form" action="/api/newsletter" submitLabel="Subscribe" turnstileAction="newsletter" class="block">
+          <Field
+            name="email"
+            label="Email address"
+            type="email"
+            required
+            autocomplete="email"
+            inputmode="email"
+            maxlength={254}
+          />
+        </FormShell>
+        <div class="success-panel" data-success-for="newsletter-form" hidden tabindex="-1" role="status">
+          <h3>Check your inbox</h3>
+          <p>We sent a confirmation link. You are subscribed once you click it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section pitch" aria-labelledby="pitch-title">
+    <div class="container adj-grid">
+      <div>
+        <p class="label">Directory</p>
+        <h2 id="pitch-title">Get listed in the VA, MD, and DC directory. <mark>Free.</mark></h2>
+        <p>
+          Homeowners reading our guides can find public adjusters licensed in their state and choose to contact them.
+          There is no cost to be listed, now or later.
+        </p>
+      </div>
+      <div>
+        <ul class="terms-list">
+          <li>
+            <span class="label">01</span>
+            <span><strong>No fees of any kind.</strong> No per-lead, success, referral, or ranking fees. Scopit takes no payment from listed adjusters.</span>
+          </li>
+          <li>
+            <span class="label">02</span>
+            <span><strong>License checked by hand.</strong> We check each license against the state’s official lookup and show the date we checked it.</span>
+          </li>
+          <li>
+            <span class="label">03</span>
+            <span><strong>Homeowners reach out first.</strong> We never contact homeowners for you or sell their information. An inquiry goes only to the adjusters the homeowner picks.</span>
+          </li>
+          <li>
+            <span class="label">04</span>
+            <span><strong>No paid placement.</strong> Listings are in alphabetical order. No ratings or reviews.</span>
+          </li>
+        </ul>
+        <div class="btn-row">
+          <a class="btn btn--primary" href={href('/for-adjusters/apply/')}>Apply to be listed <span class="btn__arrow" aria-hidden="true">→</span></a>
+          <a class="btn" href={href('/listing-terms/')}>Read the PA Listing Terms</a>
+        </div>
+        <Disclosure class="pitch__disclosure" />
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  import { enhanceForm } from '../../scripts/forms';
+  const form = document.getElementById('newsletter-form');
+  if (form instanceof HTMLFormElement) enhanceForm(form);
+</script>
+
+<style>
+  .adj-grid {
+    display: grid;
+    gap: var(--space-3) var(--space-5);
+  }
+  @media (min-width: 960px) {
+    .adj-grid {
+      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    }
+  }
+  .adj-grid > div:first-child {
+    max-width: 34rem;
+  }
+  .pitch {
+    background: var(--paper);
+    border-top: var(--rule) !important;
+  }
+  .terms-list {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    border-top: var(--rule);
+  }
+  .terms-list li {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 0.5rem;
+    padding: 0.9rem 0;
+    border-bottom: var(--hair);
+  }
+  .terms-list .label {
+    padding-top: 0.2rem;
+  }
+  .terms-list strong {
+    display: block;
+  }
+  .pitch__disclosure {
+    margin-top: var(--space-3);
+  }
+</style>

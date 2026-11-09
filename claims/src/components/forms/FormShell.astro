@@ -1,0 +1,53 @@
+---
+/**
+ * Common form chrome: error summary, Turnstile widget, status line, submit
+ * button, and a <noscript> note (the spam check needs JavaScript).
+ */
+import { href, PUBLIC_CONFIG, SITE } from '../../site';
+
+interface Props {
+  id: string;
+  action: string;
+  submitLabel: string;
+  /** Turnstile action name, shown in Cloudflare analytics. */
+  turnstileAction: string;
+  class?: string;
+}
+
+const { id, action, submitLabel, turnstileAction, class: className } = Astro.props;
+---
+
+<form id={id} class:list={['form', className]} action={href(action)} method="post" novalidate data-js-form>
+  <div class="error-summary" data-error-summary hidden tabindex="-1" role="alert" aria-labelledby={`${id}-error-title`}>
+    <h2 id={`${id}-error-title`}>Please fix the following:</h2>
+    <ul></ul>
+  </div>
+  <slot />
+
+  <div class="form__send">
+    <div id="turnstile" class="turnstile-slot" tabindex="-1" data-label="Spam check">
+      <div class="cf-turnstile" data-sitekey={PUBLIC_CONFIG.turnstileSiteKey} data-action={turnstileAction} data-theme="light">
+      </div>
+    </div>
+    <p class="field__error" id="turnstile-error"></p>
+    <noscript>
+      <p class="notice">
+        This form needs JavaScript for its spam check. If you can’t turn it on, email us at{' '}
+        <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>.
+      </p>
+    </noscript>
+    <button class="btn btn--primary form__submit" type="submit">{submitLabel}</button>
+    <p class="form-status" role="status" aria-live="polite" data-status></p>
+  </div>
+</form>
+
+<style>
+  .form__send {
+    display: grid;
+    gap: 0.75rem;
+    justify-items: start;
+  }
+  .form__submit {
+    min-width: 12rem;
+  }
+</style>

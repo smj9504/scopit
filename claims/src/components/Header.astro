@@ -43,7 +43,7 @@ function isCurrent(linkPath: string) {
   <nav class="site-nav" aria-label="Main">
     <div class="container site-nav__inner">
       <div class:list={['nav-group', { 'nav-group--active': section === 'homeowners' }]}>
-        <a class="nav-group__label" href={href('/')} aria-current={path === '/' ? 'page' : undefined}><span class="nav-group__for">For </span>homeowners</a>
+        <a class="nav-group__label" href={href('/')} aria-current={path === '/' ? 'page' : undefined}><span class="nav-group__for">For&nbsp;</span>homeowners</a>
         <ul>
           {
             homeowners.map((l) => (
@@ -58,7 +58,7 @@ function isCurrent(linkPath: string) {
       </div>
       <div class:list={['nav-group', { 'nav-group--active': section === 'adjusters' }]}>
         <a class="nav-group__label" href={href('/for-adjusters/')} aria-current={path === '/for-adjusters/' ? 'page' : undefined}
-          ><span class="nav-group__for">For </span>adjusters</a
+          ><span class="nav-group__for">For&nbsp;</span>adjusters</a
         >
         <ul>
           {

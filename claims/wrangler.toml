@@ -1,0 +1,55 @@
+# Cloudflare Pages configuration for Scopit Claims.
+# Docs: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+#
+# Secrets (RESEND_API_KEY, TURNSTILE_SECRET_KEY, BUTTONDOWN_API_KEY,
+# ADMIN_PASSWORD, IP_HASH_SALT, PAGES_DEPLOY_HOOK_URL, ...) are NOT set here.
+# Set them in the Cloudflare dashboard (Settings > Variables and Secrets) or
+# with `wrangler pages secret put NAME`. Local values go in .dev.vars.
+
+name = "scopit-claims"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-10-01"
+
+# ---- Local development (`npm run preview`) ----
+[vars]
+CLAIMS_ENV = "development"
+CLAIMS_SITE = "http://localhost:8788"
+CLAIMS_BASE = ""
+EMAIL_PROVIDER = "log"
+NEWSLETTER_PROVIDER = "log"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "scopit-claims"
+# Replace with the id printed by `npx wrangler d1 create scopit-claims` (see docs/DEPLOY.md).
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# ---- Preview deployments (non-production branches) ----
+# Uses its own database so test submissions never touch real listings.
+[env.preview.vars]
+CLAIMS_ENV = "preview"
+CLAIMS_SITE = "https://preview.scopit-claims.pages.dev"
+CLAIMS_BASE = ""
+EMAIL_PROVIDER = "resend"
+NEWSLETTER_PROVIDER = "log"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "scopit-claims-preview"
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "migrations"
+
+# ---- Production ----
+[env.production.vars]
+CLAIMS_ENV = "production"
+CLAIMS_SITE = "https://claims.scopit.work"
+CLAIMS_BASE = ""
+EMAIL_PROVIDER = "resend"
+NEWSLETTER_PROVIDER = "buttondown"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "scopit-claims"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"

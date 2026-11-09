@@ -1,0 +1,99 @@
+---
+/**
+ * One labeled form field with hint and error slots wired up for screen
+ * readers. The field id equals its name so server errors map to it.
+ */
+interface Option {
+  value: string;
+  label: string;
+}
+
+interface Props {
+  name: string;
+  label: string;
+  as?: 'input' | 'textarea' | 'select';
+  type?: astroHTML.JSX.HTMLInputTypeAttribute;
+  required?: boolean;
+  hint?: string;
+  autocomplete?: string;
+  maxlength?: number;
+  minlength?: number;
+  inputmode?: 'text' | 'email' | 'tel' | 'url' | 'numeric';
+  options?: Option[];
+  placeholderOption?: string;
+  rows?: number;
+  value?: string;
+  min?: string;
+  class?: string;
+  /** Show "(optional)" after the label when not required. */
+  optionalNote?: boolean;
+}
+
+const {
+  name,
+  label,
+  as = 'input',
+  type = 'text',
+  required = false,
+  hint,
+  autocomplete,
+  maxlength,
+  minlength,
+  inputmode,
+  options = [],
+  placeholderOption,
+  rows = 6,
+  value,
+  min,
+  class: className,
+  optionalNote = true,
+} = Astro.props;
+
+const describedBy = [hint ? `${name}-hint` : null, `${name}-error`].filter(Boolean).join(' ');
+---
+
+<div class:list={['field', className]}>
+  <label for={name}>
+    {label}
+    {!required && optionalNote && <span class="field__optional"> (optional)</span>}
+  </label>
+  {hint && <p class="field__hint" id={`${name}-hint`}>{hint}</p>}
+  {
+    as === 'textarea' ? (
+      <textarea
+        class="textarea"
+        id={name}
+        name={name}
+        rows={rows}
+        required={required}
+        maxlength={maxlength}
+        minlength={minlength}
+        aria-describedby={describedBy}
+      />
+    ) : as === 'select' ? (
+      <select class="select" id={name} name={name} required={required} aria-describedby={describedBy} autocomplete={autocomplete}>
+        {placeholderOption && <option value="">{placeholderOption}</option>}
+        {options.map((o) => (
+          <option value={o.value} selected={o.value === value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    ) : (
+      <input
+        class="input"
+        id={name}
+        name={name}
+        type={type}
+        required={required}
+        autocomplete={autocomplete}
+        maxlength={maxlength}
+        inputmode={inputmode}
+        aria-describedby={describedBy}
+        value={value}
+        min={min}
+      />
+    )
+  }
+  <p class="field__error" id={`${name}-error`}></p>
+</div>
