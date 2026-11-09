@@ -1,0 +1,338 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageHead from '../../components/PageHead.astro';
+import Disclosure from '../../components/Disclosure.astro';
+import LicenseLines from '../../components/directory/LicenseLines.astro';
+import LicenseLookups from '../../components/directory/LicenseLookups.astro';
+import { getAdjusters } from '../../content-helpers';
+import { breadcrumbLd } from '../../seo/jsonld';
+import { href } from '../../site';
+import { LOSS_TYPES, STATES, lossTypeLabel, stateName } from '../../shared/constants';
+
+const adjusters = await getAdjusters();
+const crumbs = [
+  { name: 'Home', path: '/' },
+  { name: 'Find an adjuster', path: '/find-an-adjuster/' },
+];
+const hasFixture = adjusters.some((a) => a.data.fixture);
+---
+
+<BaseLayout
+  title="Find a licensed public adjuster in Virginia, Maryland, or DC"
+  description="A free directory of public adjusters whose Virginia, Maryland, or DC licenses we checked by hand. No paid placement, no ratings. You choose who to contact."
+  path="/find-an-adjuster/"
+  section="homeowners"
+  jsonLd={[breadcrumbLd(crumbs)]}
+  noindex={hasFixture}
+>
+  <PageHead
+    crumbs={crumbs}
+    label="Directory · Virginia, Maryland, DC"
+    title="Find a <mark>licensed</mark> public adjuster"
+    lede="Every adjuster listed here holds a public adjuster license that we checked with the state. You decide whether to contact anyone. Scopit never contacts you first."
+  >
+    <Disclosure class="dir-disclosure" />
+  </PageHead>
+
+  <div class="container section directory">
+    <aside class="directory__aside" aria-labelledby="how-title">
+      <h2 id="how-title" class="directory__aside-title">How this directory works</h2>
+      <ul class="how">
+        <li>We check each license against the state’s official lookup and show the date we checked it.</li>
+        <li>Expired licenses drop off automatically.</li>
+        <li>Listings are in alphabetical order. No paid placement, ratings, or reviews.</li>
+        <li>A message you send goes only to the adjusters you pick.</li>
+        <li>A listing is not a recommendation. Read any contract before you sign.</li>
+      </ul>
+      <p><a href={href('/what-is-a-public-adjuster/')}>What is a public adjuster?</a></p>
+      <LicenseLookups />
+    </aside>
+
+    <div class="directory__main">
+      {
+        hasFixture && (
+          <p class="notice notice--draft" role="note">
+            <strong>Development fixture.</strong> The listings below are fake sample data for local testing. They must
+            never appear in production.
+          </p>
+        )
+      }
+
+      {
+        adjusters.length === 0 ? (
+          <section class="block empty" aria-labelledby="empty-title">
+            <p class="label">Directory</p>
+            <h2 id="empty-title">No adjusters are listed yet</h2>
+            <p>
+              We list a public adjuster only after checking their license with the state, so this directory starts
+              empty and grows one verified listing at a time.
+            </p>
+            <p>
+              In the meantime, you can check any public adjuster’s license yourself with the links on this page, and
+              read <a href={href('/what-is-a-public-adjuster/')}>what a public adjuster does</a> before you hire one.
+            </p>
+          </section>
+        ) : (
+          <>
+            <form class="filters" id="filters" aria-label="Filter adjusters" hidden>
+              <fieldset class="filter">
+                <legend class="label">State where the property is</legend>
+                <div class="chips">
+                  <label class="chip">
+                    <input type="radio" name="state" value="" checked />
+                    <span>All</span>
+                  </label>
+                  {STATES.map((s) => (
+                    <label class="chip">
+                      <input type="radio" name="state" value={s.code} />
+                      <span>{s.code === 'DC' ? 'DC' : s.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset class="filter">
+                <legend class="label">Type of loss</legend>
+                <div class="chips">
+                  <label class="chip">
+                    <input type="radio" name="loss" value="" checked />
+                    <span>All</span>
+                  </label>
+                  {LOSS_TYPES.map((l) => (
+                    <label class="chip">
+                      <input type="radio" name="loss" value={l.code} />
+                      <span>{l.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </form>
+
+            <p class="count mono" id="count" role="status" aria-live="polite">
+              {adjusters.length} {adjusters.length === 1 ? 'adjuster' : 'adjusters'} listed
+            </p>
+
+            <ol class="listings" id="listings">
+              {adjusters.map((a) => (
+                <li class="listing" data-states={a.data.states.join(' ')} data-loss={a.data.lossTypes.join(' ')}>
+                  <div class="listing__head">
+                    <h2 class="listing__name">
+                      <a href={href(`/find-an-adjuster/${a.data.slug}/`)}>{a.data.businessName}</a>
+                    </h2>
+                    {a.data.fixture && <span class="tag listing__fixture">Dev fixture</span>}
+                  </div>
+                  <p class="listing__meta mono">
+                    {a.data.contactName}
+                    {a.data.officeCity && ` · Office in ${a.data.officeCity}, ${a.data.officeState}`}
+                  </p>
+                  <p class="listing__states">
+                    Licensed in {a.data.states.map((s) => stateName(s)).join(', ')}
+                  </p>
+                  <LicenseLines licenses={a.data.licenses} compact />
+                  {a.data.lossTypes.length > 0 && (
+                    <ul class="tag-list listing__loss" aria-label="Types of loss">
+                      {a.data.lossTypes.map((l) => (
+                        <li class="tag">{lossTypeLabel(l)}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <div class="btn-row listing__actions">
+                    <a class="btn" href={href(`/find-an-adjuster/${a.data.slug}/`)}>
+                      View profile<span class="sr-only">: {a.data.businessName}</span>
+                    </a>
+                    <a class="btn btn--primary" href={`${href('/find-an-adjuster/inquiry/')}?pa=${a.data.slug}`}>
+                      Send a message<span class="sr-only"> to {a.data.businessName}</span>
+                    </a>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <div class="block no-match" id="no-match" hidden>
+              <p>No listed adjusters match these filters.</p>
+              <button class="btn" type="button" id="reset-filters">Show all adjusters</button>
+            </div>
+          </>
+        )
+      }
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  const filters = document.getElementById('filters') as HTMLFormElement | null;
+  const list = document.getElementById('listings');
+  const count = document.getElementById('count');
+  const noMatch = document.getElementById('no-match');
+  if (filters && list && count && noMatch) {
+    filters.hidden = false;
+    const items = [...list.querySelectorAll<HTMLElement>('.listing')];
+    const params = new URLSearchParams(location.search);
+    const set = (name: string, value: string | null) => {
+      const input = filters.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value ?? ''}"]`);
+      if (input) input.checked = true;
+    };
+    set('state', params.get('state'));
+    set('loss', params.get('loss'));
+
+    const apply = () => {
+      const state = (filters.elements.namedItem('state') as RadioNodeList).value;
+      const loss = (filters.elements.namedItem('loss') as RadioNodeList).value;
+      let shown = 0;
+      for (const item of items) {
+        const ok =
+          (!state || (item.dataset.states || '').split(' ').includes(state)) &&
+          (!loss || (item.dataset.loss || '').split(' ').includes(loss));
+        item.hidden = !ok;
+        if (ok) shown++;
+      }
+      count.textContent = `${shown} of ${items.length} ${items.length === 1 ? 'adjuster' : 'adjusters'} shown`;
+      noMatch.hidden = shown !== 0;
+      const url = new URL(location.href);
+      state ? url.searchParams.set('state', state) : url.searchParams.delete('state');
+      loss ? url.searchParams.set('loss', loss) : url.searchParams.delete('loss');
+      history.replaceState(null, '', url);
+    };
+    filters.addEventListener('change', apply);
+    document.getElementById('reset-filters')?.addEventListener('click', () => {
+      set('state', '');
+      set('loss', '');
+      apply();
+      filters.querySelector<HTMLInputElement>('input')?.focus();
+    });
+    if (params.has('state') || params.has('loss')) apply();
+  }
+</script>
+
+<style>
+  .dir-disclosure {
+    margin-top: var(--space-3);
+  }
+  .directory {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (min-width: 1000px) {
+    .directory {
+      grid-template-columns: 19rem minmax(0, 1fr);
+      gap: var(--space-5);
+      align-items: start;
+    }
+  }
+  .directory__aside-title {
+    font-size: 1.3rem;
+  }
+  .how {
+    padding-left: 1.1rem;
+    margin-bottom: var(--space-2);
+  }
+  .how li + li {
+    margin-top: 0.4rem;
+  }
+  .directory__aside :global(.lookups) {
+    margin-top: var(--space-3);
+  }
+  .directory__main > .notice {
+    margin-bottom: var(--space-3);
+  }
+  .empty h2 {
+    margin-top: 0.4rem;
+  }
+  .filters {
+    display: grid;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+  .filter {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+  }
+  .filter legend {
+    margin-bottom: 0.5rem;
+    padding: 0;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .chip {
+    position: relative;
+    cursor: pointer;
+  }
+  .chip input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+  .chip span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 1rem;
+    border: 1.5px solid var(--ink);
+    border-radius: var(--radius);
+    background: var(--paper);
+    font-weight: 500;
+  }
+  .chip input:checked + span {
+    background: var(--ink);
+    color: var(--bg);
+  }
+  .chip input:focus-visible + span {
+    outline: 3px solid var(--ink);
+    outline-offset: 3px;
+  }
+  .count {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+  .listings {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: var(--rule);
+  }
+  .listing {
+    padding: var(--space-3) 0;
+    border-bottom: var(--hair);
+  }
+  .listing:last-child {
+    border-bottom: var(--rule);
+  }
+  .listing__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 1rem;
+  }
+  .listing__name {
+    font-size: 1.4rem;
+    margin: 0;
+  }
+  .listing__name a {
+    color: var(--ink);
+  }
+  .listing__meta {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin: 0.35rem 0 0.5rem;
+  }
+  .listing__states {
+    margin-bottom: 0.5rem;
+  }
+  .listing__loss {
+    margin-top: 0.75rem;
+  }
+  .listing__actions {
+    margin-top: var(--space-2);
+  }
+  .listing__fixture {
+    background: var(--yellow);
+  }
+  .no-match {
+    margin-top: var(--space-2);
+  }
+</style>

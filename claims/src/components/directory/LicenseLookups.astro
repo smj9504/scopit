@@ -1,0 +1,48 @@
+---
+import { LICENSE_LOOKUPS } from '../../shared/license-lookups';
+import { stateName, type StateCode } from '../../shared/constants';
+
+interface Props {
+  states?: StateCode[];
+  title?: string;
+}
+
+const { states = ['VA', 'MD', 'DC'], title = 'Check a license yourself' } = Astro.props;
+---
+
+<div class="lookups">
+  <p class="label">{title}</p>
+  <ul>
+    {
+      states.map((s) => (
+        <li>
+          <span class="lookups__state">{stateName(s)}</span>
+          <a href={LICENSE_LOOKUPS[s].url} rel="noopener">
+            {LICENSE_LOOKUPS[s].label}
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</div>
+
+<style>
+  .lookups ul {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0 0;
+    border-top: var(--hair);
+  }
+  .lookups li {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.6rem 0;
+    border-bottom: var(--hair);
+    font-size: 1rem;
+  }
+  .lookups__state {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+</style>

@@ -1,0 +1,73 @@
+---
+/** Each license with the public "License verified on [date]" line. */
+import { stateName } from '../../shared/constants';
+import { formatDate, formatDateShort } from '../../shared/dates';
+
+interface Props {
+  licenses: { state: string; number: string; expiresOn: string; verifiedOn: string }[];
+  compact?: boolean;
+}
+
+const { licenses, compact = false } = Astro.props;
+---
+
+<ul class:list={['licenses', { 'licenses--compact': compact }]}>
+  {
+    licenses.map((l) => (
+      <li>
+        <span class="licenses__state">{compact ? l.state : stateName(l.state)}</span>
+        <span>
+          Public adjuster license <span class="mono">{l.number}</span>
+        </span>
+        <span class="licenses__verified">
+          License verified on <time datetime={l.verifiedOn}>{compact ? formatDateShort(l.verifiedOn) : formatDate(l.verifiedOn)}</time>
+        </span>
+        <span class="licenses__exp">
+          Expires <time datetime={l.expiresOn}>{compact ? formatDateShort(l.expiresOn) : formatDate(l.expiresOn)}</time>
+        </span>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .licenses {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .licenses li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.1rem 0.75rem;
+    padding: 0.6rem 0;
+    border-top: var(--hair);
+    font-size: 1rem;
+  }
+  .licenses li > span:not(.licenses__state) {
+    grid-column: 2;
+  }
+  .licenses__state {
+    grid-row: span 3;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius);
+    height: fit-content;
+    background: var(--yellow);
+  }
+  .licenses__verified {
+    font-weight: 600;
+  }
+  .licenses__exp {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .licenses--compact .licenses__state {
+    min-width: 2.6rem;
+    text-align: center;
+  }
+</style>
