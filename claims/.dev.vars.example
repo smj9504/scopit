@@ -1,0 +1,13 @@
+# Copy to .dev.vars for `npm run preview` (wrangler pages dev). Never commit .dev.vars.
+# Cloudflare's always-pass Turnstile test secret (pairs with the test site key in src/site.ts):
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+IP_HASH_SALT=local-dev-salt-change-me
+ADMIN_USER=admin
+ADMIN_PASSWORD=local-dev-password-change-me
+# Optional for local testing of real sending:
+# EMAIL_PROVIDER=resend
+# RESEND_API_KEY=re_xxx
+# EMAIL_FROM="Scopit Claims <claims@send.scopit.work>"
+# ADMIN_NOTIFY_EMAIL=you@example.com
+# NEWSLETTER_PROVIDER=buttondown
+# BUTTONDOWN_API_KEY=xxx

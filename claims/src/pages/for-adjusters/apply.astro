@@ -1,0 +1,251 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageHead from '../../components/PageHead.astro';
+import Disclosure from '../../components/Disclosure.astro';
+import FormShell from '../../components/forms/FormShell.astro';
+import Field from '../../components/forms/Field.astro';
+import { breadcrumbLd } from '../../seo/jsonld';
+import { href } from '../../site';
+import { APPLICATION_AGREEMENTS, LIMITS, LOSS_TYPES, STATES } from '../../shared/constants';
+import { US_STATES } from '../../data/us-states';
+
+const crumbs = [
+  { name: 'For adjusters', path: '/for-adjusters/' },
+  { name: 'Apply to be listed', path: '/for-adjusters/apply/' },
+];
+---
+
+<BaseLayout
+  title="Apply to be listed: public adjuster directory"
+  description="Licensed public adjusters in Virginia, Maryland, or DC can apply for a free listing. We verify each license by hand. No fees of any kind."
+  path="/for-adjusters/apply/"
+  section="adjusters"
+  jsonLd={[breadcrumbLd(crumbs)]}
+  turnstile
+>
+  <PageHead
+    crumbs={crumbs}
+    label="For licensed public adjusters"
+    title="Apply to be listed. <mark>Free.</mark>"
+    lede="For public adjusters licensed in Virginia, Maryland, or DC. We check every license against the state’s official lookup before a listing goes live."
+  >
+    <Disclosure class="apply-disclosure" />
+  </PageHead>
+
+  <div class="container section apply">
+    <aside class="apply__aside">
+      <h2 class="apply__aside-title">Before you apply</h2>
+      <ul>
+        <li>Only licensed public adjusters can be listed. Estimators and contractors without a public adjuster license can’t.</li>
+        <li>Listing is free. Scopit never asks for per-lead, success, referral, or ranking fees.</li>
+        <li>We show each license with the date we verified it. Expired licenses come off the directory automatically.</li>
+        <li>Homeowners contact you first, through a form that sends their message only to the adjusters they pick.</li>
+      </ul>
+      <p><a href={href('/listing-terms/')}>Read the PA Listing Terms</a></p>
+      <p class="muted apply__privacy">
+        Your email address is not shown publicly; homeowner messages are forwarded to it. See the{' '}
+        <a href={href('/privacy/')}>Privacy Policy</a>.
+      </p>
+    </aside>
+
+    <div class="apply__main">
+      <FormShell id="apply-form" action="/api/apply" submitLabel="Send application" turnstileAction="apply">
+        <fieldset>
+          <legend>Your business</legend>
+          <Field name="businessName" label="Business name" required autocomplete="organization" maxlength={LIMITS.nameMax} />
+          <Field name="contactName" label="Your name" required autocomplete="name" maxlength={LIMITS.nameMax} hint="Shown on your profile." />
+          <div class="form-row form-row--2">
+            <Field name="email" label="Email" type="email" required autocomplete="email" inputmode="email" maxlength={LIMITS.emailMax} hint="Not shown publicly." />
+            <Field name="phone" label="Business phone" type="tel" required autocomplete="tel" inputmode="tel" maxlength={LIMITS.phoneMax} hint="Shown on your profile." />
+          </div>
+          <Field name="website" label="Website" type="text" autocomplete="url" inputmode="url" maxlength={LIMITS.urlMax} />
+          <div class="form-row form-row--2">
+            <Field name="officeCity" label="Office city" required autocomplete="address-level2" maxlength={LIMITS.locationMax} />
+            <Field name="officeState" label="Office state" as="select" required options={US_STATES} placeholderOption="Choose a state" autocomplete="address-level1" />
+          </div>
+        </fieldset>
+
+        <fieldset id="licenses" data-label="Licenses" aria-describedby="licenses-hint licenses-error">
+          <legend>Public adjuster licenses</legend>
+          <p class="field__hint" id="licenses-hint">
+            Tick each state where you hold a current public adjuster license, then enter the license number and
+            expiration date exactly as they appear on the state’s license record.
+          </p>
+          <p class="field__error" id="licenses-error"></p>
+          {
+            STATES.map((s) => (
+              <div class="license" data-license={s.code}>
+                <label class="choice" for={`license_${s.code}`}>
+                  <input class="check" type="checkbox" id={`license_${s.code}`} name={`license_${s.code}`} value="yes" />
+                  <span>I hold a {s.name} public adjuster license</span>
+                </label>
+                <div class="form-row form-row--2 license__fields" data-license-fields={s.code}>
+                  <Field name={`license_${s.code}_number`} label={`${s.code} license number`} maxlength={LIMITS.licenseNumberMax} optionalNote={false} />
+                  <Field name={`license_${s.code}_expires`} label={`${s.code} expiration date`} type="date" optionalNote={false} />
+                </div>
+              </div>
+            ))
+          }
+        </fieldset>
+
+        <fieldset>
+          <legend>Your work</legend>
+          <fieldset class="subfieldset" id="lossTypes" data-multi="lossTypes" aria-describedby="lossTypes-error">
+            <legend class="field__label">Types of loss you handle</legend>
+            <div class="choice-grid choice-grid--2">
+              {
+                LOSS_TYPES.map((l) => (
+                  <label class="choice" for={`loss-${l.code}`}>
+                    <input class="check" type="checkbox" id={`loss-${l.code}`} name="lossTypes" value={l.code} />
+                    <span>{l.label}</span>
+                  </label>
+                ))
+              }
+            </div>
+            <p class="field__error" id="lossTypes-error"></p>
+          </fieldset>
+          <Field
+            name="bio"
+            label="Short description"
+            as="textarea"
+            required
+            rows={6}
+            maxlength={LIMITS.bioMax}
+            hint={`What you handle and where, in plain words (${LIMITS.bioMin}–${LIMITS.bioMax} characters). No links, no claims about results.`}
+          />
+        </fieldset>
+
+        <fieldset id="agreements">
+          <legend>Agreements</legend>
+          {
+            APPLICATION_AGREEMENTS.map((a) => (
+              <div class="agreement">
+                <label class="choice" for={`agree_${a.key}`}>
+                  <input class="check" type="checkbox" id={`agree_${a.key}`} name={`agree_${a.key}`} value="yes" aria-describedby={`agree_${a.key}-error`} />
+                  <span>
+                    {a.key === 'listingTerms' ? (
+                      <>
+                        I have read and agree to the <a href={href('/listing-terms/')}>PA Listing Terms</a>.
+                      </>
+                    ) : (
+                      a.label
+                    )}
+                  </span>
+                </label>
+                <p class="field__error" id={`agree_${a.key}-error`}></p>
+              </div>
+            ))
+          }
+        </fieldset>
+      </FormShell>
+
+      <div class="success-panel" data-success-for="apply-form" hidden tabindex="-1" role="status">
+        <h2>Application received</h2>
+        <p>
+          Thank you. We will check each license with the state and email you when your listing is live, or if we need
+          anything else. A confirmation is on its way to your inbox.
+        </p>
+        <p><a href={href('/for-adjusters/')}>Back to estimating notes</a></p>
+      </div>
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  import { enhanceForm } from '../../scripts/forms';
+
+  const form = document.getElementById('apply-form');
+  if (form instanceof HTMLFormElement) {
+    // Show license fields only for ticked states.
+    form.querySelectorAll<HTMLElement>('[data-license]').forEach((block) => {
+      const box = block.querySelector<HTMLInputElement>('input[type="checkbox"]');
+      const fields = block.querySelector<HTMLElement>('[data-license-fields]');
+      if (!box || !fields) return;
+      const sync = () => {
+        fields.hidden = !box.checked;
+        fields.querySelectorAll<HTMLInputElement>('input').forEach((i) => (i.required = box.checked));
+      };
+      box.addEventListener('change', sync);
+      sync();
+    });
+
+    // Expiration dates must be today or later.
+    const today = new Date();
+    const iso = new Date(today.getTime() - today.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+    form.querySelectorAll<HTMLInputElement>('input[type="date"]').forEach((i) => (i.min = iso));
+
+    enhanceForm(form, {
+      validate(f, data) {
+        const errors: Record<string, string> = {};
+        const anyLicense = ['VA', 'MD', 'DC'].some((s) => data[`license_${s}`]);
+        if (!anyLicense) errors.licenses = 'Add at least one public adjuster license (Virginia, Maryland, or DC).';
+        f.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('[required]').forEach((el) => {
+          if (!el.value.trim() && el.offsetParent !== null) errors[el.name] = 'This field is required.';
+        });
+        const loss = data.lossTypes;
+        if (!loss || (Array.isArray(loss) && loss.length === 0)) errors.lossTypes = 'Choose at least one type of loss you handle.';
+        f.querySelectorAll<HTMLInputElement>('input[name^="agree_"]').forEach((el) => {
+          if (!el.checked) errors[el.name] = 'You must agree to this to be listed.';
+        });
+        return errors;
+      },
+    });
+  }
+</script>
+
+<style>
+  .apply-disclosure {
+    margin-top: var(--space-3);
+  }
+  .apply {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (min-width: 1000px) {
+    .apply {
+      grid-template-columns: 19rem minmax(0, 46rem);
+      gap: var(--space-5);
+      align-items: start;
+    }
+    .apply__aside {
+      position: sticky;
+      top: 1.5rem;
+    }
+  }
+  .apply__aside-title {
+    font-size: 1.3rem;
+  }
+  .apply__aside ul {
+    padding-left: 1.1rem;
+  }
+  .apply__aside li + li {
+    margin-top: 0.5rem;
+  }
+  .apply__privacy {
+    font-size: 1rem;
+  }
+  .license {
+    border-top: var(--hair);
+    padding-top: 0.25rem;
+  }
+  .license__fields {
+    padding-left: 2.35rem;
+  }
+  .subfieldset {
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 0 var(--space-2) !important;
+    background: transparent !important;
+  }
+  .subfieldset legend {
+    font-size: 1.125rem;
+    margin: 0 0 0.25rem;
+    padding: 0;
+  }
+  .agreement + .agreement {
+    border-top: var(--hair);
+  }
+  .agreement .choice + .choice {
+    border-top: 0;
+  }
+</style>

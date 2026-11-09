@@ -1,0 +1,48 @@
+---
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import PageHead from '../../../components/PageHead.astro';
+import RowList from '../../../components/RowList.astro';
+import { getNotes, notePath } from '../../../content-helpers';
+import { breadcrumbLd } from '../../../seo/jsonld';
+import { href } from '../../../site';
+
+const notes = await getNotes();
+const items = notes.map((n) => ({
+  title: n.data.title,
+  description: n.data.description,
+  path: notePath(n),
+  lastReviewed: n.data.lastReviewed,
+  flag: n.data.status === 'published' ? undefined : 'Draft',
+}));
+const crumbs = [
+  { name: 'For adjusters', path: '/for-adjusters/' },
+  { name: 'Estimating notes', path: '/for-adjusters/notes/' },
+];
+---
+
+<BaseLayout
+  title="All estimating notes"
+  description="Every estimating note for public adjusters and restoration estimators: water mitigation, estimate comparisons, supplements, and contents pack-outs."
+  path="/for-adjusters/notes/"
+  section="adjusters"
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHead
+    crumbs={crumbs}
+    label="For public adjusters and estimators"
+    title="Estimating notes"
+    lede="Practical notes on scope, documentation, and estimates. Each note shows the date it was last reviewed."
+  />
+  <div class="container section">
+    <RowList items={items} label="Estimating notes" />
+    <p class="muted notes-foot">
+      Get new notes by email on the <a href={href('/for-adjusters/')}>adjusters page</a>.
+    </p>
+  </div>
+</BaseLayout>
+
+<style>
+  .notes-foot {
+    margin-top: var(--space-3);
+  }
+</style>
