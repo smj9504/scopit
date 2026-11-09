@@ -21,7 +21,7 @@ beforeEach(() => {
     ADMIN_USER: 'admin',
     ADMIN_PASSWORD: 'correct horse battery staple',
     RESEND_API_KEY: 're_test',
-    EMAIL_FROM: 'Scopit Claims <claims@send.scopit.work>',
+    EMAIL_FROM: 'Scopit Claims <claims@mail.scopit.work>',
     PAGES_DEPLOY_HOOK_URL: 'https://api.cloudflare.com/client/v4/pages/webhooks/deploy_hooks/test',
   };
   seedListing(db.raw, {

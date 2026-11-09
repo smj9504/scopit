@@ -27,12 +27,17 @@ migrations_dir = "migrations"
 
 # ---- Preview deployments (non-production branches) ----
 # Uses its own database so test submissions never touch real listings.
+# These vars are also read at BUILD time on Cloudflare (scripts/build-env.mjs).
 [env.preview.vars]
 CLAIMS_ENV = "preview"
 CLAIMS_SITE = "https://preview.scopit-claims.pages.dev"
 CLAIMS_BASE = ""
 EMAIL_PROVIDER = "resend"
 NEWSLETTER_PROVIDER = "log"
+CLAIMS_DIRECTORY_SOURCE = "d1"
+PUBLIC_TURNSTILE_SITE_KEY = ""      # set to the Turnstile widget's site key (public value)
+PUBLIC_PLAUSIBLE_DOMAIN = ""        # leave empty: no analytics on previews
+PUBLIC_CONTACT_EMAIL = "hello@scopit.work"
 
 [[env.preview.d1_databases]]
 binding = "DB"
@@ -41,12 +46,17 @@ database_id = "00000000-0000-0000-0000-000000000001"
 migrations_dir = "migrations"
 
 # ---- Production ----
+# These vars are also read at BUILD time on Cloudflare (scripts/build-env.mjs).
 [env.production.vars]
 CLAIMS_ENV = "production"
 CLAIMS_SITE = "https://claims.scopit.work"
 CLAIMS_BASE = ""
 EMAIL_PROVIDER = "resend"
 NEWSLETTER_PROVIDER = "buttondown"
+CLAIMS_DIRECTORY_SOURCE = "d1"
+PUBLIC_TURNSTILE_SITE_KEY = ""      # set to the Turnstile widget's site key (public value)
+PUBLIC_PLAUSIBLE_DOMAIN = "claims.scopit.work"
+PUBLIC_CONTACT_EMAIL = "hello@scopit.work"
 
 [[env.production.d1_databases]]
 binding = "DB"

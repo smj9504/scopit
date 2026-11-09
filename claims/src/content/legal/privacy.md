@@ -40,7 +40,7 @@ We collect business name, contact name, email, phone, website, office location, 
 
 ## Newsletter
 
-If you sign up for estimating notes, your email address is stored by our newsletter provider, Buttondown. You must confirm your address before we send anything, and every email has an unsubscribe link.
+If you sign up for estimating notes, your email address is stored by our newsletter provider, Buttondown. We also pass the IP address of the signup request to Buttondown, which uses it to block spam signups. You must confirm your address before we send anything, and every email has an unsubscribe link.
 
 ## Spam protection and rate limits
 

@@ -24,7 +24,7 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 
 - [ ] D1 databases created; real `database_id` values in `wrangler.toml`; migrations applied to production and preview
 - [ ] Pages project connected with root directory `claims`, build command `npm run build`, output `dist`
-- [ ] Build variables set, including `CLAIMS_ENV=production`, `CLAIMS_DIRECTORY_SOURCE=d1`, and the D1 read token
+- [ ] `wrangler.toml` production vars filled in (`PUBLIC_TURNSTILE_SITE_KEY`, site URL, contact email); build secrets `CF_D1_API_TOKEN` and `CF_ACCOUNT_ID` set; first build log shows `using wrangler.toml env "production"` and `Loaded N verified listing row(s) from D1`
 - [ ] Runtime secrets set: `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_NOTIFY_EMAIL`, `BUTTONDOWN_API_KEY`, `ADMIN_USER`, `ADMIN_PASSWORD` (long and random), `IP_HASH_SALT` (long and random), `PAGES_DEPLOY_HOOK_URL`
 - [ ] Turnstile widget created for the production hostname; site key in `PUBLIC_TURNSTILE_SITE_KEY`
 - [ ] Custom domain attached; HTTPS works
@@ -35,7 +35,7 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 
 - [ ] Sending domain verified in Resend (SPF and DKIM records added); `EMAIL_FROM` uses it
 - [ ] DMARC record exists for the sending domain
-- [ ] Buttondown: double opt-in (confirmation) turned on; API key created; a test signup from the live site sends a confirmation email
+- [ ] Buttondown API key set; a test signup from the live site gets a confirmation email and stays unconfirmed until clicked
 - [ ] Test inquiry and test application on production send exactly the expected emails, then delete the test rows
 
 ## Search and analytics
