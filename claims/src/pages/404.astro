@@ -1,0 +1,35 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import RowList from '../components/RowList.astro';
+import { getGuides, guidePath } from '../content-helpers';
+import { href } from '../site';
+
+const guides = await getGuides();
+const items = guides.map((g) => ({ title: g.data.title, description: g.data.description, path: guidePath(g) }));
+---
+
+<BaseLayout
+  title="Page not found"
+  description="This page doesn't exist or has moved. Try one of the main guides on home insurance claims in Virginia, Maryland, and DC."
+  path="/404/"
+  section="shared"
+  noindex
+>
+  <section class="container section">
+    <p class="label">Error 404</p>
+    <h1>We can’t find that page.</h1>
+    <p class="lede">It may have moved. These are the main guides:</p>
+    <RowList items={items} label="Main guides" />
+    <div class="btn-row nf-links">
+      <a class="btn btn--primary" href={href('/')}>Go to the home page</a>
+      <a class="btn" href={href('/find-an-adjuster/')}>Find an adjuster</a>
+      <a class="btn" href={href('/for-adjusters/')}>For adjusters</a>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .nf-links {
+    margin-top: var(--space-4);
+  }
+</style>

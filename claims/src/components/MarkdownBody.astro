@@ -1,0 +1,11 @@
+---
+/** Renders an entry's Markdown HTML with base-aware internal links. */
+import { withBaseLinks } from '../site';
+
+interface Props {
+  html: string;
+}
+const { html } = Astro.props;
+---
+
+<Fragment set:html={withBaseLinks(html)} />

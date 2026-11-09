@@ -1,0 +1,120 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHead from '../components/PageHead.astro';
+import Disclosure from '../components/Disclosure.astro';
+import LicenseLookups from '../components/directory/LicenseLookups.astro';
+import { breadcrumbLd, organizationLd } from '../seo/jsonld';
+import { href, SITE } from '../site';
+import { INQUIRY_RETENTION_DAYS } from '../shared/constants';
+
+const crumbs = [
+  { name: 'Home', path: '/' },
+  { name: 'About', path: '/about/' },
+];
+---
+
+<BaseLayout
+  title="About Scopit Claims and how license verification works"
+  description="Who runs Scopit Claims, how the site works, how we verify public adjuster licenses, and what we never do: no fees, no lead selling, no ratings."
+  path="/about/"
+  section="shared"
+  jsonLd={[breadcrumbLd(crumbs), organizationLd()]}
+>
+  <PageHead
+    crumbs={crumbs}
+    label="About"
+    title="Who runs this site, and <mark>how it works</mark>"
+    lede="Scopit Claims is a free educational site about property insurance claims in Virginia, Maryland, and DC, with a directory of license-verified public adjusters."
+  >
+    <Disclosure class="about-disclosure" />
+  </PageHead>
+
+  <div class="container section about">
+    <div class="prose">
+      <h2 id="who">Who runs it</h2>
+      <p>
+        Scopit Claims is run by <a href={SITE.publisherUrl}>Scopit</a>, a company that makes estimating software for
+        restoration contractors. A common story in restoration work: a pipe bursts, the homeowner pays a plumber, and
+        nobody checks whether the policy might have covered part of the damage. This site explains how claims work, in
+        plain language.
+      </p>
+      <p>
+        We run it because it is useful, and because it introduces the Scopit name to people who work on insurance
+        claims. That is the whole business model. Scopit is not an insurer, insurance agent, adjuster, or law firm.
+      </p>
+
+      <h2 id="how">How the site works</h2>
+      <ul>
+        <li>Everything is free to read. There are no ads and no sign-up.</li>
+        <li>
+          The site has two separate sides: <a href={href('/')}>guides for homeowners</a> and
+          {' '}<a href={href('/for-adjusters/')}>estimating notes for adjusters and estimators</a>.
+        </li>
+        <li>Every guide lists its sources and the date it was last reviewed. Statements about state rules link to the official source and are reviewed by a lawyer before they are published.</li>
+        <li>We do not publish ratings, reviews, or testimonials, and we do not promise any result on a claim.</li>
+      </ul>
+
+      <h2 id="verification">How license verification works</h2>
+      <ol>
+        <li>A public adjuster applies and enters each license number, state, and expiration date themselves.</li>
+        <li>
+          We look up each license on the state’s official license lookup and check that it is a public adjuster
+          license, that it is active, that the name matches, and that the expiration date matches.
+        </li>
+        <li>We record the date we checked. The profile shows it as “License verified on [date].”</li>
+        <li>Only then does the listing go live. Applications that are not verified are never shown.</li>
+        <li>
+          When a license’s expiration date passes, it stops showing. If no verified, current license remains, the
+          listing is hidden. The directory is rebuilt at least once a day, and messages can only be sent to adjusters
+          whose license is current at that moment.
+        </li>
+        <li>We re-check when a license is renewed or changed, and remove listings on request or when a license can’t be verified.</li>
+      </ol>
+      <p>
+        A verified date tells you the license was valid when we checked. Licenses can change, so check again yourself
+        before you sign a contract.
+      </p>
+
+      <h2 id="never">What we never do</h2>
+      <ul>
+        <li>Take money from adjusters: no listing, per-lead, success, referral, or ranking fees.</li>
+        <li>Contact homeowners first, or sell or share leads.</li>
+        <li>Rank adjusters by payment. Listings are in alphabetical order.</li>
+        <li>
+          Send your message to anyone except the adjusters you choose. We keep a record of it for
+          {' '}{INQUIRY_RETENTION_DAYS} days, then delete it.
+        </li>
+        <li>Email homeowners anything except the one confirmation for a message they sent.</li>
+      </ul>
+
+      <h2 id="contact">Questions or corrections</h2>
+      <p>
+        If something on this site is wrong or out of date, please tell us. See the <a href={href('/contact/')}>Contact</a>
+        {' '}page.
+      </p>
+    </div>
+    <aside class="about__aside">
+      <LicenseLookups />
+    </aside>
+  </div>
+</BaseLayout>
+
+<style>
+  .about-disclosure {
+    margin-top: var(--space-3);
+  }
+  .about {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (min-width: 1000px) {
+    .about {
+      grid-template-columns: minmax(0, 1fr) 19rem;
+      gap: var(--space-5);
+      align-items: start;
+    }
+  }
+  .about .prose h2:first-child {
+    margin-top: 0;
+  }
+</style>

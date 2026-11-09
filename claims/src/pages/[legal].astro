@@ -1,0 +1,84 @@
+---
+/** /privacy/, /terms/, /disclaimer/, /listing-terms/ from src/content/legal/. */
+import { getCollection, type CollectionEntry } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHead from '../components/PageHead.astro';
+import StatusBanner from '../components/StatusBanner.astro';
+import MarkdownBody from '../components/MarkdownBody.astro';
+import Disclosure from '../components/Disclosure.astro';
+import Toc from '../components/article/Toc.astro';
+import { breadcrumbLd } from '../seo/jsonld';
+import { formatDate, toIsoDate } from '../shared/dates';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('legal');
+  return entries.map((entry) => ({ params: { legal: entry.id }, props: { entry } }));
+}
+
+interface Props {
+  entry: CollectionEntry<'legal'>;
+}
+
+const { entry } = Astro.props;
+const path = `/${entry.id}/`;
+const crumbs = [
+  { name: entry.data.section === 'adjusters' ? 'For adjusters' : 'Home', path: entry.data.section === 'adjusters' ? '/for-adjusters/' : '/' },
+  { name: entry.data.title, path },
+];
+const pending = entry.data.attorneyReview === 'pending';
+const headings = entry.rendered?.metadata?.headings ?? [];
+---
+
+<BaseLayout
+  title={entry.data.title}
+  description={entry.data.description}
+  path={path}
+  section={entry.data.section}
+  jsonLd={[breadcrumbLd(crumbs)]}
+  noindex={pending}
+>
+  <PageHead crumbs={crumbs} label="Legal" title={entry.data.title}>
+    <p class="mono legal-updated">
+      Last updated <time datetime={toIsoDate(entry.data.lastUpdated)}>{formatDate(entry.data.lastUpdated)}</time>
+    </p>
+  </PageHead>
+  <div class="container section legal">
+    <aside class="legal__aside"><Toc headings={headings} /></aside>
+    <div class="legal__main">
+      {pending && <StatusBanner status="draft" attorneyReview="pending" />}
+      <div class="prose">
+        <MarkdownBody html={entry.rendered?.html ?? ''} />
+      </div>
+      {(entry.id === 'listing-terms' || entry.id === 'terms') && <Disclosure class="legal__disclosure" />}
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .legal-updated {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin: var(--space-2) 0 0;
+  }
+  .legal {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (min-width: 1000px) {
+    .legal {
+      grid-template-columns: 15rem minmax(0, 1fr);
+      gap: var(--space-5);
+      align-items: start;
+    }
+    .legal__aside :global(.toc) {
+      position: sticky;
+      top: 1.5rem;
+    }
+  }
+  .legal__disclosure {
+    margin-top: var(--space-4);
+  }
+  .legal .prose h2:first-child {
+    margin-top: 0;
+  }
+</style>

@@ -1,6 +1,6 @@
 ---
-import { render } from 'astro:content';
 import ArticleLayout from '../layouts/ArticleLayout.astro';
+import MarkdownBody from './MarkdownBody.astro';
 import { getGuides, guideOgImage, guidePath, type Guide } from '../content-helpers';
 import type { RowItem } from './RowList.astro';
 
@@ -9,7 +9,8 @@ interface Props {
 }
 
 const { guide } = Astro.props;
-const { Content, headings } = await render(guide);
+const headings = guide.rendered?.metadata?.headings ?? [];
+const bodyHtml = guide.rendered?.html ?? '';
 const all = await getGuides();
 const path = guidePath(guide);
 
@@ -62,5 +63,5 @@ const mentionsDirectory = /public adjuster|directory/i.test(`${guide.body ?? ''}
   photo={guide.data.photo}
   mentionsDirectory={mentionsDirectory}
 >
-  <Content />
+  <MarkdownBody html={bodyHtml} />
 </ArticleLayout>

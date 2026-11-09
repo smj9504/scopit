@@ -46,3 +46,12 @@ export function absoluteUrl(path: string): string {
 
 /** Which side of the site a page belongs to. Homeowner and adjuster content never share a page. */
 export type Section = 'homeowners' | 'adjusters' | 'shared';
+
+/**
+ * Prefix root-relative links in rendered Markdown with the base path, so
+ * content can link to "/contact/" and still work under /claims/.
+ */
+export function withBaseLinks(html: string): string {
+  if (!BASE_PATH) return html;
+  return html.replace(/(\s(?:href|src)=")\/(?!\/)/g, `$1${BASE_PATH}/`);
+}
