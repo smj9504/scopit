@@ -1,0 +1,29 @@
+# Scopit Claims (claims/) — independent of the Scopit app's CI.
+# Runs type checks, unit tests, the build, and the built-site checks.
+name: Claims site
+
+on:
+  push:
+    branches: [main]
+    paths: ['claims/**', '.github/workflows/claims.yml']
+  pull_request:
+    paths: ['claims/**', '.github/workflows/claims.yml']
+
+jobs:
+  check:
+    name: Check, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: claims
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: claims/.nvmrc
+          cache: npm
+          cache-dependency-path: claims/package-lock.json
+      - run: npm ci
+      - run: npm run ci
+      - name: Launch gate (informational until launch)
+        run: npm run launch-check || echo "::warning::Launch blockers remain. See the step output."

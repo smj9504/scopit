@@ -911,3 +911,8 @@ samp {
 main:focus {
   outline: none;
 }
+
+/* Spacing for the disclosure wherever it follows other content. */
+.disclosure:not(:first-child) {
+  margin-top: var(--space-3);
+}

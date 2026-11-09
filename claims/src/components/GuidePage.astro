@@ -1,7 +1,7 @@
 ---
 import ArticleLayout from '../layouts/ArticleLayout.astro';
 import MarkdownBody from './MarkdownBody.astro';
-import { getGuides, guideOgImage, guidePath, type Guide } from '../content-helpers';
+import { entryHeadings, getGuides, guideOgImage, guidePath, type Guide } from '../content-helpers';
 import type { RowItem } from './RowList.astro';
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
 }
 
 const { guide } = Astro.props;
-const headings = guide.rendered?.metadata?.headings ?? [];
+const headings = entryHeadings(guide);
 const bodyHtml = guide.rendered?.html ?? '';
 const all = await getGuides();
 const path = guidePath(guide);
