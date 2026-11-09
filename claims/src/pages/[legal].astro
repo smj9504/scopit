@@ -8,6 +8,7 @@ import MarkdownBody from '../components/MarkdownBody.astro';
 import Disclosure from '../components/Disclosure.astro';
 import Toc from '../components/article/Toc.astro';
 import { breadcrumbLd } from '../seo/jsonld';
+import { entryHeadings } from '../content-helpers';
 import { formatDate, toIsoDate } from '../shared/dates';
 
 export async function getStaticPaths() {
@@ -26,7 +27,7 @@ const crumbs = [
   { name: entry.data.title, path },
 ];
 const pending = entry.data.attorneyReview === 'pending';
-const headings = entry.rendered?.metadata?.headings ?? [];
+const headings = entryHeadings(entry);
 ---
 
 <BaseLayout
@@ -74,9 +75,6 @@ const headings = entry.rendered?.metadata?.headings ?? [];
       position: sticky;
       top: 1.5rem;
     }
-  }
-  .legal__disclosure {
-    margin-top: var(--space-4);
   }
   .legal .prose h2:first-child {
     margin-top: 0;

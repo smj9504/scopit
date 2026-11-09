@@ -51,3 +51,9 @@ export function iso(date: Date): string {
 export function rowNumber(i: number): string {
   return String(i + 1).padStart(2, '0');
 }
+
+/** H2/H3 headings of a rendered Markdown entry, for the table of contents. */
+export function entryHeadings(entry: { rendered?: { metadata?: Record<string, unknown> } }): import('astro').MarkdownHeading[] {
+  const h = entry.rendered?.metadata?.headings;
+  return Array.isArray(h) ? (h as import('astro').MarkdownHeading[]) : [];
+}

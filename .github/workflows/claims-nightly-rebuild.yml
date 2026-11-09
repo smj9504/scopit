@@ -1,0 +1,25 @@
+# Rebuilds the Scopit Claims site once a day so licenses that expired drop out
+# of the static directory pages. (Inquiries are also checked at send time.)
+# Needs the repository secret CLAIMS_PAGES_DEPLOY_HOOK_URL (Cloudflare Pages >
+# Settings > Builds > Deploy hooks). Does nothing until that secret is set.
+name: Claims nightly rebuild
+
+on:
+  schedule:
+    - cron: '17 9 * * *' # 09:17 UTC, early morning in Virginia, Maryland, and DC
+  workflow_dispatch:
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Cloudflare Pages deploy hook
+        env:
+          HOOK: ${{ secrets.CLAIMS_PAGES_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "CLAIMS_PAGES_DEPLOY_HOOK_URL is not set; skipping."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null
+          echo "Rebuild requested."

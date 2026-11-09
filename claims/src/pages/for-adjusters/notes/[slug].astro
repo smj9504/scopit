@@ -1,7 +1,7 @@
 ---
 import ArticleLayout from '../../../layouts/ArticleLayout.astro';
 import MarkdownBody from '../../../components/MarkdownBody.astro';
-import { getNotes, noteOgImage, notePath, type Note } from '../../../content-helpers';
+import { entryHeadings, getNotes, noteOgImage, notePath, type Note } from '../../../content-helpers';
 import type { RowItem } from '../../../components/RowList.astro';
 
 export async function getStaticPaths() {
@@ -15,7 +15,7 @@ interface Props {
 }
 
 const { note, all } = Astro.props;
-const headings = note.rendered?.metadata?.headings ?? [];
+const headings = entryHeadings(note);
 const bodyHtml = note.rendered?.html ?? '';
 const path = notePath(note);
 
