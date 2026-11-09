@@ -11,7 +11,7 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 - [ ] Every guide still has a summary, sources, a last-reviewed date, and the disclaimer (the template adds the disclaimer)
 - [ ] Real job-site photos added (`photo:` in front matter, and the home hero in `src/pages/index.astro`), with useful alt text. No stock people
 - [ ] Home page, checklist, About, and Contact copy reviewed
-- [ ] Decision on the "Xactimate" note title (docs/PLAN.md, open question 3)
+- [ ] Decision on the "Xactimate" note title (docs/PLAN.md, open question 2)
 
 ## Legal (attorney)
 
@@ -27,7 +27,7 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 - [ ] `wrangler.toml` production vars filled in (`PUBLIC_TURNSTILE_SITE_KEY`, site URL, contact email); build secrets `CF_D1_API_TOKEN` and `CF_ACCOUNT_ID` set; first build log shows `using wrangler.toml env "production"` and `Loaded N verified listing row(s) from D1`
 - [ ] Runtime secrets set: `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_NOTIFY_EMAIL`, `BUTTONDOWN_API_KEY`, `ADMIN_USER`, `ADMIN_PASSWORD` (long and random), `IP_HASH_SALT` (long and random), `PAGES_DEPLOY_HOOK_URL`
 - [ ] Turnstile widget created for the production hostname; site key in `PUBLIC_TURNSTILE_SITE_KEY`
-- [ ] Custom domain attached; HTTPS works
+- [ ] Custom domain `claims.scopit.work` attached in Pages; HTTPS works
 - [ ] Cloudflare Access policy on `/admin*`
 - [ ] GitHub secret `CLAIMS_PAGES_DEPLOY_HOOK_URL` set for the nightly rebuild
 
@@ -42,7 +42,6 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 
 - [ ] Plausible site added; `PUBLIC_PLAUSIBLE_DOMAIN` set
 - [ ] Search Console property verified (DNS TXT); sitemap submitted
-- [ ] If served under `www.scopit.work/claims/`: the main site's `robots.txt` lists the claims sitemap
 - [ ] Share a page in Slack or iMessage; the preview image and title look right
 
 ## Final checks on the production URL

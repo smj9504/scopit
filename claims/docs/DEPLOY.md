@@ -61,7 +61,7 @@ Non-secret build settings, in `wrangler.toml` under `[env.production.vars]` and 
 | Name | Production value | Notes |
 | --- | --- | --- |
 | `CLAIMS_SITE` | `https://claims.scopit.work` | Public origin for canonical URLs, Open Graph, the sitemap, and email links |
-| `CLAIMS_BASE` | `""` | `/claims` only for the sub-path setup (section 7) |
+| `CLAIMS_BASE` | `""` | Empty for claims.scopit.work. Only `/claims` if the site ever moves to a sub-path (section 7) |
 | `CLAIMS_ENV` | `production` | Production builds refuse fixtures and require the D1 source |
 | `CLAIMS_DIRECTORY_SOURCE` | `d1` | Where directory pages come from |
 | `PUBLIC_TURNSTILE_SITE_KEY` | from section 4 | Public value; **fill this in before the first deploy** |
@@ -95,7 +95,7 @@ Non-secret runtime values (`CLAIMS_ENV`, `CLAIMS_SITE`, `CLAIMS_BASE`, `EMAIL_PR
 
 ## 4. Turnstile
 
-Dashboard > Turnstile > Add widget. Name it `scopit-claims`, add hostnames `claims.scopit.work` and `scopit-claims.pages.dev` (plus `www.scopit.work` for the sub-path setup), mode **Managed**. Put the site key in `PUBLIC_TURNSTILE_SITE_KEY` (build) and the secret in `TURNSTILE_SECRET_KEY` (runtime).
+Dashboard > Turnstile > Add widget. Name it `scopit-claims`, add hostnames `claims.scopit.work` and `scopit-claims.pages.dev`, mode **Managed**. Put the site key in `PUBLIC_TURNSTILE_SITE_KEY` (build) and the secret in `TURNSTILE_SECRET_KEY` (runtime).
 
 Locally, the code falls back to Cloudflare's always-pass test keys, so forms work without a real widget.
 
@@ -108,13 +108,13 @@ Pages > Settings > Builds > Deploy hooks > Add: name `admin-and-nightly`, branch
 
 Treat the hook URL like a password: anyone with it can trigger builds.
 
-## 6. Custom domain: claims.scopit.work (recommended)
+## 6. Custom domain: claims.scopit.work
 
 Pages > Custom domains > Set up a domain > `claims.scopit.work`. `scopit.work` is on Cloudflare DNS, so Cloudflare adds the CNAME record itself. Nothing changes on the Vercel or Render side.
 
-## 7. Alternative: www.scopit.work/claims/
+## 7. Reference only: serving under www.scopit.work/claims/
 
-Use this only if the site must live under the main domain. The main site is on Vercel, so the Scopit frontend has to proxy `/claims/*` to Pages:
+The site is served at **claims.scopit.work** (decided 2026-11-09). The base path stays configurable, so if that ever changes, the steps are below. The main site is on Vercel, so the Scopit frontend would have to proxy `/claims/*` to Pages:
 
 1. Build with `CLAIMS_SITE=https://www.scopit.work` and `CLAIMS_BASE=/claims`, and set `CLAIMS_SITE`/`CLAIMS_BASE` in `wrangler.toml` `[env.production.vars]` the same way.
 2. In `frontend/vercel.json`, add these rewrites **before** the SPA catch-all:
