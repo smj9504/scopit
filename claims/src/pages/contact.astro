@@ -1,0 +1,60 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHead from '../components/PageHead.astro';
+import { breadcrumbLd } from '../seo/jsonld';
+import { href, SITE } from '../site';
+
+const crumbs = [
+  { name: 'Home', path: '/' },
+  { name: 'Contact', path: '/contact/' },
+];
+---
+
+<BaseLayout
+  title="Contact Scopit Claims"
+  description="How to reach the team behind Scopit Claims about corrections, privacy requests, or directory listings. We can't advise on individual claims."
+  path="/contact/"
+  section="shared"
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHead crumbs={crumbs} label="Contact" title="Contact us" />
+  <div class="container section">
+    <div class="contact">
+      <div class="block">
+        <p class="label">Email</p>
+        <p class="contact__email"><a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a></p>
+        <p class="muted">Please don’t send policy documents or other sensitive files by email.</p>
+      </div>
+      <div class="prose">
+        <h2 id="write-about">What you can write to us about</h2>
+        <ul>
+          <li>A mistake or something out of date in a guide.</li>
+          <li>A privacy request, such as deleting a message you sent through the site.</li>
+          <li>Changes to a directory listing, or removing one (adjusters).</li>
+        </ul>
+        <h2 id="cannot">What we can’t help with</h2>
+        <p>
+          We can’t give advice on your claim, review your policy, or recommend a specific adjuster. For help with your
+          own claim, contact your insurer, a licensed public adjuster from the <a href={href('/find-an-adjuster/')}>directory</a>,
+          {' '}or a lawyer.
+        </p>
+      </div>
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .contact {
+    display: grid;
+    gap: var(--space-4);
+    max-width: var(--measure);
+  }
+  .contact__email {
+    font-size: 1.4rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .contact .prose h2:first-child {
+    margin-top: 0;
+  }
+</style>

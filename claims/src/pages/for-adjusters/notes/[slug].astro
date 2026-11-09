@@ -1,6 +1,6 @@
 ---
-import { render } from 'astro:content';
 import ArticleLayout from '../../../layouts/ArticleLayout.astro';
+import MarkdownBody from '../../../components/MarkdownBody.astro';
 import { getNotes, noteOgImage, notePath, type Note } from '../../../content-helpers';
 import type { RowItem } from '../../../components/RowList.astro';
 
@@ -15,7 +15,8 @@ interface Props {
 }
 
 const { note, all } = Astro.props;
-const { Content, headings } = await render(note);
+const headings = note.rendered?.metadata?.headings ?? [];
+const bodyHtml = note.rendered?.html ?? '';
 const path = notePath(note);
 
 const relatedEntries = note.data.related
@@ -54,5 +55,5 @@ const crumbs = [
   relatedTitle="More estimating notes"
   photo={note.data.photo}
 >
-  <Content />
+  <MarkdownBody html={bodyHtml} />
 </ArticleLayout>

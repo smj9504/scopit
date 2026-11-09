@@ -34,9 +34,8 @@ function isCurrent(linkPath: string) {
 
 <header class="site-header">
   <div class="container site-header__bar">
-    <a class="brand" href={href('/')} aria-label="Scopit Claims home">
-      <span class="brand__name">Scopit</span>
-      <span class="brand__tag">Claims</span>
+    <a class="brand" href={href('/')}>
+      <span class="brand__name">Scopit</span>{' '}<span class="brand__tag">Claims</span>
     </a>
     <a class="site-header__about" href={href('/about/')} aria-current={path === '/about/' ? 'page' : undefined}>About</a>
   </div>
