@@ -27,6 +27,8 @@ import XactimatePackingEstimatePage from './pages/public/XactimatePackingEstimat
 import WaterDamageContentsEstimatePage from './pages/public/WaterDamageContentsEstimatePage';
 import FireDamageContentsEstimatePage from './pages/public/FireDamageContentsEstimatePage';
 import InPersonContractSigningPage from './pages/public/InPersonContractSigningPage';
+import KitchenCabinetEstimatePage from './pages/public/KitchenCabinetEstimatePage';
+import BathroomEstimatePage from './pages/public/BathroomEstimatePage';
 import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
 import TermsPage from './pages/public/TermsPage';
 import LandingPage from './pages/public/LandingPage';
@@ -41,6 +43,8 @@ const ROUTES: Record<string, React.ComponentType> = {
   '/water-damage-contents-estimate': WaterDamageContentsEstimatePage,
   '/fire-damage-contents-estimate': FireDamageContentsEstimatePage,
   '/in-person-contract-signing': InPersonContractSigningPage,
+  '/kitchen-cabinet-estimate': KitchenCabinetEstimatePage,
+  '/bathroom-estimate': BathroomEstimatePage,
   '/privacy': PrivacyPolicyPage,
   '/terms': TermsPage,
 };

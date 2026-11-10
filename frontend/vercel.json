@@ -41,6 +41,14 @@
       "destination": "/in-person-contract-signing/index.html"
     },
     {
+      "source": "/kitchen-cabinet-estimate",
+      "destination": "/kitchen-cabinet-estimate/index.html"
+    },
+    {
+      "source": "/bathroom-estimate",
+      "destination": "/bathroom-estimate/index.html"
+    },
+    {
       "source": "/packing-estimate",
       "destination": "/packing-estimate/index.html"
     },

@@ -79,6 +79,18 @@ const routes = [
       'Get work authorizations signed on-site: your forms fill in from your records and the homeowner signs on your phone or tablet. No app or account needed.',
   },
   {
+    path: '/kitchen-cabinet-estimate',
+    title: 'Kitchen Cabinet Estimate Software for Contractors | Scopit',
+    description:
+      'Sketch the kitchen and price cabinets, countertop, demo, plumbing and install. Insurance restoration and upgrade options side by side, with a PDF quote.',
+  },
+  {
+    path: '/bathroom-estimate',
+    title: 'Bathroom Estimate Software for Contractors | Scopit',
+    description:
+      'Draw the bathroom on a floor plan and price it in seven phases, demo to punch list. Water-damage restorations, upgrade options and remodels, with a PDF.',
+  },
+  {
     path: '/demo/packing',
     title: 'Free Packing Estimate Demo | Scopit',
     description:
