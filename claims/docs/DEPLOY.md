@@ -82,8 +82,8 @@ On the first production deploy, check the build log for `Loaded N verified listi
 | Name | Notes |
 | --- | --- |
 | `TURNSTILE_SECRET_KEY` | From the Turnstile widget |
-| `RESEND_API_KEY` | Resend > API Keys, "Sending access" for the claims domain only |
-| `EMAIL_FROM` | e.g. `Scopit Claims <claims@mail.scopit.work>` on the Resend-verified domain |
+| `RESEND_API_KEY` | A new `scopit-claims` key in Scopit's existing Resend account, "Sending access" for `scopit.work` (section 8) |
+| `EMAIL_FROM` | `Scopit Claims <claims@scopit.work>` (`scopit.work` is already verified in Resend) |
 | `ADMIN_NOTIFY_EMAIL` | Where new application notices go |
 | `BUTTONDOWN_API_KEY` | Buttondown > Settings > API |
 | `BUTTONDOWN_TAGS` | Optional, default `scopit-claims-adjuster-notes` |
@@ -127,12 +127,16 @@ The site is served at **claims.scopit.work** (decided 2026-11-09). The base path
 
 Downsides: the main frontend's deploys now depend on this rewrite; requests reach Pages through Vercel, so the visitor IP that Cloudflare sees (and the per-IP rate limit) is Vercel's; and `/admin` sits behind two hosts. This is why the subdomain is recommended.
 
-## 8. Email: Resend and the sending domain
+## 8. Email: Resend
 
-1. Resend > Domains > Add `mail.scopit.work`. Resend recommends sending from a subdomain, which also keeps claims mail reputation separate from the root domain.
-2. Add the DNS records Resend shows in Cloudflare DNS. For a subdomain they are typically an `MX` and an SPF `TXT` on `send.mail` (the bounce/Return-Path host) and a DKIM `TXT` on `resend._domainkey.mail`. Some accounts are shown `CNAME` records instead. Use exactly what Resend shows, with the proxy **off** (DNS only). Wait for "Verified".
-3. If `scopit.work` has no DMARC record yet, add `_dmarc.scopit.work TXT "v=DMARC1; p=none; rua=mailto:dmarc@scopit.work"`, then tighten it to `quarantine` once reports look clean.
-4. Set `EMAIL_FROM` to an address on that domain. Replies to inquiry emails go to the homeowner (reply-to); replies to confirmations go to `EMAIL_FROM`, so make sure that mailbox exists or forwards somewhere.
+Scopit already uses Resend (the app's backend sends through `smtp.resend.com`), and `scopit.work` is already verified there. Claims uses the same account and domain:
+
+1. Resend > API Keys > Create: name `scopit-claims`, permission **Sending access**, domain `scopit.work`. Put it in the `RESEND_API_KEY` secret. A separate key lets you revoke the site's access without touching the app.
+2. Set `EMAIL_FROM` to `Scopit Claims <claims@scopit.work>`. No new DNS records are needed because the domain is already verified.
+3. Make sure replies to `claims@scopit.work` reach someone. Inquiry emails set reply-to to the homeowner, but replies to confirmations go to `EMAIL_FROM`. If `scopit.work` already has a mail provider, add `claims@` as an alias there; if not, Cloudflare Email Routing (free) can forward it to an existing inbox.
+4. If `scopit.work` has no DMARC record yet, add `_dmarc.scopit.work TXT "v=DMARC1; p=none; rua=mailto:dmarc@scopit.work"`, then tighten it to `quarantine` once reports look clean.
+
+**Shared quota.** On Resend's free plan, the daily limit (100 emails) and monthly limit (3,000) are per account, so the site shares them with the Scopit app. One inquiry sends up to 4 emails (3 adjusters + the confirmation). That is plenty at launch; if sends start failing at the limit, upgrade to Pro (about $20 a month).
 
 The site sends only: an inquiry to each selected adjuster, one confirmation to the homeowner who sent it, an application confirmation to the PA, an application notice to `ADMIN_NOTIFY_EMAIL`, and a "listing is live" notice to the PA on approval.
 

@@ -9,7 +9,7 @@
 | 사이트 코드와 글 | GitHub 저장소의 `claims/` 폴더 | Scopit 앱(`frontend/`, `backend/`)과 별개 |
 | 배포 | Cloudflare Pages 프로젝트 `scopit-claims` | `main`에 머지하면 자동 배포 |
 | DB (PA, 면허, 문의) | Cloudflare D1 `scopit-claims` (미리보기용은 `scopit-claims-preview`) | Scopit 앱의 Neon DB와 완전히 별개 |
-| 이메일 발송 | Resend (`mail.scopit.work`) | 무료: 하루 100통, 월 3,000통 |
+| 이메일 발송 | Resend, Scopit 앱과 같은 계정 (`claims@scopit.work`) | 무료 한도(하루 100통, 월 3,000통)를 앱과 나눠 씀 |
 | PA 뉴스레터 | Buttondown | 무료: 구독자 100명 |
 | 관리자 화면 | `https://claims.scopit.work/admin` | 브라우저만 있으면 됨 |
 | 검색 노출 | Google Search Console | 방문자 통계 도구는 쓰지 않음 |
@@ -77,8 +77,8 @@ Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production�
 | `CF_D1_API_TOKEN` | My Profile > API Tokens > Create Token > Custom, 권한은 **Account > D1 > Read**만 |
 | `CF_ACCOUNT_ID` | 대시보드 오른쪽의 Account ID |
 | `TURNSTILE_SECRET_KEY` | 2-2의 비밀 키 |
-| `RESEND_API_KEY` | 2-6에서 발급 |
-| `EMAIL_FROM` | `Scopit Claims <claims@mail.scopit.work>` |
+| `RESEND_API_KEY` | 2-6에서 새로 만든 claims 전용 키 |
+| `EMAIL_FROM` | `Scopit Claims <claims@scopit.work>` |
 | `ADMIN_NOTIFY_EMAIL` | 새 PA 신청 알림을 받을 주소 |
 | `BUTTONDOWN_API_KEY` | 2-7에서 발급 |
 | `ADMIN_USER` | 관리자 아이디 (예: `admin`) |
@@ -97,10 +97,12 @@ Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production�
 
 ### 2-6. Resend (이메일) — DEPLOY.md 8
 
-- [ ] 가입 > Domains > `mail.scopit.work` 추가
-- [ ] Resend가 보여 주는 DNS 레코드를 Cloudflare DNS에 추가 (프록시 끔, DNS only). "Verified"가 될 때까지 대기
-- [ ] API Keys에서 키 발급 (Sending access)
+기존 Scopit 계정을 그대로 쓰고, `scopit.work`가 이미 인증돼 있어 DNS 작업은 필요 없습니다.
+
+- [ ] API Keys > Create: 이름 `scopit-claims`, 권한 Sending access, 도메인 `scopit.work`. 앱과 키를 나눠 두면 사이트 키만 따로 끊을 수 있음
+- [ ] `claims@scopit.work`로 오는 답장을 누군가 받게 하기: 메일 서비스가 있으면 별칭 추가, 없으면 Cloudflare Email Routing(무료)으로 기존 메일함에 전달
 - [ ] `scopit.work`에 DMARC 레코드가 없으면 추가
+- [ ] 참고: 무료 한도(하루 100통)는 Scopit 앱과 나눠 씀. 문의 1건에 최대 4통. 모자라면 Pro(월 약 $20)
 
 ### 2-7. Buttondown (뉴스레터) — DEPLOY.md 9
 

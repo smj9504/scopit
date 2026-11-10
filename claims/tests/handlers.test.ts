@@ -29,7 +29,7 @@ beforeEach(() => {
     CLAIMS_SITE: ORIGIN,
     TURNSTILE_SECRET_KEY: 'secret',
     RESEND_API_KEY: 're_test',
-    EMAIL_FROM: 'Scopit Claims <claims@mail.scopit.work>',
+    EMAIL_FROM: 'Scopit Claims <claims@scopit.work>',
     ADMIN_NOTIFY_EMAIL: 'admin@scopit.test',
     BUTTONDOWN_API_KEY: 'bd_test',
     IP_HASH_SALT: 'salt',
