@@ -1,5 +1,7 @@
 # Running the directory: license verification
 
+(Korean quick guide: `OPERATIONS.ko.md`.)
+
 The directory only shows a public adjuster after a person at Scopit has checked their license with the state. This page is the procedure.
 
 ## Access

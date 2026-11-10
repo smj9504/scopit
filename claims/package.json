@@ -36,6 +36,7 @@
     "launch-check": "node scripts/launch-check.mjs",
     "db:migrate:local": "wrangler d1 migrations apply scopit-claims --local",
     "db:migrate:remote": "wrangler d1 migrations apply scopit-claims --remote",
+    "db:migrate:preview": "wrangler d1 migrations apply scopit-claims-preview --remote --env preview",
     "a11y": "node scripts/a11y.cjs",
     "ci": "astro check && vitest run && npm run build && npm run verify"
   }
