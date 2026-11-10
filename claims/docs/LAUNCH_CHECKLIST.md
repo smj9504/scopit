@@ -40,7 +40,6 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 
 ## Search and analytics
 
-- [ ] Plausible site added; `PUBLIC_PLAUSIBLE_DOMAIN` set
 - [ ] Search Console property verified (DNS TXT); sitemap submitted
 - [ ] Share a page in Slack or iMessage; the preview image and title look right
 

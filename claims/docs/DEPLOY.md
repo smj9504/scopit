@@ -9,8 +9,8 @@ GitHub (this repo, claims/)
        ├─ Pages Functions  /api/inquiry, /api/apply, /api/newsletter, /admin
        ├─ D1 database "scopit-claims"  (+ "scopit-claims-preview")
        └─ custom domain claims.scopit.work
-External services: Resend (email), Buttondown (newsletter), Plausible (analytics),
-Cloudflare Turnstile (spam), Google Search Console.
+External services: Resend (email), Buttondown (newsletter), Cloudflare Turnstile (spam),
+Google Search Console. No analytics service (decided 2026-11-10).
 ```
 
 ## 1. Create the D1 databases
@@ -65,7 +65,7 @@ Non-secret build settings, in `wrangler.toml` under `[env.production.vars]` and 
 | `CLAIMS_ENV` | `production` | Production builds refuse fixtures and require the D1 source |
 | `CLAIMS_DIRECTORY_SOURCE` | `d1` | Where directory pages come from |
 | `PUBLIC_TURNSTILE_SITE_KEY` | from section 4 | Public value; **fill this in before the first deploy** |
-| `PUBLIC_PLAUSIBLE_DOMAIN` | `claims.scopit.work` | Empty means no analytics script |
+| `PUBLIC_PLAUSIBLE_DOMAIN` | `""` (off) | Analytics is off. Setting it to `claims.scopit.work` turns on Plausible (paid; see section 10) |
 | `PUBLIC_CONTACT_EMAIL` | `hello@scopit.work` | Shown on Contact and in form fallbacks |
 
 Encrypted secrets for the build (dashboard > Settings > Variables and Secrets > Add > **Encrypt**, for both Production and Preview):
@@ -146,10 +146,10 @@ The site sends only: an inquiry to each selected adjuster, one confirmation to t
 
 To switch providers, implement `NewsletterProvider` in `src/server/newsletter.ts`; nothing else changes.
 
-## 10. Analytics and Search Console
+## 10. Search Console (and optional analytics)
 
-- **Plausible:** add the site `claims.scopit.work` and set `PUBLIC_PLAUSIBLE_DOMAIN`. The script loads only when that variable is set, and `postbuild` adds Plausible to the CSP automatically. Plausible sets no cookies, so no cookie banner is needed.
 - **Search Console:** add a Domain property for `scopit.work` (DNS TXT record in Cloudflare), or a URL-prefix property for `https://claims.scopit.work/`. Submit `https://claims.scopit.work/sitemap.xml`. The sitemap lists only pages that are published (not placeholder, draft, or pending legal review).
+- **Analytics: off.** The site loads no analytics script. To add Plausible later (paid, from about $9 a month), subscribe, add the site `claims.scopit.work`, and set `PUBLIC_PLAUSIBLE_DOMAIN = "claims.scopit.work"` in `wrangler.toml` `[env.production.vars]`. The script then loads, `postbuild` adds Plausible to the CSP, and no cookie banner is needed because Plausible sets no cookies. Update the Privacy Policy at the same time.
 
 ## 11. Protect /admin with Cloudflare Access (recommended)
 

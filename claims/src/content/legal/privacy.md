@@ -1,7 +1,7 @@
 ---
 title: Privacy Policy
 description: What Scopit Claims collects, why, who it is shared with, how long it is kept, and how to ask us to delete it. Draft pending attorney review.
-lastUpdated: 2026-11-09
+lastUpdated: 2026-11-10
 attorneyReview: pending
 section: shared
 ---
@@ -20,7 +20,7 @@ Scopit Claims is run by Scopit (scopit.work), a company that makes estimating so
 
 ## When you read the site
 
-We use Plausible Analytics to count visits. Plausible does not use cookies and does not collect personal information; it reports totals such as page views and referring sites. Our hosting provider, Cloudflare, processes technical data such as IP addresses to deliver pages and protect the site from abuse.
+This site does not use an analytics service or any tracking scripts. Our hosting provider, Cloudflare, processes technical data such as IP addresses to deliver pages and protect the site from abuse. We use Google Search Console, which reports how the site appears in Google search results; it does not run on this site or collect information from your visit here.
 
 ## When you send a message to adjusters
 
@@ -48,7 +48,7 @@ Forms use Cloudflare Turnstile to tell people from bots. To limit repeated submi
 
 ## Service providers
 
-We use these providers to run the site: Cloudflare (hosting, database, spam protection), Resend (sending email), Buttondown (newsletter), and Plausible (privacy-friendly visit counts). They process information on our behalf.
+We use these providers to run the site: Cloudflare (hosting, database, spam protection), Resend (sending email), and Buttondown (newsletter). They process information on our behalf.
 
 ## How long we keep information
 
