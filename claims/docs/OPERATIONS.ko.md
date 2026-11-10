@@ -9,7 +9,7 @@
 | 사이트 코드와 글 | GitHub 저장소의 `claims/` 폴더 | Scopit 앱(`frontend/`, `backend/`)과 별개 |
 | 배포 | Cloudflare Pages 프로젝트 `scopit-claims` | `main`에 머지하면 자동 배포 |
 | DB (PA, 면허, 문의) | Cloudflare D1 `scopit-claims` (미리보기용은 `scopit-claims-preview`) | Scopit 앱의 Neon DB와 완전히 별개 |
-| 이메일 발송 | Resend, Scopit 앱과 같은 계정 (`claims@scopit.work`) | 무료 한도(하루 100통, 월 3,000통)를 앱과 나눠 씀 |
+| 이메일 | `claims@scopit.work` (보내는 주소이자 사이트 연락처). 발송은 Resend, Scopit 앱과 같은 계정 | 무료 한도(하루 100통, 월 3,000통)를 앱과 나눠 씀 |
 | PA 뉴스레터 | Buttondown | 무료: 구독자 100명 |
 | 관리자 화면 | `https://claims.scopit.work/admin` | 브라우저만 있으면 됨 |
 | 검색 노출 | Google Search Console | 방문자 통계 도구는 쓰지 않음 |
@@ -19,14 +19,14 @@
 ## 1단계: 지금 할 일 (결정과 검토)
 
 - [ ] PR #11 검토 후 `main`에 머지. 머지만으로는 아무것도 공개되지 않습니다.
-- [ ] 남은 결정 7가지 답하기 (`PLAN.md` "Open questions"):
-  1. 연락처 이메일 (`hello@scopit.work` 그대로? 별도 `claims@`?)
-  2. 노트 제목의 "Xactimate" 유지 여부
-  3. 홈 체크리스트, About, Contact 문구 검토
-  4. 문의 보관 기간 180일
-  5. 한 번에 문의할 수 있는 PA 최대 3명
-  6. 승인 시 PA에게 "등록 완료" 메일 보내기
-  7. 거절 시 자동 메일 없음 (직접 연락)
+- [ ] 남은 결정 6가지 답하기 (`PLAN.md` "Open questions"):
+  1. 노트 제목의 "Xactimate" 유지 여부
+  2. 홈 체크리스트, About, Contact 문구 검토
+  3. 문의 보관 기간 180일
+  4. 한 번에 문의할 수 있는 PA 최대 3명
+  5. 승인 시 PA에게 "등록 완료" 메일 보내기
+  6. 거절 시 자동 메일 없음 (직접 연락)
+- 결정됨: 사이트 이메일은 `claims@scopit.work` (보내는 주소와 연락처 모두)
 
 ## 2단계: 서비스 설정 (계정이 필요해서 직접 하셔야 함)
 
@@ -68,10 +68,11 @@ npm run db:migrate:preview    # 미리보기 DB
   - Build command `npm run build`
   - Build output `dist`
 - [ ] Settings > Builds > Build watch paths에 `claims/*` (Scopit 앱만 바뀐 커밋에서는 빌드하지 않도록)
+- [ ] Settings > Builds > Branch control > Preview branches를 **None**으로 (출시 전까지는 미리보기 배포를 꺼 두면 비밀값을 Production에만 넣으면 됨)
 
 ### 2-4. 비밀값 넣기 — DEPLOY.md 3
 
-Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production과 Preview 둘 다 넣습니다.
+Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production에 넣습니다. (미리보기 배포를 켜면 Preview에도 넣어야 함)
 
 | 이름 | 어디서 구하나 |
 | --- | --- |
