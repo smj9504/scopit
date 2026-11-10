@@ -11,7 +11,7 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 - [ ] Every guide still has a summary, sources, a last-reviewed date, and the disclaimer (the template adds the disclaimer)
 - [ ] Real job-site photos added (`photo:` in front matter, and the home hero in `src/pages/index.astro`), with useful alt text. No stock people
 - [ ] Home page, checklist, About, and Contact copy reviewed
-- [ ] Decision on the "Xactimate" note title (docs/PLAN.md, open question 2)
+- [ ] Decision on the "Xactimate" note title (docs/PLAN.md, open question 1)
 
 ## Legal (attorney)
 

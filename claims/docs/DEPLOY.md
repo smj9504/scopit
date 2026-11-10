@@ -66,7 +66,7 @@ Non-secret build settings, in `wrangler.toml` under `[env.production.vars]` and 
 | `CLAIMS_DIRECTORY_SOURCE` | `d1` | Where directory pages come from |
 | `PUBLIC_TURNSTILE_SITE_KEY` | from section 4 | Public value; **fill this in before the first deploy** |
 | `PUBLIC_PLAUSIBLE_DOMAIN` | `""` (off) | Analytics is off. Setting it to `claims.scopit.work` turns on Plausible (paid; see section 10) |
-| `PUBLIC_CONTACT_EMAIL` | `hello@scopit.work` | Shown on Contact and in form fallbacks |
+| `PUBLIC_CONTACT_EMAIL` | `claims@scopit.work` | Shown on Contact and in form fallbacks; same address as `EMAIL_FROM` |
 
 Encrypted secrets for the build (dashboard > Settings > Variables and Secrets > Add > **Encrypt**, for both Production and Preview):
 

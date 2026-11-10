@@ -16,6 +16,7 @@ Built from the "Build Scopit Claims (production website)" brief. This records wh
 | Newsletter | Buttondown via one adapter (`src/server/newsletter.ts`) | Buttondown applies double opt-in to every API signup by default, and the adapter never bypasses it |
 | Analytics | **Search Console only** (decided 2026-11-10, to keep running costs at $0). Plausible can be switched on later with one setting | **No cookie banner needed**: no cookies, no trackers, nothing that requires consent |
 | Admin | **Password-protected `/admin`** (one Pages Function, no JS) + documented D1 SQL fallback | Lighter to run day to day than SQL by hand; tiny attack surface; Cloudflare Access can be added on top if `scopit.work`'s DNS ever moves to Cloudflare (it is on Namecheap) |
+| Email address | **claims@scopit.work** for both sending (`EMAIL_FROM`) and the public contact address (decided 2026-11-10) | One address for the claims site, separate from the app's `hello@`/`no-reply@`. Replies arrive through a Namecheap email forwarder. Emails and pages keep saying Scopit is not an insurer or adjuster, since a `claims@` address could suggest otherwise |
 | Domain | **claims.scopit.work** (decided 2026-11-09) | Own Pages project and DNS record; no change to the Vercel frontend. The base path stays configurable (`CLAIMS_BASE`) |
 | Directory data | D1 is the source of truth; pages are built from it at build time via the D1 REST API | Keeps every public page static; approvals trigger a rebuild; a nightly rebuild drops expired licenses |
 
@@ -47,13 +48,12 @@ Checks at the end: `astro check` 0 errors; 51 unit and integration tests; 22 pag
 
 ## Open questions (need a decision)
 
-1. **Contact address.** Pages use `hello@scopit.work` (`PUBLIC_CONTACT_EMAIL`). Use a dedicated `claims@` inbox?
-2. **"Xactimate" in a note title.** The Scopit product brief (PRODUCT.md) says marketing should not name competitors. The claims brief asked for "Xactimate habits that save a supplement". I kept your title and added a trademark note in the file. Keep it, or retitle to "Estimate-writing habits that save a supplement"?
-3. **Home page copy.** The "Before the plumber leaves" checklist and the hero, about strip, About, and Contact copy are written and live (not placeholders). Please review the wording.
-4. **Retention.** Inquiries are deleted after 180 days (`INQUIRY_RETENTION_DAYS`). Confirm with counsel.
-5. **Max adjusters per inquiry.** Set to 3. Change `LIMITS.maxAdjustersPerInquiry` if you want more.
-6. **"Listing is live" email to the PA** on approval. It is a confirmation to the applicant, not to a homeowner, but confirm you want it.
-7. **Rejections** send no automatic email. Reply personally, or should there be a template?
+1. **"Xactimate" in a note title.** The Scopit product brief (PRODUCT.md) says marketing should not name competitors. The claims brief asked for "Xactimate habits that save a supplement". I kept your title and added a trademark note in the file. Keep it, or retitle to "Estimate-writing habits that save a supplement"?
+2. **Home page copy.** The "Before the plumber leaves" checklist and the hero, about strip, About, and Contact copy are written and live (not placeholders). Please review the wording.
+3. **Retention.** Inquiries are deleted after 180 days (`INQUIRY_RETENTION_DAYS`). Confirm with counsel.
+4. **Max adjusters per inquiry.** Set to 3. Change `LIMITS.maxAdjustersPerInquiry` if you want more.
+5. **"Listing is live" email to the PA** on approval. It is a confirmation to the applicant, not to a homeowner, but confirm you want it.
+6. **Rejections** send no automatic email. Reply personally, or should there be a template?
 
 ## For the attorney
 
