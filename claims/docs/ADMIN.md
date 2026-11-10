@@ -8,7 +8,7 @@ The directory only shows a public adjuster after a person at Scopit has checked 
 
 - URL: `https://claims.scopit.work/admin` (or `/claims/admin` under a sub-path).
 - Sign in with `ADMIN_USER` and `ADMIN_PASSWORD` (Cloudflare Pages secrets). If either is unset, `/admin` returns 404.
-- **Recommended:** also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/) in front of `claims.scopit.work/admin*`, allowing only Scopit staff emails. Access is free for small teams and adds one-time-code sign-in on top of the password.
+- Use a long random password and share it only with the people who verify licenses. [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/) could add staff-only sign-in on top, but it generally needs the domain's DNS in Cloudflare, and `scopit.work` is on Namecheap DNS (see DEPLOY.md section 11).
 - `/admin` has no JavaScript and no cookies. Every change is a form POST checked against the site's own origin.
 
 ## When an application arrives

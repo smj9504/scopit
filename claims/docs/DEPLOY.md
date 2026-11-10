@@ -110,7 +110,13 @@ Treat the hook URL like a password: anyone with it can trigger builds.
 
 ## 6. Custom domain: claims.scopit.work
 
-Pages > Custom domains > Set up a domain > `claims.scopit.work`. `scopit.work` is on Cloudflare DNS, so Cloudflare adds the CNAME record itself. Nothing changes on the Vercel or Render side.
+`scopit.work`'s DNS is at **Namecheap** (nameservers `dns1/dns2.registrar-servers.com`, checked 2026-11-10), not Cloudflare. A Pages custom domain on a subdomain works with outside DNS through one CNAME record:
+
+1. **First** in Cloudflare: Pages > Custom domains > Set up a custom domain > `claims.scopit.work`. Cloudflare then shows the CNAME to add. (Adding the CNAME before this step gives visitors a 522 error.)
+2. Then in Namecheap: Domain List > `scopit.work` > Manage > Advanced DNS > Add New Record > **CNAME**, Host `claims`, Value `scopit-claims.pages.dev` (use exactly what Cloudflare shows).
+3. Wait until Pages shows the domain as active with a certificate (minutes to a few hours).
+
+Nothing changes for the existing records (`www` on Vercel, `api` on Render, email forwarding). Don't move the nameservers to Cloudflare just for this site: the Vercel, Render, Resend, and email-forwarding records would all have to move with them.
 
 ## 7. Reference only: serving under www.scopit.work/claims/
 
@@ -133,8 +139,9 @@ Scopit already uses Resend (the app's backend sends through `smtp.resend.com`), 
 
 1. Resend > API Keys > Create: name `scopit-claims`, permission **Sending access**, domain `scopit.work`. Put it in the `RESEND_API_KEY` secret. A separate key lets you revoke the site's access without touching the app.
 2. Set `EMAIL_FROM` to `Scopit Claims <claims@scopit.work>`. No new DNS records are needed because the domain is already verified.
-3. Make sure replies to `claims@scopit.work` reach someone. Inquiry emails set reply-to to the homeowner, but replies to confirmations go to `EMAIL_FROM`. If `scopit.work` already has a mail provider, add `claims@` as an alias there; if not, Cloudflare Email Routing (free) can forward it to an existing inbox.
-4. If `scopit.work` has no DMARC record yet, add `_dmarc.scopit.work TXT "v=DMARC1; p=none; rua=mailto:dmarc@scopit.work"`, then tighten it to `quarantine` once reports look clean.
+3. Make sure replies to `claims@scopit.work` reach someone. Inquiry emails set reply-to to the homeowner, but replies to confirmations go to `EMAIL_FROM`. `scopit.work` receives mail through **Namecheap email forwarding** (MX `eforward*.registrar-servers.com`), so add a forwarder there: Namecheap > Domain List > `scopit.work` > Manage > Email Forwarding > Add Forwarder, alias `claims`, forward to the inbox that should get replies. (Cloudflare Email Routing would need the DNS on Cloudflare; don't use it.)
+4. DMARC already exists (`_dmarc.scopit.work`: `v=DMARC1; p=none;`). Optionally add `rua=mailto:...` to receive reports, and tighten to `quarantine` later.
+5. In Resend > Domains > `scopit.work`, check every record shows Verified. On 2026-11-10 the public DNS had the DKIM and `send` SPF records but no `send` MX record, which Resend normally lists for bounce handling; if Resend shows it as missing, add it in Namecheap Advanced DNS.
 
 **Shared quota.** On Resend's free plan, the daily limit (100 emails) and monthly limit (3,000) are per account, so the site shares them with the Scopit app. One inquiry sends up to 4 emails (3 adjusters + the confirmation). That is plenty at launch; if sends start failing at the limit, upgrade to Pro (about $20 a month).
 
@@ -155,9 +162,9 @@ To switch providers, implement `NewsletterProvider` in `src/server/newsletter.ts
 - **Search Console:** add a Domain property for `scopit.work` (DNS TXT record in Cloudflare), or a URL-prefix property for `https://claims.scopit.work/`. Submit `https://claims.scopit.work/sitemap.xml`. The sitemap lists only pages that are published (not placeholder, draft, or pending legal review).
 - **Analytics: off.** The site loads no analytics script. To add Plausible later (paid, from about $9 a month), subscribe, add the site `claims.scopit.work`, and set `PUBLIC_PLAUSIBLE_DOMAIN = "claims.scopit.work"` in `wrangler.toml` `[env.production.vars]`. The script then loads, `postbuild` adds Plausible to the CSP, and no cookie banner is needed because Plausible sets no cookies. Update the Privacy Policy at the same time.
 
-## 11. Protect /admin with Cloudflare Access (recommended)
+## 11. Protect /admin with Cloudflare Access (later, optional)
 
-Zero Trust > Access > Applications > Add > Self-hosted: domain `claims.scopit.work`, path `admin*`. Policy: Allow, emails ending in `@scopit.work` (or a list of staff addresses). Keep the Basic-auth password too.
+Cloudflare Access generally needs the hostname's DNS zone in Cloudflare, and `scopit.work` is on Namecheap DNS, so skip this for now. `/admin` is protected by Basic auth: use a long random `ADMIN_PASSWORD` (`openssl rand -base64 24`) and share it only with the people who verify licenses. If the DNS ever moves to Cloudflare: Zero Trust > Access > Applications > Add > Self-hosted, domain `claims.scopit.work`, path `admin*`, policy Allow for staff emails, and keep the Basic-auth password too.
 
 ## 12. Deploy and smoke test
 

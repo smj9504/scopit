@@ -27,14 +27,15 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 - [ ] `wrangler.toml` production vars filled in (`PUBLIC_TURNSTILE_SITE_KEY`, site URL, contact email); build secrets `CF_D1_API_TOKEN` and `CF_ACCOUNT_ID` set; first build log shows `using wrangler.toml env "production"` and `Loaded N verified listing row(s) from D1`
 - [ ] Runtime secrets set: `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_NOTIFY_EMAIL`, `BUTTONDOWN_API_KEY`, `ADMIN_USER`, `ADMIN_PASSWORD` (long and random), `IP_HASH_SALT` (long and random), `PAGES_DEPLOY_HOOK_URL`
 - [ ] Turnstile widget created for the production hostname; site key in `PUBLIC_TURNSTILE_SITE_KEY`
-- [ ] Custom domain `claims.scopit.work` attached in Pages; HTTPS works
-- [ ] Cloudflare Access policy on `/admin*`
+- [ ] Custom domain `claims.scopit.work` added in Pages first, then the `claims` CNAME added in Namecheap Advanced DNS; HTTPS works
+- [ ] `ADMIN_PASSWORD` is long and random, shared only with the people who verify licenses
 - [ ] GitHub secret `CLAIMS_PAGES_DEPLOY_HOOK_URL` set for the nightly rebuild
 
 ## Email and newsletter
 
 - [ ] `scopit-claims` API key created in the existing Resend account; `EMAIL_FROM` is `claims@scopit.work`; replies to `claims@scopit.work` reach someone
-- [ ] DMARC record exists for `scopit.work`
+- [ ] `claims` forwarder added in Namecheap Email Forwarding; a test reply to `claims@scopit.work` arrives
+- [ ] Resend shows every `scopit.work` record as Verified (DMARC already exists)
 - [ ] Buttondown API key set; a test signup from the live site gets a confirmation email and stays unconfirmed until clicked
 - [ ] Test inquiry and test application on production send exactly the expected emails, then delete the test rows
 
