@@ -33,8 +33,8 @@ Run `npm run launch-check` first. It catches the content and config blockers aut
 
 ## Email and newsletter
 
-- [ ] Sending domain verified in Resend (SPF and DKIM records added); `EMAIL_FROM` uses it
-- [ ] DMARC record exists for the sending domain
+- [ ] `scopit-claims` API key created in the existing Resend account; `EMAIL_FROM` is `claims@scopit.work`; replies to `claims@scopit.work` reach someone
+- [ ] DMARC record exists for `scopit.work`
 - [ ] Buttondown API key set; a test signup from the live site gets a confirmation email and stays unconfirmed until clicked
 - [ ] Test inquiry and test application on production send exactly the expected emails, then delete the test rows
 

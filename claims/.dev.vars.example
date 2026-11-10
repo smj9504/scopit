@@ -7,7 +7,7 @@ ADMIN_PASSWORD=local-dev-password-change-me
 # Optional for local testing of real sending:
 # EMAIL_PROVIDER=resend
 # RESEND_API_KEY=re_xxx
-# EMAIL_FROM="Scopit Claims <claims@mail.scopit.work>"
+# EMAIL_FROM="Scopit Claims <claims@scopit.work>"
 # ADMIN_NOTIFY_EMAIL=you@example.com
 # NEWSLETTER_PROVIDER=buttondown
 # BUTTONDOWN_API_KEY=xxx

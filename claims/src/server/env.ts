@@ -21,7 +21,7 @@ export interface Env {
   /** "resend" (default) or "log" (local only: prints emails instead of sending). */
   EMAIL_PROVIDER?: string;
   RESEND_API_KEY?: string;
-  /** e.g. "Scopit Claims <claims@mail.scopit.work>" — the domain must be verified in Resend. */
+  /** "Scopit Claims <claims@scopit.work>" — scopit.work is verified in Scopit's Resend account. */
   EMAIL_FROM?: string;
   /** Where application notices go, e.g. claims-admin@scopit.work. */
   ADMIN_NOTIFY_EMAIL?: string;
