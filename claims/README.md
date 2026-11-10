@@ -92,7 +92,7 @@ Verified official source links for VA, MD, and DC are listed in `docs/SOURCES.md
 ## Docs
 
 - `docs/PLAN.md`: plan, decisions, and open questions
-- `docs/DEPLOY.md`: Cloudflare setup, environment variables, DNS, email domain, Turnstile, Buttondown, Plausible
+- `docs/DEPLOY.md`: Cloudflare setup, environment variables, DNS, email domain, Turnstile, Buttondown, Search Console
 - `docs/ADMIN.md`: how to verify a public adjuster license and run the directory
 - `docs/LAUNCH_CHECKLIST.md`: everything to finish before launch
 - `docs/SOURCES.md`: official sources checked on 2026-11-09
