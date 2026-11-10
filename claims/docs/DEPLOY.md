@@ -25,11 +25,11 @@ npx wrangler d1 create scopit-claims-preview
 Copy each printed `database_id` into `wrangler.toml`: `scopit-claims` goes in the top-level and `[env.production]` blocks, `scopit-claims-preview` in `[env.preview]`. Then apply the schema:
 
 ```bash
-npx wrangler d1 migrations apply scopit-claims --remote
-npx wrangler d1 migrations apply scopit-claims-preview --remote
+npm run db:migrate:remote    # production: scopit-claims
+npm run db:migrate:preview   # preview: scopit-claims-preview (needs --env preview, which the script adds)
 ```
 
-New migrations go in `migrations/` as `0002_*.sql`, and so on. Apply them the same way before deploying code that needs them.
+New migrations go in `migrations/` as `0002_*.sql`, and so on. Apply them with the same two commands before deploying code that needs them.
 
 ## 2. Create the Pages project
 

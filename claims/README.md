@@ -41,7 +41,7 @@ Locally, emails are printed to the terminal (`EMAIL_PROVIDER=log`) instead of se
 | `npm run a11y` | axe-core on every built page at 360px and 1280px, plus horizontal-scroll check (uses the machine's Playwright) |
 | `npm run launch-check` | Lists launch blockers (placeholder text, pending attorney review, unverified state rules, placeholder D1 ids). Exits 1 until clear. |
 | `npm run preview` | `wrangler pages dev dist` with Functions and local D1 |
-| `npm run db:migrate:local` / `:remote` | Apply `migrations/` to D1 |
+| `npm run db:migrate:local` / `:remote` / `:preview` | Apply `migrations/` to the local, production, or preview D1 |
 
 ## How it fits together
 
@@ -91,6 +91,7 @@ Verified official source links for VA, MD, and DC are listed in `docs/SOURCES.md
 
 ## Docs
 
+- `docs/OPERATIONS.ko.md`: 한국어 운영 요약 (할 일 순서, 평소 운영, 문제 해결)
 - `docs/PLAN.md`: plan, decisions, and open questions
 - `docs/DEPLOY.md`: Cloudflare setup, environment variables, DNS, email domain, Turnstile, Buttondown, Search Console
 - `docs/ADMIN.md`: how to verify a public adjuster license and run the directory
