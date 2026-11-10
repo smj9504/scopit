@@ -23,6 +23,16 @@ const ping = async (timeoutMs: number): Promise<boolean> => {
 };
 
 /**
+ * Fire-and-forget request that starts a cold backend booting, without waiting
+ * for it. Called once at start-up so that public pages (which no longer sit
+ * behind BackendWarmupGate) still wake the API early, and a visitor who moves
+ * on to sign up, the demo or the lead form finds it awake or nearly so.
+ */
+export const nudgeBackend = (): void => {
+  fetch(HEALTH_URL).catch(() => {});
+};
+
+/**
  * Render's free plan spins the API down when idle, so the first request after
  * a while triggers a ~30-50s cold start. Redirecting straight into that (e.g.
  * the Google OAuth handoff, which is a full-page navigation to the API

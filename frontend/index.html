@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
 
     <!-- Primary Meta Tags -->
     <title>Scopit - Work Tools for Restoration Contractors</title>
@@ -51,42 +51,67 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap"
     />
 
-    <!-- Structured Data -->
+    <!-- Structured Data: one linked graph, so the brand reads as a single
+         entity. Organization, WebSite and SoftwareApplication point at each
+         other by @id instead of repeating separate, unlinked Organizations.
+         Add social profile URLs as "sameAs" on the Organization once they
+         exist (LinkedIn, YouTube, etc.). The Offer is the free beta and ends
+         on 2026-12-31: update it, with the FAQ copy, when launch pricing is
+         public. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "Scopit",
-        "url": "https://www.scopit.work/",
-        "description": "Work tools for restoration contractors: price contents pack-outs, kitchen cabinets and bathrooms, read roof reports, find line items, and send documents for e-signature. Every tool feeds Scopit estimates and invoices.",
-        "applicationCategory": "BusinessApplication",
-        "operatingSystem": "Web",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD",
-          "description": "Free beta access through December 31, 2026, every tool included"
-        },
-        "provider": {
-          "@type": "Organization",
-          "name": "Scopit",
-          "url": "https://www.scopit.work/",
-          "email": "hello@scopit.work"
-        }
-      }
-    </script>
-
-    <!-- Structured Data: Organization (brand entity). Add social profile URLs to
-         "sameAs" once they exist (LinkedIn, X, etc.) to strengthen the entity. -->
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "Organization",
-        "name": "Scopit",
-        "url": "https://www.scopit.work/",
-        "logo": "https://www.scopit.work/apple-touch-icon.png",
-        "email": "hello@scopit.work",
-        "description": "Work tools for restoration contractors, with estimates and invoices as the home base."
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://www.scopit.work/#organization",
+            "name": "Scopit",
+            "url": "https://www.scopit.work/",
+            "email": "hello@scopit.work",
+            "description": "Work tools for restoration contractors, with estimates and invoices as the home base.",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://www.scopit.work/apple-touch-icon.png",
+              "width": 180,
+              "height": 180
+            },
+            "areaServed": "US",
+            "contactPoint": {
+              "@type": "ContactPoint",
+              "contactType": "customer support",
+              "email": "hello@scopit.work",
+              "areaServed": "US",
+              "availableLanguage": "English"
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://www.scopit.work/#website",
+            "name": "Scopit",
+            "url": "https://www.scopit.work/",
+            "inLanguage": "en-US",
+            "publisher": { "@id": "https://www.scopit.work/#organization" }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://www.scopit.work/#software",
+            "name": "Scopit",
+            "url": "https://www.scopit.work/",
+            "description": "Work tools for restoration contractors: price contents pack-outs, kitchen cabinets and bathrooms, read roof reports, find line items, and send documents for e-signature. Every tool feeds Scopit estimates and invoices.",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "publisher": { "@id": "https://www.scopit.work/#organization" },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "priceValidUntil": "2026-12-31",
+              "availability": "https://schema.org/InStock",
+              "url": "https://www.scopit.work/",
+              "description": "Free beta access through December 31, 2026, every tool included"
+            }
+          }
+        ]
       }
     </script>
 
@@ -101,7 +126,7 @@
             "name": "Can I use just one tool?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Yes. Use only the tools your jobs need."
+              "text": "Yes. Each Scopit tool (packing, cabinets, bathrooms, roof reports, line items and PDF e-sign) works on its own, so use only the ones your jobs need. What a tool produces can be carried into a Scopit estimate or invoice."
             }
           },
           {
@@ -109,7 +134,7 @@
             "name": "Can I try it without signing up?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "The packing demo runs on a sample room. Everything else needs a free account."
+              "text": "Yes, for packing. The packing demo runs the real Packing Estimator on sample rooms: editing, the estimate math and PDF/Excel export all work, and nothing is saved. Every other tool needs a free account."
             }
           },
           {

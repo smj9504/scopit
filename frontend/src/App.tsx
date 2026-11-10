@@ -2,7 +2,7 @@
  * Scopit - Main App Component
  */
 import React, { Suspense, lazy } from 'react';
-import { Routes, Route, Navigate, createBrowserRouter, createRoutesFromElements, RouterProvider } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, createBrowserRouter, createRoutesFromElements, RouterProvider } from 'react-router-dom';
 import { ConfigProvider, Spin, App as AntdApp } from 'antd';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
@@ -90,6 +90,19 @@ const LoadingFallback = () => (
   </div>
 );
 
+// Holds the routes that call the API on render until the backend answers. A
+// layout route stays mounted while the user moves between its children, so
+// the gate checks once per visit to this group, not on every navigation. Its
+// own Suspense catches lazy pages loading inside it, so they don't unmount the
+// gate (and re-run its check) by suspending up to the boundary above the router.
+const WarmupGateLayout: React.FC = () => (
+  <BackendWarmupGate>
+    <Suspense fallback={<LoadingFallback />}>
+      <Outlet />
+    </Suspense>
+  </BackendWarmupGate>
+);
+
 // Protected Route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -145,44 +158,14 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const router = createBrowserRouter(
   createRoutesFromElements(
     <>
-      {/* Public Routes */}
+      {/* Public content pages. They are prerendered at build time and need
+          nothing from the API, so they stay outside the warmup gate: a cold
+          backend must never replace their content with a spinner (for
+          visitors or for crawlers that run JS). */}
       <Route path="/" element={<LandingPage />} />
-
-      {/* Auth Routes */}
-      <Route
-        path="/login"
-        element={
-          <PublicRoute>
-            <LoginPage />
-          </PublicRoute>
-        }
-      />
-      <Route
-        path="/register"
-        element={
-          <PublicRoute>
-            <RegisterPage />
-          </PublicRoute>
-        }
-      />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
-      <Route path="/auth/callback" element={<OAuthCallbackPage />} />
-
-      {/* Public E-Sign Page (no auth required) */}
-      <Route path="/sign/:token" element={<SignPage />} />
-      {/* In-person signing, the signer's part: runs on a kiosk token, no sign-in */}
-      <Route path="/sign-in-person/kiosk" element={<KioskSigningPage />} />
-
-      {/* Public E-Sign SEO content page (no auth required) */}
       <Route path="/in-person-contract-signing" element={<InPersonContractSigningPage />} />
       <Route path="/kitchen-cabinet-estimate" element={<KitchenCabinetEstimatePage />} />
       <Route path="/bathroom-estimate" element={<BathroomEstimatePage />} />
-
-      {/* Public Packing Estimator Demo (no auth required) */}
-      <Route path="/demo/packing" element={<PackingDemoPage />} />
-
-      {/* Public Packing Calculator SEO content pages (no auth required) */}
       <Route path="/packing-calculator" element={<PackingCalculatorPage />} />
       <Route path="/pack-out-estimate" element={<PackOutEstimatePage />} />
       <Route path="/insurance-packing-estimate" element={<InsurancePackingEstimatePage />} />
@@ -190,78 +173,111 @@ const router = createBrowserRouter(
       <Route path="/xactimate-packing-estimate" element={<XactimatePackingEstimatePage />} />
       <Route path="/water-damage-contents-estimate" element={<WaterDamageContentsEstimatePage />} />
       <Route path="/fire-damage-contents-estimate" element={<FireDamageContentsEstimatePage />} />
-
-      {/* Public Packing Estimate Lead Capture (no auth required) */}
+      {/* The lead form only calls the API on submit, by which time the
+          start-up nudge in main.tsx has woken the backend. */}
       <Route path="/packing-estimate" element={<PackingLeadFormPage />} />
-      <Route path="/packing-estimate/verify/:token" element={<PackingLeadVerifyPage />} />
-      <Route path="/packing-estimate/result/:token" element={<PackingLeadResultPage />} />
-
-      {/* Legal (no auth required) */}
       <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route path="/terms" element={<TermsPage />} />
 
-      {/* Protected App Routes */}
-      <Route
-        path="/app"
-        element={
-          <ProtectedRoute>
-            <AppLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<Navigate to="/app/dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
+      {/* Everything below talks to the API as soon as it renders, so it waits
+          behind the warmup gate. */}
+      <Route element={<WarmupGateLayout />}>
+        {/* Auth Routes */}
+        <Route
+          path="/login"
+          element={
+            <PublicRoute>
+              <LoginPage />
+            </PublicRoute>
+          }
+        />
+        <Route
+          path="/register"
+          element={
+            <PublicRoute>
+              <RegisterPage />
+            </PublicRoute>
+          }
+        />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/callback" element={<OAuthCallbackPage />} />
 
-        {/* Estimates */}
-        <Route path="estimates" element={<EstimatesListPage />} />
-        <Route path="estimates/new" element={<EstimateEditorPage />} />
-        <Route path="estimates/:id" element={<EstimateDetailPage />} />
-        <Route path="estimates/:id/edit" element={<EstimateEditorPage />} />
+        {/* Public E-Sign Page (no auth required) */}
+        <Route path="/sign/:token" element={<SignPage />} />
+        {/* In-person signing, the signer's part: runs on a kiosk token, no sign-in */}
+        <Route path="/sign-in-person/kiosk" element={<KioskSigningPage />} />
 
-        {/* Invoices */}
-        <Route path="invoices" element={<InvoicesListPage />} />
-        <Route path="invoices/new" element={<InvoiceEditorPage />} />
-        <Route path="invoices/:id" element={<InvoiceDetailPage />} />
-        <Route path="invoices/:id/edit" element={<InvoiceEditorPage />} />
+        {/* Public Packing Estimator Demo (loads its sample rooms from the API) */}
+        <Route path="/demo/packing" element={<PackingDemoPage />} />
 
-        {/* Customers */}
-        <Route path="customers" element={<CustomersListPage />} />
-        <Route path="customers/:id" element={<CustomerDetailPage />} />
+        {/* Packing estimate token links (private, per customer) */}
+        <Route path="/packing-estimate/verify/:token" element={<PackingLeadVerifyPage />} />
+        <Route path="/packing-estimate/result/:token" element={<PackingLeadResultPage />} />
 
-        {/* Line Items */}
-        <Route path="line-items" element={<LineItemsListPage />} />
+        {/* Protected App Routes */}
+        <Route
+          path="/app"
+          element={
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Navigate to="/app/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
 
-        {/* Tools */}
-        <Route path="tools" element={<ToolsPage />} />
-        <Route path="tools/packing/:sessionId" element={<ToolWrapper />} />
-        <Route path="tools/cabinet_estimate/products" element={<CabinetToolPage page="products" />} />
-        <Route path="tools/cabinet_estimate/prices" element={<CabinetToolPage page="prices" />} />
-        <Route path="tools/cabinet_estimate/:id" element={<CabinetToolPage page="estimate" />} />
-        <Route path="tools/bathroom_estimate/products" element={<BathroomToolPage page="products" />} />
-        <Route path="tools/bathroom_estimate/prices" element={<BathroomToolPage page="prices" />} />
-        <Route path="tools/bathroom_estimate/:id" element={<BathroomToolPage page="estimate" />} />
-        <Route path="tools/:toolId" element={<ToolWrapper />} />
-        <Route path="sign-in-person" element={<SignInPersonPage />} />
+          {/* Estimates */}
+          <Route path="estimates" element={<EstimatesListPage />} />
+          <Route path="estimates/new" element={<EstimateEditorPage />} />
+          <Route path="estimates/:id" element={<EstimateDetailPage />} />
+          <Route path="estimates/:id/edit" element={<EstimateEditorPage />} />
 
-        {/* Settings */}
-        <Route path="settings/*" element={<SettingsPage />} />
-      </Route>
+          {/* Invoices */}
+          <Route path="invoices" element={<InvoicesListPage />} />
+          <Route path="invoices/new" element={<InvoiceEditorPage />} />
+          <Route path="invoices/:id" element={<InvoiceDetailPage />} />
+          <Route path="invoices/:id/edit" element={<InvoiceEditorPage />} />
 
-      {/* Admin Routes (Superuser only) */}
-      <Route
-        path="/admin"
-        element={
-          <AdminRoute>
-            <AdminLayout />
-          </AdminRoute>
-        }
-      >
-        <Route index element={<Navigate to="/admin/dashboard" replace />} />
-        <Route path="dashboard" element={<AdminDashboardPage />} />
-        <Route path="users" element={<AdminUsersPage />} />
-        <Route path="users/:id" element={<AdminUserDetailPage />} />
-        <Route path="inquiries" element={<AdminInquiriesPage />} />
-        <Route path="analytics" element={<AdminAnalyticsPage />} />
+          {/* Customers */}
+          <Route path="customers" element={<CustomersListPage />} />
+          <Route path="customers/:id" element={<CustomerDetailPage />} />
+
+          {/* Line Items */}
+          <Route path="line-items" element={<LineItemsListPage />} />
+
+          {/* Tools */}
+          <Route path="tools" element={<ToolsPage />} />
+          <Route path="tools/packing/:sessionId" element={<ToolWrapper />} />
+          <Route path="tools/cabinet_estimate/products" element={<CabinetToolPage page="products" />} />
+          <Route path="tools/cabinet_estimate/prices" element={<CabinetToolPage page="prices" />} />
+          <Route path="tools/cabinet_estimate/:id" element={<CabinetToolPage page="estimate" />} />
+          <Route path="tools/bathroom_estimate/products" element={<BathroomToolPage page="products" />} />
+          <Route path="tools/bathroom_estimate/prices" element={<BathroomToolPage page="prices" />} />
+          <Route path="tools/bathroom_estimate/:id" element={<BathroomToolPage page="estimate" />} />
+          <Route path="tools/:toolId" element={<ToolWrapper />} />
+          <Route path="sign-in-person" element={<SignInPersonPage />} />
+
+          {/* Settings */}
+          <Route path="settings/*" element={<SettingsPage />} />
+        </Route>
+
+        {/* Admin Routes (Superuser only) */}
+        <Route
+          path="/admin"
+          element={
+            <AdminRoute>
+              <AdminLayout />
+            </AdminRoute>
+          }
+        >
+          <Route index element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="dashboard" element={<AdminDashboardPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="users/:id" element={<AdminUserDetailPage />} />
+          <Route path="inquiries" element={<AdminInquiriesPage />} />
+          <Route path="analytics" element={<AdminAnalyticsPage />} />
+        </Route>
       </Route>
 
       {/* 404 - render a real noindex not-found page instead of redirecting
@@ -276,11 +292,9 @@ const App: React.FC = () => {
     <QueryClientProvider client={queryClient}>
       <ConfigProvider theme={antdTheme}>
         <AntdApp>
-          <BackendWarmupGate>
-            <Suspense fallback={<LoadingFallback />}>
-              <RouterProvider router={router} />
-            </Suspense>
-          </BackendWarmupGate>
+          <Suspense fallback={<LoadingFallback />}>
+            <RouterProvider router={router} />
+          </Suspense>
         </AntdApp>
       </ConfigProvider>
     </QueryClientProvider>

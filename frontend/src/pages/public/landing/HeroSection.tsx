@@ -18,7 +18,9 @@ const HeroSection: React.FC = () => (
     <div className="lp-container lp-split">
       <div className="lp-hero__copy">
         <h1>Pack-outs, kitchens, baths, roofs. One toolkit.</h1>
-        <p className="lp-hero__sub">Each tool works on its own. Everything lands in your estimates and invoices.</p>
+        <p className="lp-hero__sub">
+          Scopit is estimating and invoicing software for U.S. restoration contractors. Each tool works on its own, and everything lands in your estimates and invoices.
+        </p>
         <div className="lp-hero__ctas">
           <Link to="/register" className="lp-btn lp-btn--lg">Get started free</Link>
           <Link to="/demo/packing" className="lp-link">Try the packing demo</Link>

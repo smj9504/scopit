@@ -3,6 +3,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm install",
+  "trailingSlash": false,
   "rewrites": [
     {
       "source": "/demo/packing",
@@ -61,7 +62,55 @@
       "destination": "/terms/index.html"
     },
     {
-      "source": "/(.*)",
+      "source": "/login",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/register",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/forgot-password",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/reset-password",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/auth/callback",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/sign/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/sign-in-person/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/packing-estimate/verify/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/packing-estimate/result/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/app",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/app/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin/:path*",
       "destination": "/index.html"
     }
   ],

@@ -93,12 +93,21 @@ const routes = [
   {
     path: '/demo/packing',
     title: 'Free Packing Estimate Demo | Scopit',
+    // Interactive page that can't be server-rendered: bake a static intro
+    // (the page's own H1 and banner copy) so crawlers see real text. React
+    // replaces it when it mounts.
+    intro:
+      '<h1>Free Packing Estimate Demo — AI Packing Calculator for Pack-Out &amp; Pack-Back Estimates</h1>' +
+      '<p><strong>This is a live demo</strong> of the real Packing Estimator — the sample rooms below are pre-analyzed (no real AI call runs), but every edit, the estimate math, and PDF/Excel export are fully real. Nothing here is saved.</p>',
     description:
       "Try Scopit's AI packing calculator free — snap room photos for an instant pack-out estimate with an insurance-ready breakdown and packing report. No signup.",
   },
   {
     path: '/packing-estimate',
     title: 'Free Packing Estimate | Scopit',
+    intro:
+      '<h1>Get your free packing estimate</h1>' +
+      '<p>Snap a few photos of each room — our AI does the rest. Free during beta.</p>',
     description:
       'Get a free, itemized packing estimate from room photos — a pack-out and pack-back breakdown built for insurance claims, exportable as a packing report.',
   },
@@ -164,12 +173,34 @@ for (const route of routes) {
     }
   }
 
+  if (!rendered && route.intro) {
+    html = html.replace(
+      /<div id="root"><\/div>/,
+      `<div id="root"><main style="max-width:640px;margin:0 auto;padding:48px 24px">${route.intro}</main></div>`,
+    );
+  }
+
   const outDir = join(distDir, route.path.replace(/^\//, ''));
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'index.html'), html);
   console.log(
     `Prerendered SEO shell${rendered ? ' + SSR body' : ''}: ${route.path} -> ${join(outDir, 'index.html')}`,
   );
+}
+
+// Vercel serves dist/404.html, with a real 404 status, for any path that no
+// vercel.json rewrite or static file matches. It is the plain SPA shell (so
+// React still renders NotFoundPage), marked noindex and with no canonical, so
+// unknown URLs stop returning the landing page with a 200 (a soft 404).
+{
+  const notFoundTitle = 'Page Not Found | Scopit';
+  let html = stripLandingFaqJsonLd(template);
+  html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${notFoundTitle}</title>`);
+  html = setMetaContent(html, 'name="title"', notFoundTitle);
+  html = setMetaContent(html, 'name="robots"', 'noindex, nofollow');
+  html = html.replace(/\s*<link rel="canonical" href="[^"]*" \/>/, '');
+  writeFileSync(join(distDir, '404.html'), html);
+  console.log(`Wrote not-found shell: ${join(distDir, '404.html')}`);
 }
 
 // The landing page ("/") keeps the template's own meta, but its body is baked

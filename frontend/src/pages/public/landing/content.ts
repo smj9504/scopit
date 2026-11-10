@@ -8,10 +8,13 @@
 export const BETA_END_LABEL = 'December 31, 2026';
 
 export const FAQS: { q: string; a: string }[] = [
-  { q: 'Can I use just one tool?', a: 'Yes. Use only the tools your jobs need.' },
+  {
+    q: 'Can I use just one tool?',
+    a: 'Yes. Each Scopit tool (packing, cabinets, bathrooms, roof reports, line items and PDF e-sign) works on its own, so use only the ones your jobs need. What a tool produces can be carried into a Scopit estimate or invoice.',
+  },
   {
     q: 'Can I try it without signing up?',
-    a: 'The packing demo runs on a sample room. Everything else needs a free account.',
+    a: 'Yes, for packing. The packing demo runs the real Packing Estimator on sample rooms: editing, the estimate math and PDF/Excel export all work, and nothing is saved. Every other tool needs a free account.',
   },
   { q: 'Is my data backed up?', a: 'Yes, automatically, every day.' },
   {
