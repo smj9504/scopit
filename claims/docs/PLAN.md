@@ -15,7 +15,7 @@ Built from the "Build Scopit Claims (production website)" brief. This records wh
 | Email | Resend via one adapter (`src/server/email.ts`) | Swappable; a log provider is used locally and is refused in production |
 | Newsletter | Buttondown via one adapter (`src/server/newsletter.ts`) | Buttondown applies double opt-in to every API signup by default, and the adapter never bypasses it |
 | Analytics | **Search Console only** (decided 2026-11-10, to keep running costs at $0). Plausible can be switched on later with one setting | **No cookie banner needed**: no cookies, no trackers, nothing that requires consent |
-| Admin | **Password-protected `/admin`** (one Pages Function, no JS) + documented D1 SQL fallback | Lighter to run day to day than SQL by hand; tiny attack surface; add Cloudflare Access on top |
+| Admin | **Password-protected `/admin`** (one Pages Function, no JS) + documented D1 SQL fallback | Lighter to run day to day than SQL by hand; tiny attack surface; Cloudflare Access can be added on top if `scopit.work`'s DNS ever moves to Cloudflare (it is on Namecheap) |
 | Domain | **claims.scopit.work** (decided 2026-11-09) | Own Pages project and DNS record; no change to the Vercel frontend. The base path stays configurable (`CLAIMS_BASE`) |
 | Directory data | D1 is the source of truth; pages are built from it at build time via the D1 REST API | Keeps every public page static; approvals trigger a rebuild; a nightly rebuild drops expired licenses |
 

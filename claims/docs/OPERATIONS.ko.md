@@ -13,6 +13,7 @@
 | PA 뉴스레터 | Buttondown | 무료: 구독자 100명 |
 | 관리자 화면 | `https://claims.scopit.work/admin` | 브라우저만 있으면 됨 |
 | 검색 노출 | Google Search Console | 방문자 통계 도구는 쓰지 않음 |
+| 도메인 DNS | **Namecheap** (Cloudflare 아님) | `claims` CNAME 하나와 메일 전달(`claims@`)만 Namecheap에서 추가 |
 | 명령줄 도구 | `npx wrangler` (`claims/` 안에서) | 처음 설정할 때와 DB 구조가 바뀔 때만 사용 |
 
 ## 1단계: 지금 할 일 (결정과 검토)
@@ -100,8 +101,9 @@ Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production�
 기존 Scopit 계정을 그대로 쓰고, `scopit.work`가 이미 인증돼 있어 DNS 작업은 필요 없습니다.
 
 - [ ] API Keys > Create: 이름 `scopit-claims`, 권한 Sending access, 도메인 `scopit.work`. 앱과 키를 나눠 두면 사이트 키만 따로 끊을 수 있음
-- [ ] `claims@scopit.work`로 오는 답장을 누군가 받게 하기: 메일 서비스가 있으면 별칭 추가, 없으면 Cloudflare Email Routing(무료)으로 기존 메일함에 전달
-- [ ] `scopit.work`에 DMARC 레코드가 없으면 추가
+- [ ] `claims@scopit.work` 답장 받기: Namecheap > Domain List > `scopit.work` > Manage > Email Forwarding > Add Forwarder (별칭 `claims`, 받을 메일함 지정). 지금 `scopit.work` 메일은 Namecheap 메일 전달로 받고 있음
+- [ ] DMARC는 이미 있음 (할 일 없음)
+- [ ] Resend > Domains > `scopit.work`에서 모든 레코드가 Verified인지 확인. 공개 DNS에 `send` MX 레코드가 안 보여서, 빠져 있다고 나오면 Namecheap Advanced DNS에 추가
 - [ ] 참고: 무료 한도(하루 100통)는 Scopit 앱과 나눠 씀. 문의 1건에 최대 4통. 모자라면 Pro(월 약 $20)
 
 ### 2-7. Buttondown (뉴스레터) — DEPLOY.md 9
@@ -109,11 +111,10 @@ Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production�
 - [ ] 가입, 뉴스레터 만들기, Settings > API에서 키 발급
 - [ ] 이중 확인(double opt-in)은 따로 설정할 필요 없음 (API로 들어온 구독자는 자동으로 확인 메일을 받음)
 
-### 2-8. 관리자 화면 보호 (권장) — DEPLOY.md 11
+### 2-8. 관리자 화면 보호 — DEPLOY.md 11
 
-- [ ] Zero Trust > Access > Applications > Self-hosted
-  - 도메인 `claims.scopit.work`, 경로 `admin*`
-  - 허용: 회사 이메일
+- [ ] `ADMIN_PASSWORD`를 길고 무작위로 만들고, 면허 확인하는 사람에게만 공유
+- 참고: Cloudflare Access(회사 이메일 로그인 추가)는 보통 DNS가 Cloudflare에 있어야 해서 지금은 생략. 비밀번호 보호는 이미 되어 있음
 
 ### 2-9. 첫 배포와 시험 — DEPLOY.md 12
 
@@ -139,7 +140,9 @@ Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production�
 
 ## 4단계: 출시
 
-- [ ] Pages > Custom domains > `claims.scopit.work` 추가 (DNS가 Cloudflare에 있어 자동)
+- [ ] **먼저** Cloudflare Pages > Custom domains > `claims.scopit.work` 추가 (순서가 바뀌면 522 오류)
+- [ ] **그다음** Namecheap > Advanced DNS > CNAME 추가: Host `claims`, Value `scopit-claims.pages.dev` (Cloudflare가 보여 주는 값 그대로)
+- [ ] Pages에서 도메인이 Active가 되고 인증서가 발급될 때까지 대기 (수 분에서 몇 시간)
 - [ ] Search Console에 사이트 등록, `https://claims.scopit.work/sitemap.xml` 제출
 - [ ] `LAUNCH_CHECKLIST.md`의 마지막 확인 항목 점검
 
