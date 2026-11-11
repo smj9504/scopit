@@ -1,0 +1,89 @@
+# Scopit Community (prototype)
+
+A homeowner Q&A community for Virginia, Maryland, and DC: house problems, choosing contractors, and insurance claims. It runs on [Apache Answer](https://answer.apache.org/) 2.0.3 (Apache License 2.0), unmodified, with Scopit's look, settings, and one plugin on top. Nothing here is deployed yet.
+
+This folder holds only Scopit's own parts. Answer itself is not copied or forked:
+
+| Path | What it is |
+| --- | --- |
+| `theme/custom.css` | Scopit Claims colors and type over Answer's default theme, plus a phone-width header fix |
+| `theme/header.html`, `footer.html`, `sidebar.html` | Top bar back to Scopit Claims, disclosure and disclaimer footer, posting rules (Korean and English) |
+| `settings.json` | Admin settings: name, Korean default UI, theme, login, tags and language rooms |
+| `scripts/apply-settings.mjs` | Applies `settings.json` and the theme files to a running Answer through its admin API. Safe to re-run |
+| `plugins/pii-reviewer/` | Go reviewer plugin that holds risky posts for a moderator (below) |
+
+## 한국어 요약
+
+- Apache Answer를 고치지 않고 그대로 쓰고, 디자인·설정·플러그인만 이 폴더에 둡니다. 원본이 업데이트되면 새 버전으로 다시 빌드하면 됩니다.
+- `pii-reviewer` 플러그인은 새 회원의 첫 글, 개인정보(전화번호·이메일·클레임/증권 번호·집 주소·SSN)가 보이는 글, "카톡으로 연락주세요" 같은 외부 연락 요청을 바로 공개하지 않고 검토 대기열로 보냅니다. 자동 삭제는 하지 않습니다.
+- 언어방은 태그로 나눕니다. 모든 질문은 `한국어` 또는 `English` 태그 중 하나가 있어야 올라갑니다.
+- 로컬에서 확인한 문제 세 가지는 아래 "Known gaps"에 있습니다: 한글 이름으로 가입 불가, 한국어 번역 73%, 면허 확인 PA 표시 불가.
+
+## The `pii-reviewer` plugin
+
+Answer publishes every post immediately unless a reviewer plugin says otherwise. This plugin sends a post to **Admin > Review** instead when:
+
+- the author is a new member (fewer approved posts than a threshold; default 1, so only the first post),
+- the post looks like it contains a phone number (US or Korean mobile), email, claim or policy number (English, Korean, Chinese, Spanish keywords), US street address, or SSN, or
+- the post asks to move the conversation off the site ("DM me", "call me", "카톡", "微信", ...), where adjuster and contractor solicitation tends to happen.
+
+Admins and moderators are never held. Nothing is deleted automatically. Each check can be switched off, and extra phrases added, in **Admin > Plugins > Scopit PII reviewer** (labels in Korean and English). The reason shown to the moderator follows the site language, for example `확인 필요: 전화번호, 외부 연락 요청`.
+
+Tests (standard library only for the detector; the plugin tests also compile against Answer 2.0.3):
+
+```bash
+cd community/plugins/pii-reviewer
+go test ./...
+```
+
+## Building Answer with the plugin
+
+Answer plugins are compiled in. The documented way is Answer's own `build` command, run with the same Answer version as the site:
+
+```bash
+# Needs Go, Node.js, and pnpm (it rebuilds Answer's UI).
+answer build \
+  --with github.com/smj9504/scopit/community/plugins/pii-reviewer=./community/plugins/pii-reviewer \
+  --output ./answer-scopit
+./answer-scopit plugin        # should list scopit_pii_reviewer[0.1.0]
+```
+
+Then enable the plugin in **Admin > Plugins**. It is off after every fresh build.
+
+Not run here: this session could not run the UI's npm install step. For the local preview, the plugin was compiled into Answer 2.0.3 with plain `go build`, reusing the UI files served by the official 2.0.3 release binary, and the plugin's `i18n/*.yaml` merged into Answer's `i18n/en_US.yaml` and `ko_KR.yaml` by hand (what `answer build` does). Run the real `answer build` once in CI or on the server before launch.
+
+## Local preview
+
+1. Download the official binary from `https://downloads.apache.org/answer/` (check the `.sha512`), or use the plugin build above.
+2. Install with SQLite (`AUTO_INSTALL=true`, `DB_TYPE=sqlite3`, `LANGUAGE=ko_KR`, `EXTERNAL_CONTENT_DISPLAY=ask_before_display`, admin name, email, password) via `answer init -C ./data`, set `server.http.addr` in `data/conf/config.yaml`, then `answer run -C ./data`.
+3. Apply Scopit's settings:
+
+   ```bash
+   ANSWER_URL=http://127.0.0.1:9080 \
+   ANSWER_ADMIN_EMAIL=... ANSWER_ADMIN_PASSWORD=... \
+   SITE_URL=http://localhost:9080 CONTACT_EMAIL=... \
+   node community/scripts/apply-settings.mjs
+   ```
+
+4. Delete the two sample questions Answer creates at install ("What is a tag?", "What is reputation...").
+
+## Settings worth knowing
+
+- Default UI language Korean, time zone America/New_York, light color scheme, fixed width.
+- Avatars use Answer's built-in images, not Gravatar, so email hashes are not sent to a third party.
+- Images from other sites are shown only after the reader agrees (`ask_before_display`).
+- New accounts must verify their email, so SMTP must be set in **Admin > SMTP** before launch. Resend's free tier (100 a day) is already shared by the Scopit app and the claims site.
+- Tags: `ko` (한국어) and `en` (English) are the language rooms and are required; topic tags (`water-damage`, `roof`, `mold`, `contractor`, `insurance-claim`, `public-adjuster`, `maintenance`) are optional.
+
+## Known gaps (found in the local preview, 2026-11-11)
+
+1. **Korean, Spanish, and Vietnamese names cannot sign up.** Answer builds the username from the display name and allows only `a-z 0-9 - . _` (Go's `\w`). Chinese names work because they are converted to pinyin. `김민지`, `José Pérez`, and `Nguyễn Văn` all fail with "Must use the character set...". Workaround now: sign up with a Latin name, then change the display name (Korean display names work). Fix: a small change in `MakeUsername` (`internal/service/user_common/user.go`) to fall back to a generated ASCII username; worth proposing upstream rather than patching locally.
+2. **Korean translation is 73% complete** in Answer 2.0.3 (Simplified Chinese 100%, Spanish and Vietnamese 96%, Traditional Chinese 47%). English shows through in places such as "Created" on question pages, the signup error above, and admin menu items. Fix: fill the gaps on Answer's Crowdin project so they arrive with the next release.
+3. **No "license verified" badge for public adjusters.** Roles are fixed (User, Admin, Moderator), badges are awarded automatically by activity, and no plugin type can label a user. Any member can also set any display name, so a name like "홍길동 (verified PA)" proves nothing. Options: a moderator-maintained list of verified PAs in the sidebar linking to their Scopit Claims profiles (possible now), or an admin-awarded badge feature (a core change, best proposed upstream).
+4. A question without a language room tag is refused, but the message only says to add a tag.
+
+## Before launch
+
+- Owner decision on the disclosure wording in `theme/footer.html` (it says Scopit makes contractor software and is not paid to mention anyone) and attorney review with the claims site's legal pages.
+- Hosting, SMTP, backups, and the `answer build` step (Google Cloud's always-free e2-micro, 1 GB of memory, should fit Answer with SQLite; check the current free-tier terms first).
+- Community rules page and Terms/Privacy in **Admin > Policies**, linked to or reusing the claims site's.

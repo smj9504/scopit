@@ -1,0 +1,210 @@
+/*
+ * Scopit Community: Scopit Claims look on top of Apache Answer's default theme.
+ * Paste into Admin > Customize > CSS and HTML > Custom CSS, or run
+ * scripts/apply-settings.mjs. Colors match claims/src/styles/global.css.
+ *
+ * Fonts: device fonts only. Korean and Chinese fonts are too large to
+ * download, and the claims site's IBM Plex files cover Latin only.
+ */
+
+:root,
+[data-bs-theme='light'] {
+  --sc-bg: #f5f4ee;
+  --sc-paper: #fcfbf7;
+  --sc-ink: #15201b;
+  --sc-green: #1e5a46;
+  --sc-green-dark: #143d30;
+  --sc-yellow: #f4da4a;
+  --sc-muted: #4a5750;
+  --sc-line: #d6d3c6;
+
+  --bs-body-bg: var(--sc-bg);
+  --bs-body-color: var(--sc-ink);
+  --bs-secondary-color: var(--sc-muted);
+  --bs-border-color: var(--sc-line);
+  --bs-link-color: var(--sc-green);
+  --bs-link-color-rgb: 30, 90, 70;
+  --bs-link-hover-color: var(--sc-green-dark);
+  --bs-link-hover-color-rgb: 20, 61, 48;
+  --bs-border-radius: 2px;
+  --bs-border-radius-sm: 2px;
+  --bs-border-radius-lg: 2px;
+  --bs-body-font-family: system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
+    'Noto Sans KR', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+}
+
+body {
+  background: var(--sc-bg);
+  color: var(--sc-ink);
+}
+
+/* Cards, lists, and inputs sit on "paper", like the claims site. */
+.card,
+.list-group-item,
+.form-control,
+.form-select,
+.dropdown-menu,
+.modal-content {
+  background-color: var(--sc-paper);
+}
+
+.card {
+  border: 1px solid var(--sc-line);
+}
+
+.btn,
+.form-control,
+.form-select,
+.badge {
+  border-radius: 2px;
+}
+
+/* Tags look like the claims site's yellow "Claims" label. */
+.badge-tag {
+  background: var(--sc-paper);
+  color: var(--sc-ink);
+  border: 1px solid var(--sc-ink);
+}
+
+/* On phones Answer cuts the site name to "Scopi…". Show it whole on two lines
+   ("Scopit / Community") and tighten the header so the sign-up button stays on
+   the same row down to 360px. Answer's rule is "#header .nav-text" and its
+   spacing classes use !important, hence the id selectors and !important. */
+@media (max-width: 575.98px) {
+  #header .container-xxl {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+  #header .container-xxl > .me-2 {
+    margin-right: 0.25rem !important;
+  }
+  #header .navbar-brand.nav-text {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 5.5rem;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    font-size: 0.95rem;
+  }
+  #header .btn {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
+/* ---------- Top bar (custom header HTML) ---------- */
+
+.sc-topbar {
+  background: var(--sc-paper);
+  border-bottom: 1.5px solid var(--sc-ink);
+  font-size: 0.875rem;
+}
+
+.sc-topbar__inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.4rem 1rem;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.sc-brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--sc-ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.sc-brand__tag {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: var(--sc-yellow);
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--sc-ink);
+  border-radius: 2px;
+}
+
+.sc-topbar a {
+  color: var(--sc-green);
+}
+
+/* ---------- Footer (custom footer HTML) ---------- */
+
+.sc-footer {
+  border-top: 1.5px solid var(--sc-ink);
+  margin-top: 3rem;
+  padding: 2rem 1rem;
+  background: var(--sc-bg);
+  font-size: 0.875rem;
+  color: var(--sc-muted);
+}
+
+.sc-footer__inner {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.sc-disclosure {
+  display: inline-block;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  border: 1.5px solid var(--sc-ink);
+  border-radius: 2px;
+  padding: 0.5rem 0.75rem;
+  background: var(--sc-paper);
+  color: var(--sc-ink);
+  margin: 0 0 1rem;
+}
+
+.sc-footer p {
+  margin: 0 0 0.75rem;
+}
+
+.sc-footer a {
+  color: var(--sc-green);
+}
+
+/* ---------- Sidebar rules (custom sidebar HTML) ---------- */
+
+.sc-rules {
+  background: var(--sc-paper);
+  border: 1.5px solid var(--sc-ink);
+  border-radius: 2px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+.sc-rules h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.sc-rules ol {
+  padding-left: 1.1rem;
+  margin: 0 0 0.75rem;
+}
+
+.sc-rules li {
+  margin-bottom: 0.35rem;
+}
+
+.sc-rules .sc-en {
+  display: block;
+  color: var(--sc-muted);
+  font-size: 0.8125rem;
+}
+
+.sc-rules__links {
+  border-top: 1px solid var(--sc-line);
+  padding-top: 0.6rem;
+  margin: 0;
+}

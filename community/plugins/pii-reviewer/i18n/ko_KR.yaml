@@ -1,0 +1,40 @@
+plugin:
+  scopit_pii_reviewer:
+    backend:
+      info:
+        name:
+          other: Scopit 개인정보 검토
+        description:
+          other: 새 회원의 글, 개인정보가 보이는 글, 사이트 밖으로 연락하자는 글을 바로 공개하지 않고 검토 대기열로 보냅니다.
+      config:
+        hold_new_user_posts:
+          title:
+            other: 새 회원
+          label:
+            other: 새 회원의 글은 검토 후 공개
+          description:
+            other: 아래에 정한 수만큼 글이 승인될 때까지 그 회원의 글은 검토를 기다립니다.
+        new_user_threshold:
+          title:
+            other: 검토 없이 공개되기까지 필요한 승인 글 수
+          description:
+            other: "1이면 첫 글만 검토합니다. 0이면 이 검사를 끕니다."
+        check_personal_info:
+          title:
+            other: 개인정보
+          label:
+            other: 전화번호, 이메일, 클레임·증권 번호, 집 주소, 사회보장번호가 있는 글은 검토 후 공개
+          description:
+            other: 보험사도 공개된 글을 읽습니다. 관리자가 해당 부분을 지우고 승인하거나 거절합니다.
+        check_off_site:
+          title:
+            other: 외부 연락 요청
+          label:
+            other: 사이트 밖으로 연락하자는 글은 검토 후 공개
+          description:
+            other: '"DM me", "call me", "카톡", "微信" 같은 표현을 찾습니다. PA나 업자의 영업은 주로 이런 개인 연락에서 일어납니다.'
+        extra_phrases:
+          title:
+            other: 추가로 검토할 표현
+          description:
+            other: 한 줄에 하나씩. 이 표현이 들어간 글은 검토를 기다립니다.

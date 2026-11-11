@@ -1,0 +1,65 @@
+{
+  "_comment": "Admin settings for Scopit Community (Apache Answer 2.0.x). Applied by scripts/apply-settings.mjs. No secrets here. siteUrl and contactEmail come from environment variables at apply time.",
+  "general": {
+    "name": "Scopit Community",
+    "short_description": "집 문제, 업자 고르기, 보험 클레임을 집주인끼리 묻고 답하는 곳",
+    "description": "Homeowners in Virginia, Maryland, and DC asking and answering each other about house problems, choosing contractors, and insurance claims. 버지니아, 메릴랜드, DC 집주인들이 집 문제와 업자 고르기, 보험 클레임을 서로 묻고 답하는 곳입니다."
+  },
+  "interface": {
+    "language": "ko_KR",
+    "time_zone": "America/New_York"
+  },
+  "theme": {
+    "theme": "default",
+    "theme_config": {
+      "default": {
+        "navbar_style": "#15201b",
+        "primary_color": "#1e5a46"
+      }
+    },
+    "color_scheme": "light",
+    "layout": "Fixed-width"
+  },
+  "usersSettings": {
+    "default_avatar": "system",
+    "gravatar_base_url": ""
+  },
+  "login": {
+    "allow_new_registrations": true,
+    "allow_email_registrations": true,
+    "allow_password_login": true,
+    "allow_email_domains": [],
+    "require_email_verification": true
+  },
+  "security": {
+    "login_required": false,
+    "external_content_display": "ask_before_display",
+    "check_update": true
+  },
+  "question": {
+    "min_tags": 1,
+    "min_content": 20,
+    "restrict_answer": true
+  },
+  "tags": [
+    { "slug_name": "ko", "display_name": "한국어", "room": true, "description": "한국어로 묻고 답하는 방입니다. Korean-language room." },
+    { "slug_name": "en", "display_name": "English", "room": true, "description": "English-language room. 영어로 묻고 답하는 방입니다." },
+    { "slug_name": "water-damage", "display_name": "누수 Water damage", "description": "Leaks, burst pipes, flooding. 누수, 배관 파열, 침수." },
+    { "slug_name": "roof", "display_name": "지붕 Roof", "description": "Roof leaks, wind and hail damage. 지붕 누수, 바람·우박 피해." },
+    { "slug_name": "mold", "display_name": "곰팡이 Mold", "description": "Mold after water damage, testing and removal. 물 피해 뒤 곰팡이, 검사와 제거." },
+    { "slug_name": "contractor", "display_name": "업자 고르기 Contractors", "description": "Choosing a contractor: bids, contracts, deposits, licenses. 업자 고르기: 견적, 계약서, 선금, 면허." },
+    { "slug_name": "insurance-claim", "display_name": "보험 클레임 Claims", "description": "Filing and following up on a homeowners insurance claim. 집 보험 클레임 접수와 진행." },
+    { "slug_name": "public-adjuster", "display_name": "PA Public adjusters", "description": "Questions about public adjusters. 공공손해사정인(PA) 관련 질문." },
+    { "slug_name": "maintenance", "display_name": "집 관리 Maintenance", "description": "Seasonal upkeep that prevents damage: pipes, gutters, sump pumps. 계절별 집 관리: 배관, 거터, 섬프펌프." }
+  ],
+  "tagSettings": {
+    "_comment": "Language rooms: every question must carry one of the room tags (ko, en). Topic tags are optional.",
+    "required_tag": true
+  },
+  "customCssHtml": {
+    "css": "theme/custom.css",
+    "header": "theme/header.html",
+    "footer": "theme/footer.html",
+    "sidebar": "theme/sidebar.html"
+  }
+}
