@@ -1,0 +1,181 @@
+# Scopit Community (community/): build Apache Answer with the pii-reviewer
+# plugin on every change, and on main deploy it to the Google Cloud VM set up
+# by community/deploy/gcp-setup.sh. Run it by hand ("Run workflow") to
+# redeploy and re-apply the settings.
+name: Community
+
+on:
+  push:
+    branches: [main]
+    paths: ['community/**', '.github/workflows/community.yml']
+  pull_request:
+    paths: ['community/**', '.github/workflows/community.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ANSWER_VERSION: 2.0.3
+  # sha512 of apache-answer-2.0.3-bin-linux-amd64.tar.gz, from
+  # https://downloads.apache.org/answer/2.0.3/apache-answer-2.0.3-bin-linux-amd64.tar.gz.sha512
+  ANSWER_SHA512: 683a46ad17c64ddebe327a29c249be1331b0a5575a7335b6de98cf86edc33f682d734be8b594fed76fc592c7ec3bd8eb267e7a9591355f4b54acd715449988a9
+
+jobs:
+  build:
+    name: Build Answer with the plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: community/plugins/pii-reviewer/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install -g pnpm@9.7.0
+
+      - name: Plugin tests
+        working-directory: community/plugins/pii-reviewer
+        run: go test ./...
+
+      - name: Check the deploy scripts
+        run: bash -n community/deploy/*.sh && sh -n community/scripts/fetch-fonts.sh
+
+      - name: Download Apache Answer ${{ env.ANSWER_VERSION }}
+        run: |
+          name=apache-answer-$ANSWER_VERSION-bin-linux-amd64
+          curl -fsSLO "https://downloads.apache.org/answer/$ANSWER_VERSION/$name.tar.gz"
+          echo "$ANSWER_SHA512  $name.tar.gz" | sha512sum -c -
+          tar -xzf "$name.tar.gz"
+          mkdir -p "$RUNNER_TEMP/bin"
+          install -m 755 "$name/answer" "$RUNNER_TEMP/bin/answer"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          mkdir -p release
+          answer build \
+            --with github.com/smj9504/scopit/community/plugins/pii-reviewer=./community/plugins/pii-reviewer \
+            --output release/answer
+          ./release/answer plugin | tee plugins.txt
+          grep -q scopit_pii_reviewer plugins.txt
+
+      - name: Fonts and release files
+        run: |
+          sh community/scripts/fetch-fonts.sh "$RUNNER_TEMP/fonts"
+          tar -czf release/fonts.tar.gz -C "$RUNNER_TEMP/fonts/uploads/branding/fonts" pretendard
+          cp community/deploy/vm-agent.sh release/
+          (cd release && sha256sum answer fonts.tar.gz vm-agent.sh > SHA256SUMS)
+          echo "$GITHUB_SHA" > release/version
+          ls -la release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: community-release
+          path: release/
+          retention-days: 7
+
+  deploy:
+    name: Deploy to Google Cloud
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: community-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read community/deploy/gcp.env
+        id: cfg
+        run: |
+          set -a; . community/deploy/gcp.env; set +a
+          if [ -z "$GCP_PROJECT_ID" ] || [ -z "$GCP_PROJECT_NUMBER" ]; then
+            echo "::notice::Google Cloud is not set up yet (community/deploy/gcp.env is empty), so nothing was deployed."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "ready=true"
+            echo "provider=projects/$GCP_PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/scopit"
+            echo "service_account=community-deploy@$GCP_PROJECT_ID.iam.gserviceaccount.com"
+            echo "bucket=$GCP_PROJECT_ID-scopit-community"
+            echo "project=$GCP_PROJECT_ID"
+            echo "zone=$GCP_ZONE"
+            echo "vm=$COMMUNITY_VM"
+            echo "domain=$COMMUNITY_DOMAIN"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          name: community-release
+          path: release
+
+      - uses: google-github-actions/auth@v2
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          workload_identity_provider: ${{ steps.cfg.outputs.provider }}
+          service_account: ${{ steps.cfg.outputs.service_account }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.cfg.outputs.ready == 'true'
+
+      - name: Upload the release
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          BUCKET: ${{ steps.cfg.outputs.bucket }}
+          PROJECT: ${{ steps.cfg.outputs.project }}
+          ZONE: ${{ steps.cfg.outputs.zone }}
+          VM: ${{ steps.cfg.outputs.vm }}
+        run: |
+          gcloud config set project "$PROJECT"
+          # Keep the VM's startup script in step with the repository (used at the next boot).
+          gcloud compute instances add-metadata "$VM" --zone="$ZONE" \
+            --metadata-from-file=startup-script=community/deploy/vm-startup.sh
+          gcloud storage cp release/answer release/fonts.tar.gz release/vm-agent.sh release/SHA256SUMS "gs://$BUCKET/release/"
+          # Last: the VM installs a release when this number changes.
+          gcloud storage cp release/version "gs://$BUCKET/release/version"
+
+      - name: Wait for the VM to install it
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          DOMAIN: ${{ steps.cfg.outputs.domain }}
+          ZONE: ${{ steps.cfg.outputs.zone }}
+          VM: ${{ steps.cfg.outputs.vm }}
+        run: |
+          # The VM checks every three minutes; a first install also sets up
+          # the machine and gets the HTTPS certificate.
+          for _ in $(seq 1 60); do
+            live=$(curl -fsS --max-time 10 "https://$DOMAIN/uploads/branding/release.txt" 2>/dev/null || true)
+            if [ "$live" = "$GITHUB_SHA" ]; then echo "Release $live is live at https://$DOMAIN/"; exit 0; fi
+            sleep 15
+          done
+          echo "::error::https://$DOMAIN/ did not report release $GITHUB_SHA within 15 minutes. VM console:"
+          gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" 2>/dev/null | grep -a 'community-agent\|startup-script' | tail -40 || true
+          exit 1
+
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          node-version: '22'
+
+      - name: Apply settings, theme, and plugin
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          DOMAIN: ${{ steps.cfg.outputs.domain }}
+        run: |
+          ANSWER_ADMIN_EMAIL=$(gcloud secrets versions access latest --secret=community-admin-email)
+          ANSWER_ADMIN_PASSWORD=$(gcloud secrets versions access latest --secret=community-admin-password)
+          echo "::add-mask::$ANSWER_ADMIN_EMAIL"
+          echo "::add-mask::$ANSWER_ADMIN_PASSWORD"
+          SMTP_PASSWORD=$(gcloud secrets versions access latest --secret=community-smtp-password 2>/dev/null || true)
+          if [ -n "$SMTP_PASSWORD" ]; then echo "::add-mask::$SMTP_PASSWORD"; fi
+          export ANSWER_ADMIN_EMAIL ANSWER_ADMIN_PASSWORD SMTP_PASSWORD
+          ANSWER_URL="https://$DOMAIN" SITE_URL="https://$DOMAIN" CONTACT_EMAIL=claims@scopit.work \
+            node community/scripts/apply-settings.mjs

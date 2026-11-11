@@ -7,8 +7,8 @@ Built from the "Build Scopit Claims (production website)" brief. This records wh
 | Area | Choice | Why |
 | --- | --- | --- |
 | Framework | Astro 7, static output, TypeScript strict | Static-first as asked; content collections with typed front matter |
-| Styling | Plain CSS with custom properties (`src/styles/global.css`) | The design is bespoke; Tailwind would add a build step without saving much |
-| Fonts | IBM Plex Sans and Mono, self-hosted Latin subset, metric-matched fallbacks | No third-party font requests; no layout shift on font swap |
+| Styling | Plain CSS with custom properties (`src/styles/global.css`). Same look as Scopit Community (redesigned 2026-11-11): warm white, light-weight headings, black and white pill buttons, cream panels, hairlines, color only in small spheres | The design is bespoke; Tailwind would add a build step without saving much |
+| Fonts | Inter, self-hosted Latin subset (300 to 600), metric-matched fallback | Same family as the community (its Pretendard is Inter plus Hangul); no third-party font requests; no layout shift on font swap |
 | Hosting | Cloudflare Pages + Pages Functions | As asked. Form logic is portable `Request → Response` code in `src/server/` |
 | Storage | **Cloudflare D1** (not KV) | Listings, licenses, and inquiries are relational; verification needs queries like "verified and not expired". D1 is SQLite, so the same SQL runs on Turso if you move to Vercel |
 | Spam | Cloudflare Turnstile + per-IP rate limit (salted hash) + Origin check | |

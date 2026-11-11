@@ -110,7 +110,7 @@ const guideItems = guides.map((g) => ({
 
 <style>
   .hero {
-    border-bottom: var(--rule);
+    border-bottom: 1px solid var(--rail);
     padding-block: var(--space-4) var(--space-5);
   }
   .hero__grid {
@@ -127,7 +127,7 @@ const guideItems = guides.map((g) => ({
   }
   .hero__note {
     margin: var(--space-2) 0 0;
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
     color: var(--muted);
   }
   @media (min-width: 960px) {
@@ -154,14 +154,20 @@ const guideItems = guides.map((g) => ({
       top: 1.5rem;
     }
   }
-  .about-strip {
-    background: var(--paper);
-    border-top: var(--rule) !important;
-    border-bottom: var(--rule);
-  }
+  /* A cream stage inside the page rather than a full-width band. */
   .about-strip__grid {
     display: grid;
     gap: var(--space-2) var(--space-5);
+    width: calc(100% - 2 * var(--gutter));
+    max-width: calc(var(--container) - 2 * var(--gutter));
+    background: var(--paper);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-3);
+  }
+  @media (min-width: 640px) {
+    .about-strip__grid {
+      padding: var(--space-5) var(--space-4);
+    }
   }
   @media (min-width: 960px) {
     .about-strip__grid {
@@ -175,17 +181,20 @@ const guideItems = guides.map((g) => ({
     list-style: none;
     padding: 0;
     margin: var(--space-3) 0;
-    border-top: var(--hair);
+    border-top: 1px solid rgba(0, 0, 0, 0.07);
   }
   .facts li {
     display: grid;
     grid-template-columns: 1.5rem 1fr;
-    padding: 0.6rem 0;
-    border-bottom: var(--hair);
+    padding: 0.7rem 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.07);
   }
   .facts__mark {
-    font-family: var(--font-mono);
-    color: var(--muted);
+    color: var(--faint);
+  }
+  .about-strip :global(.disclosure) {
+    background: var(--raised);
+    box-shadow: var(--lift);
   }
   .about-strip__links {
     margin-top: var(--space-3);

@@ -3,8 +3,8 @@
  * Large image slot reserved for real job-site photos.
  * TODO: real photo — pass `src` and `alt` (or set `photo` in the guide's
  * front matter) once Scopit has its own job-site photos. Until then this
- * renders a neutral placeholder with a fixed aspect ratio, so swapping in a
- * photo later causes no layout shift. No stock photos of people.
+ * renders the site's spheres on a cream stage with a fixed aspect ratio, so
+ * swapping in a photo later causes no layout shift. No stock photos of people.
  */
 interface Props {
   src?: string;
@@ -26,8 +26,10 @@ const { src, alt = '', ratio = '3 / 2', caption, priority = false, class: classN
     src ? (
       <img src={src} alt={alt} loading={priority ? 'eager' : 'lazy'} decoding="async" fetchpriority={priority ? 'high' : 'auto'} />
     ) : (
-      <span class="photo-slot__label label" aria-hidden="true">
-        Job-site photo
+      <span class="photo-slot__scene" aria-hidden="true">
+        <span class="orb orb--blue photo-slot__orb photo-slot__orb--sm"></span>
+        <span class="orb photo-slot__orb photo-slot__orb--lg"></span>
+        <span class="orb orb--mint photo-slot__orb photo-slot__orb--xs"></span>
       </span>
     )
   }

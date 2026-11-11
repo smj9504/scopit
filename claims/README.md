@@ -55,7 +55,7 @@ claims/
 │   ├── api/apply.ts        # POST: PA listing application
 │   ├── api/newsletter.ts   # POST: adjuster-notes signup (double opt-in at Buttondown)
 │   └── admin/[[path]].ts   # /admin verification tool
-├── public/                 # fonts (self-hosted IBM Plex), favicon
+├── public/                 # fonts (self-hosted Inter), favicon
 ├── scripts/                # postbuild, verify-dist, launch-check, a11y
 ├── src/
 │   ├── content/            # Markdown: guides/, notes/, legal/

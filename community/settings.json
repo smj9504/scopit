@@ -63,6 +63,17 @@
     "_comment": "Language rooms: every question must carry one of the room tags (ko, en). Topic tags are optional.",
     "required_tag": true
   },
+  "plugins": ["scopit_pii_reviewer"],
+  "smtp": {
+    "_comment": "Resend over SMTP (scopit.work is verified there). The password is a Resend API key, kept in Secret Manager as community-smtp-password and passed as SMTP_PASSWORD.",
+    "from_email": "community@scopit.work",
+    "from_name": "Scopit Community",
+    "smtp_host": "smtp.resend.com",
+    "smtp_port": 465,
+    "encryption": "SSL",
+    "smtp_username": "resend",
+    "smtp_authentication": true
+  },
   "customCssHtml": {
     "css": "theme/custom.css",
     "head": "theme/head.html",
