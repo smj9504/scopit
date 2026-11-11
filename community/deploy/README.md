@@ -25,8 +25,8 @@ Caddy serves the site over HTTPS with a Let's Encrypt certificate. The disk is s
 
    It asks for the admin account's email and prints a generated admin password once (also kept in Secret Manager as `community-admin-password`). Save it.
    - Cloud Shell에서 위 세 줄을 실행합니다. 관리자 이메일을 물어보고, 만들어진 관리자 비밀번호를 한 번 보여 줍니다. 저장해 두세요.
-3. **DNS.** Add the A record the script prints (`community` → the VM's IP) where scopit.work's DNS is managed. In Cloudflare, set it to "DNS only" (grey cloud) so the VM can get its own HTTPS certificate.
-   - 스크립트가 알려 주는 A 레코드를 scopit.work DNS에 추가합니다(Cloudflare라면 "DNS only").
+3. **DNS.** scopit.work's DNS is at Namecheap (see `claims/docs/DEPLOY.md`). Domain List > `scopit.work` > Manage > Advanced DNS > Add New Record: **A Record**, Host `community`, Value the IP the script prints. The VM gets its own HTTPS certificate once this resolves.
+   - Namecheap의 scopit.work DNS에 A 레코드를 추가합니다(Host `community`, 값은 스크립트가 알려 주는 IP).
 4. **Config.** Put the last line the script prints (`GCP_PROJECT_ID=... GCP_PROJECT_NUMBER=...`) into `gcp.env` and merge to main. The workflow then deploys.
    - 스크립트 마지막 줄을 Claude에게 보내 주시면 `gcp.env`에 넣고 배포합니다.
 

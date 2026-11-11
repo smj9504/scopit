@@ -134,8 +134,9 @@ cat <<EOF
 
 Done.
 
-1. DNS: add this record where scopit.work's DNS is managed (Cloudflare: "DNS only", not proxied):
-     Type A   Name community   Value $IP
+1. DNS: scopit.work's DNS is at Namecheap. Domain List > scopit.work > Manage >
+   Advanced DNS > Add New Record:
+     Type A Record   Host community   Value $IP
 
 2. Send this line to Claude:
      GCP_PROJECT_ID=$PROJECT GCP_PROJECT_NUMBER=$NUMBER
