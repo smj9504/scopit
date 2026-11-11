@@ -1,6 +1,6 @@
 # Scopit Community (prototype)
 
-A homeowner Q&A community for Virginia, Maryland, and DC: house problems, choosing contractors, and insurance claims. It runs on [Apache Answer](https://answer.apache.org/) 2.0.3 (Apache License 2.0), unmodified, with Scopit's look, settings, and one plugin on top. Nothing here is deployed yet.
+A homeowner Q&A community for Virginia, Maryland, and DC: house problems, choosing contractors, and insurance claims. It runs on [Apache Answer](https://answer.apache.org/) 2.0.3 (Apache License 2.0), unmodified, with Scopit's look, settings, and one plugin on top. It deploys to a small Google Cloud VM at `community.scopit.work`; see [deploy/README.md](deploy/README.md).
 
 This folder holds only Scopit's own parts. Answer itself is not copied or forked:
 
@@ -16,6 +16,7 @@ This folder holds only Scopit's own parts. Answer itself is not copied or forked
 | `scripts/render-brand.mjs` | Renders `theme/brand/` (needs Playwright and the font files) |
 | `scripts/apply-settings.mjs` | Applies `settings.json`, the branding images, and the theme files to a running Answer through its admin API. Safe to re-run |
 | `plugins/pii-reviewer/` | Go reviewer plugin that holds risky posts for a moderator (below) |
+| `deploy/` | Google Cloud setup and the VM's install scripts ([deploy/README.md](deploy/README.md)); `.github/workflows/community.yml` builds and deploys |
 
 ## 한국어 요약
 
@@ -54,9 +55,9 @@ answer build \
 ./answer-scopit plugin        # should list scopit_pii_reviewer[0.1.0]
 ```
 
-Then enable the plugin in **Admin > Plugins**. It is off after every fresh build.
+Then enable the plugin in **Admin > Plugins**, or let the apply script do it (`settings.json` > `plugins`).
 
-Not run here: this session could not run the UI's npm install step. For the local preview, the plugin was compiled into Answer 2.0.3 with plain `go build`, reusing the UI files served by the official 2.0.3 release binary, and the plugin's `i18n/*.yaml` merged into Answer's `i18n/en_US.yaml` and `ko_KR.yaml` by hand (what `answer build` does). Run the real `answer build` once in CI or on the server before launch.
+`.github/workflows/community.yml` runs exactly this on every change under `community/`, with the official 2.0.3 binary (checksum verified), and the deploy installs that build.
 
 ## Local preview
 
@@ -106,5 +107,5 @@ The `@font-face` rules are in `theme/head.html`, which the apply script puts in 
 ## Before launch
 
 - Owner decision on the disclosure wording in `theme/footer.html` (it says Scopit makes contractor software and is not paid to mention anyone) and attorney review with the claims site's legal pages.
-- Hosting, SMTP, backups, `scripts/fetch-fonts.sh`, and the `answer build` step (Google Cloud's always-free e2-micro, 1 GB of memory, should fit Answer with SQLite; check the current free-tier terms first).
+- Hosting: the one-time Google Cloud setup and DNS record in [deploy/README.md](deploy/README.md), and the Resend key for sign-up email.
 - Community rules page and Terms/Privacy in **Admin > Policies**, linked to or reusing the claims site's.

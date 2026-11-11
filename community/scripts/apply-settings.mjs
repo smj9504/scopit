@@ -10,9 +10,12 @@
  *   ANSWER_ADMIN_PASSWORD=... \
  *   SITE_URL=https://community.example.com \
  *   CONTACT_EMAIL=claims@scopit.work \
+ *   [SMTP_PASSWORD=...] \
  *   node community/scripts/apply-settings.mjs
  *
  * Safe to re-run: settings are overwritten, tags are created only if missing.
+ * The deploy workflow runs it after every release, so changes made by hand in
+ * Admin to anything listed in settings.json are replaced; change the file.
  */
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -121,6 +124,27 @@ await admin('PUT', '/siteinfo/tag', {
   required_tag: settings.tagSettings.required_tag,
 });
 console.log('tag settings: ok');
+
+// Plugins compiled into this build (see the README) are turned on. A plain
+// Answer build without them only gets a warning.
+const installed = (await admin('GET', '/plugins?status=')) ?? [];
+for (const slug of settings.plugins ?? []) {
+  if (!installed.some((p) => p.slug_name === slug)) {
+    console.warn(`plugin ${slug}: not in this Answer build, skipped`);
+    continue;
+  }
+  await admin('PUT', '/plugin/status', { plugin_slug_name: slug, enabled: true });
+  console.log(`plugin ${slug}: on`);
+}
+
+// Outgoing email, needed for sign-up verification. Only applied when
+// SMTP_PASSWORD (for Resend, an API key) is set.
+if (process.env.SMTP_PASSWORD) {
+  await admin('PUT', '/setting/smtp', { ...settings.smtp, smtp_password: process.env.SMTP_PASSWORD });
+  console.log('smtp: ok');
+} else {
+  console.log('smtp: skipped (no SMTP_PASSWORD)');
+}
 
 const files = settings.customCssHtml;
 const read = (p) => readFile(join(root, p), 'utf8');
