@@ -21,8 +21,7 @@ NEWSLETTER_PROVIDER = "log"
 [[d1_databases]]
 binding = "DB"
 database_name = "scopit-claims"
-# Replace with the id printed by `npx wrangler d1 create scopit-claims` (see docs/DEPLOY.md).
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "c2792f78-542b-4a6b-b29b-c88d0d605778"   # ENAM (eastern North America)
 migrations_dir = "migrations"
 
 # ---- Preview deployments (non-production branches) ----
@@ -35,14 +34,14 @@ CLAIMS_BASE = ""
 EMAIL_PROVIDER = "resend"
 NEWSLETTER_PROVIDER = "log"
 CLAIMS_DIRECTORY_SOURCE = "d1"
-PUBLIC_TURNSTILE_SITE_KEY = ""      # set to the Turnstile widget's site key (public value)
+PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAF8Ojs7q-_aVIlkt"   # Turnstile widget "scopit-claims" (public value)
 PUBLIC_PLAUSIBLE_DOMAIN = ""        # leave empty: no analytics on previews
 PUBLIC_CONTACT_EMAIL = "claims@scopit.work"
 
 [[env.preview.d1_databases]]
 binding = "DB"
 database_name = "scopit-claims-preview"
-database_id = "00000000-0000-0000-0000-000000000001"
+database_id = "62c4b067-ac2d-46ff-bc47-35f744d913e8"   # ENAM (eastern North America)
 migrations_dir = "migrations"
 
 # ---- Production ----
@@ -54,12 +53,12 @@ CLAIMS_BASE = ""
 EMAIL_PROVIDER = "resend"
 NEWSLETTER_PROVIDER = "buttondown"
 CLAIMS_DIRECTORY_SOURCE = "d1"
-PUBLIC_TURNSTILE_SITE_KEY = ""      # set to the Turnstile widget's site key (public value)
+PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAF8Ojs7q-_aVIlkt"   # Turnstile widget "scopit-claims" (public value)
 PUBLIC_PLAUSIBLE_DOMAIN = ""        # analytics off (decided 2026-11-10); set to "claims.scopit.work" to turn on Plausible (paid)
 PUBLIC_CONTACT_EMAIL = "claims@scopit.work"
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "scopit-claims"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "c2792f78-542b-4a6b-b29b-c88d0d605778"   # ENAM (eastern North America)
 migrations_dir = "migrations"
