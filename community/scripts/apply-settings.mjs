@@ -15,7 +15,7 @@
  * Safe to re-run: settings are overwritten, tags are created only if missing.
  */
 import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,6 +64,27 @@ await admin('PUT', '/siteinfo/interface', settings.interface);
 console.log('interface: ok');
 await admin('PUT', '/siteinfo/theme', settings.theme);
 console.log('theme: ok');
+
+// Branding images go through Answer's upload endpoint, then into the
+// branding settings. Re-running uploads fresh copies; Answer deletes the
+// unused old ones in its orphan-file cleanup.
+async function uploadBranding(relPath) {
+  const form = new FormData();
+  form.append('source', 'branding');
+  form.append('file', new Blob([await readFile(join(root, relPath))], { type: 'image/png' }), basename(relPath));
+  const res = await fetch(`${base}/answer/api/v1/file`, { method: 'POST', headers: { Authorization: token }, body: form });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.code !== 200) {
+    throw new Error(`upload ${relPath} failed: HTTP ${res.status} ${json.msg ?? ''}`);
+  }
+  return json.data;
+}
+const brandingUrls = {};
+for (const key of ['logo', 'mobile_logo', 'square_icon', 'favicon']) {
+  brandingUrls[key] = await uploadBranding(settings.branding[key]);
+}
+await admin('PUT', '/siteinfo/branding', brandingUrls);
+console.log('branding: ok');
 await admin('PUT', '/siteinfo/users-settings', settings.usersSettings);
 console.log('users settings: ok');
 await admin('PUT', '/siteinfo/login', settings.login);

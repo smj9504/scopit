@@ -3,7 +3,7 @@
   "general": {
     "name": "Scopit Community",
     "short_description": "집 문제, 업자 고르기, 보험 클레임을 집주인끼리 묻고 답하는 곳",
-    "description": "Homeowners in Virginia, Maryland, and DC asking and answering each other about house problems, choosing contractors, and insurance claims. 버지니아, 메릴랜드, DC 집주인들이 집 문제와 업자 고르기, 보험 클레임을 서로 묻고 답하는 곳입니다."
+    "description": "버지니아·메릴랜드·DC 집주인들이 집 문제, 업체 고르기, 보험 클레임을 서로 묻고 답하는 곳. Homeowners in Virginia, Maryland, and DC helping each other with house problems, contractors, and insurance claims."
   },
   "interface": {
     "language": "ko_KR",
@@ -13,12 +13,19 @@
     "theme": "default",
     "theme_config": {
       "default": {
-        "navbar_style": "#15201b",
+        "navbar_style": "#f5f4ee",
         "primary_color": "#1e5a46"
       }
     },
     "color_scheme": "light",
     "layout": "Fixed-width"
+  },
+  "branding": {
+    "_comment": "Uploaded through Admin > Branding. logo.png serves both the desktop and phone header; theme/custom.css scales it down on phones.",
+    "logo": "theme/brand/logo.png",
+    "mobile_logo": "theme/brand/logo.png",
+    "square_icon": "theme/brand/square-icon.png",
+    "favicon": "theme/brand/favicon.png"
   },
   "usersSettings": {
     "default_avatar": "system",

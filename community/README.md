@@ -6,15 +6,18 @@ This folder holds only Scopit's own parts. Answer itself is not copied or forked
 
 | Path | What it is |
 | --- | --- |
-| `theme/custom.css` | Scopit Claims colors and type over Answer's default theme, plus a phone-width header fix |
-| `theme/header.html`, `footer.html`, `sidebar.html` | Top bar back to Scopit Claims, disclosure and disclaimer footer, posting rules (Korean and English) |
-| `settings.json` | Admin settings: name, Korean default UI, theme, login, tags and language rooms |
-| `scripts/apply-settings.mjs` | Applies `settings.json` and the theme files to a running Answer through its admin API. Safe to re-run |
+| `theme/custom.css` | The claims site's look over Answer's default theme: light header with an ink rule, question list as ruled rows, text sort tabs with the yellow underline, yellow language-room tags, mono labels, phone-width header fix |
+| `theme/header.html`, `footer.html`, `sidebar.html` | Strip linking back to Scopit Claims; footer with disclosure, links, and disclaimer; sidebar with what the site is, posting rules (English behind a toggle), and links to the guides and PA finder |
+| `theme/brand/` | Header logo ("Scopit [COMMUNITY]", same type as "Scopit [CLAIMS]"), favicon, and app icon, rendered from the claims site's own fonts and favicon |
+| `settings.json` | Admin settings: name, Korean default UI, theme, branding, login, tags and language rooms |
+| `scripts/render-brand.mjs` | Renders `theme/brand/` from the claims site's fonts and favicon (needs Playwright) |
+| `scripts/apply-settings.mjs` | Applies `settings.json`, the branding images, and the theme files to a running Answer through its admin API. Safe to re-run |
 | `plugins/pii-reviewer/` | Go reviewer plugin that holds risky posts for a moderator (below) |
 
 ## 한국어 요약
 
 - Apache Answer를 고치지 않고 그대로 쓰고, 디자인·설정·플러그인만 이 폴더에 둡니다. 원본이 업데이트되면 새 버전으로 다시 빌드하면 됩니다.
+- 디자인은 claims.scopit.work와 같은 계열입니다(종이색 배경, 잉크색 선, 노란 강조, IBM Plex 글꼴). 서버에 글꼴 파일을 한 번 복사해야 합니다(아래 "Fonts").
 - `pii-reviewer` 플러그인은 새 회원의 첫 글, 개인정보(전화번호·이메일·클레임/증권 번호·집 주소·SSN)가 보이는 글, "카톡으로 연락주세요" 같은 외부 연락 요청을 바로 공개하지 않고 검토 대기열로 보냅니다. 자동 삭제는 하지 않습니다.
 - 언어방은 태그로 나눕니다. 모든 질문은 `한국어` 또는 `English` 태그 중 하나가 있어야 올라갑니다.
 - 로컬에서 확인한 문제 세 가지는 아래 "Known gaps"에 있습니다: 한글 이름으로 가입 불가, 한국어 번역 73%, 면허 확인 PA 표시 불가.
@@ -65,11 +68,25 @@ Not run here: this session could not run the UI's npm install step. For the loca
    node community/scripts/apply-settings.mjs
    ```
 
-4. Delete the two sample questions Answer creates at install ("What is a tag?", "What is reputation...").
+4. Copy the fonts (below), then delete the two sample questions and the `support` tag Answer creates at install.
+
+`SITE_URL` must be the address the browser uses: Answer stores uploaded images (the logo) as absolute URLs and hides images from any other origin as external content.
+
+## Fonts
+
+The theme uses the claims site's IBM Plex files (Latin only, SIL OFL). Answer's content security policy allows fonts only from its own origin, so they are served by Answer itself from the branding upload folder:
+
+```bash
+mkdir -p <answer data>/uploads/branding/fonts
+cp claims/public/fonts/*.woff2 claims/public/fonts/OFL.txt <answer data>/uploads/branding/fonts/
+```
+
+Answer's orphan-file cleanup only touches files it has a record for, so these stay. Hangul and Chinese use the device's fonts (Apple SD Gothic Neo, Malgun Gothic, Noto Sans KR, and so on). If the font files are missing, everything falls back to device fonts.
 
 ## Settings worth knowing
 
-- Default UI language Korean, time zone America/New_York, light color scheme, fixed width.
+- Default UI language Korean, time zone America/New_York, light color scheme, fixed width, light header (`navbar_style` `#f5f4ee`).
+- Branding: `theme/brand/logo.png` for the desktop and phone header (scaled down on phones), `favicon.png`, `square-icon.png`. To change them, edit and run `scripts/render-brand.mjs` (needs Playwright), then rerun the apply script.
 - Avatars use Answer's built-in images, not Gravatar, so email hashes are not sent to a third party.
 - Images from other sites are shown only after the reader agrees (`ask_before_display`).
 - New accounts must verify their email, so SMTP must be set in **Admin > SMTP** before launch. Resend's free tier (100 a day) is already shared by the Scopit app and the claims site.
@@ -85,5 +102,5 @@ Not run here: this session could not run the UI's npm install step. For the loca
 ## Before launch
 
 - Owner decision on the disclosure wording in `theme/footer.html` (it says Scopit makes contractor software and is not paid to mention anyone) and attorney review with the claims site's legal pages.
-- Hosting, SMTP, backups, and the `answer build` step (Google Cloud's always-free e2-micro, 1 GB of memory, should fit Answer with SQLite; check the current free-tier terms first).
+- Hosting, SMTP, backups, the font copy, and the `answer build` step (Google Cloud's always-free e2-micro, 1 GB of memory, should fit Answer with SQLite; check the current free-tier terms first).
 - Community rules page and Terms/Privacy in **Admin > Policies**, linked to or reusing the claims site's.

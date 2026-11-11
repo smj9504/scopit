@@ -1,210 +1,1053 @@
 /*
- * Scopit Community: Scopit Claims look on top of Apache Answer's default theme.
- * Paste into Admin > Customize > CSS and HTML > Custom CSS, or run
- * scripts/apply-settings.mjs. Colors match claims/src/styles/global.css.
+ * Scopit Community: the Scopit Claims "estimate notes" look on top of Apache
+ * Answer's default theme. Paper background, dark ink, one green, one yellow
+ * highlight, sharp corners, thin dividers. Light mode only.
  *
- * Fonts: device fonts only. Korean and Chinese fonts are too large to
- * download, and the claims site's IBM Plex files cover Latin only.
+ * Applied by scripts/apply-settings.mjs (Admin > Customize > Custom CSS).
+ * Tokens match claims/src/styles/global.css.
+ *
+ * Fonts: the claims site's IBM Plex files (Latin only, SIL OFL), served by
+ * Answer from <data>/uploads/branding/fonts/ (see README). Hangul and Chinese
+ * fall through to the device's own fonts. If the files are missing, the
+ * device fonts are used for everything.
  */
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/uploads/branding/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/uploads/branding/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2');
+  font-weight: 500 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/uploads/branding/fonts/ibm-plex-sans-latin-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('/uploads/branding/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('/uploads/branding/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+  font-weight: 500 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Labels: Plex Mono for Latin letters, digits, and punctuation only. Spaces
+   and Hangul come from the sans stack, so Korean labels keep normal spacing. */
+@font-face {
+  font-family: 'Scopit Label';
+  src: url('/uploads/branding/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0021-007E, U+00B7, U+2190-2197;
+}
+
+/* ---------- Tokens ---------- */
 
 :root,
 [data-bs-theme='light'] {
   --sc-bg: #f5f4ee;
   --sc-paper: #fcfbf7;
+  --sc-sunk: #ebe9df;
   --sc-ink: #15201b;
   --sc-green: #1e5a46;
   --sc-green-dark: #143d30;
   --sc-yellow: #f4da4a;
   --sc-muted: #4a5750;
   --sc-line: #d6d3c6;
+  --sc-line-strong: #a9a698;
+  --sc-rule: 1.5px solid var(--sc-ink);
+  --sc-hair: 1px solid var(--sc-line);
+  --sc-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
+    'Noto Sans KR', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --sc-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --sc-label: 'Scopit Label', var(--sc-sans);
 
   --bs-body-bg: var(--sc-bg);
   --bs-body-color: var(--sc-ink);
+  --bs-body-font-family: var(--sc-sans);
+  --bs-body-line-height: 1.6;
+  --bs-emphasis-color: var(--sc-ink);
+  --bs-heading-color: var(--sc-ink);
   --bs-secondary-color: var(--sc-muted);
+  --bs-secondary-rgb: 74, 87, 80;
+  --bs-dark-rgb: 21, 32, 27;
+  --bs-secondary-bg: var(--sc-sunk);
+  --bs-tertiary-bg: var(--sc-paper);
   --bs-border-color: var(--sc-line);
   --bs-link-color: var(--sc-green);
   --bs-link-color-rgb: 30, 90, 70;
-  --bs-link-hover-color: var(--sc-green-dark);
-  --bs-link-hover-color-rgb: 20, 61, 48;
+  --bs-link-hover-color: var(--sc-ink);
+  --bs-link-hover-color-rgb: 21, 32, 27;
   --bs-border-radius: 2px;
   --bs-border-radius-sm: 2px;
   --bs-border-radius-lg: 2px;
-  --bs-body-font-family: system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
-    'Noto Sans KR', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --bs-border-radius-pill: 2px;
+  --bs-focus-ring-color: rgba(244, 218, 74, 0.8);
+  --an-side-nav-link: var(--sc-ink);
+  --an-side-nav-link-hover-color: var(--sc-ink);
+  color-scheme: light;
 }
 
 body {
   background: var(--sc-bg);
   color: var(--sc-ink);
+  font-kerning: normal;
 }
 
-/* Cards, lists, and inputs sit on "paper", like the claims site. */
-.card,
-.list-group-item,
+::selection {
+  background: var(--sc-yellow);
+  color: var(--sc-ink);
+}
+
+:focus-visible {
+  outline: 3px solid var(--sc-ink);
+  outline-offset: 2px;
+}
+
+a {
+  text-underline-offset: 0.18em;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+  letter-spacing: -0.01em;
+}
+
+/* Page titles ("질문 생성", "태그", ...) */
+.answer-container h3 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.text-secondary,
+.link-secondary {
+  color: var(--sc-muted) !important;
+}
+
+.link-dark {
+  color: var(--sc-ink) !important;
+}
+
+/* Small mono labels, as on the claims site. */
+.sc-label {
+  font-family: var(--sc-label);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sc-muted);
+  line-height: 1.4;
+  margin: 0 0 0.6rem;
+}
+
+/* ---------- Buttons and inputs ---------- */
+
+.btn {
+  --bs-btn-border-radius: 2px;
+  --bs-btn-font-weight: 600;
+  --bs-btn-focus-box-shadow: 0 0 0 3px rgba(244, 218, 74, 0.8);
+}
+
+.btn-primary {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: var(--sc-green);
+  --bs-btn-border-color: var(--sc-green);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: var(--sc-green-dark);
+  --bs-btn-hover-border-color: var(--sc-green-dark);
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: var(--sc-green-dark);
+  --bs-btn-active-border-color: var(--sc-green-dark);
+  --bs-btn-disabled-color: #fff;
+  --bs-btn-disabled-bg: var(--sc-green);
+  --bs-btn-disabled-border-color: var(--sc-green);
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--sc-green);
+  --bs-btn-border-color: var(--sc-green);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: var(--sc-green);
+  --bs-btn-hover-border-color: var(--sc-green);
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: var(--sc-green-dark);
+  --bs-btn-active-border-color: var(--sc-green-dark);
+}
+
+.btn-outline-secondary {
+  --bs-btn-color: var(--sc-ink);
+  --bs-btn-border-color: var(--sc-ink);
+  --bs-btn-hover-color: var(--sc-bg);
+  --bs-btn-hover-bg: var(--sc-ink);
+  --bs-btn-hover-border-color: var(--sc-ink);
+  --bs-btn-active-color: var(--sc-bg);
+  --bs-btn-active-bg: var(--sc-ink);
+  --bs-btn-active-border-color: var(--sc-ink);
+  --bs-btn-disabled-color: var(--sc-ink);
+  --bs-btn-disabled-border-color: var(--sc-ink);
+  --bs-btn-font-weight: 500;
+}
+
+.btn-light {
+  --bs-btn-color: var(--sc-ink);
+  --bs-btn-bg: transparent;
+  --bs-btn-border-color: var(--sc-line);
+  --bs-btn-hover-color: var(--sc-ink);
+  --bs-btn-hover-bg: var(--sc-paper);
+  --bs-btn-hover-border-color: var(--sc-ink);
+  --bs-btn-active-bg: var(--sc-paper);
+  --bs-btn-active-border-color: var(--sc-ink);
+  --bs-btn-font-weight: 500;
+}
+
+.btn-link {
+  --bs-btn-color: var(--sc-green);
+  --bs-btn-hover-color: var(--sc-ink);
+}
+
+.rounded-pill,
+.rounded-1 {
+  border-radius: 2px !important;
+}
+
 .form-control,
-.form-select,
-.dropdown-menu,
-.modal-content {
+.form-select {
   background-color: var(--sc-paper);
+  border: 1px solid var(--sc-line-strong);
+  border-radius: 2px;
+  color: var(--sc-ink);
+}
+
+.form-control:focus,
+.form-select:focus {
+  background-color: #fff;
+  border-color: var(--sc-ink);
+  box-shadow: 0 0 0 3px rgba(244, 218, 74, 0.8);
+}
+
+.form-label {
+  font-weight: 600;
+}
+
+.dropdown-menu,
+.modal-content,
+.popover,
+.toast {
+  background-color: var(--sc-paper);
+  border: var(--sc-rule);
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.dropdown-item.active,
+.dropdown-item:active {
+  background: var(--sc-yellow);
+  color: var(--sc-ink);
 }
 
 .card {
-  border: 1px solid var(--sc-line);
-}
-
-.btn,
-.form-control,
-.form-select,
-.badge {
+  background-color: var(--sc-paper);
+  border: 1px solid var(--sc-line-strong);
   border-radius: 2px;
 }
 
-/* Tags look like the claims site's yellow "Claims" label. */
-.badge-tag {
-  background: var(--sc-paper);
-  color: var(--sc-ink);
-  border: 1px solid var(--sc-ink);
+.card-header {
+  background: transparent;
+  border-bottom: var(--sc-hair);
 }
 
-/* On phones Answer cuts the site name to "Scopi…". Show it whole on two lines
-   ("Scopit / Community") and tighten the header so the sign-up button stays on
-   the same row down to 360px. Answer's rule is "#header .nav-text" and its
-   spacing classes use !important, hence the id selectors and !important. */
+.alert {
+  border-radius: 2px;
+  border-left-width: 6px;
+}
+
+/* ---------- Tags ---------- */
+
+.badge-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+  padding: 0.05rem 0.5rem;
+  background: var(--sc-paper);
+  color: var(--sc-ink);
+  border: 1px solid var(--sc-line-strong);
+  border-radius: 2px !important;
+  text-decoration: none;
+}
+
+.badge-tag:hover {
+  background: var(--sc-paper);
+  border-color: var(--sc-ink);
+  color: var(--sc-ink);
+}
+
+/* Language rooms (the required tags) carry the claims site's yellow label. */
+.badge-tag-required {
+  background: var(--sc-yellow);
+  border-color: var(--sc-ink);
+  font-weight: 600;
+}
+
+.badge-tag-required:hover {
+  background: var(--sc-yellow);
+}
+
+/* ---------- Header ---------- */
+
+/* Cross-site strip above Answer's header (custom header HTML). */
+.sc-topbar {
+  background: var(--sc-ink);
+  color: var(--sc-bg);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.sc-topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  max-width: 1320px;
+  min-height: 2.25rem;
+  margin: 0 auto;
+  padding: 0.25rem 36px 0.25rem 28px;
+}
+
+.sc-topbar a {
+  color: var(--sc-bg);
+  text-decoration: none;
+}
+
+.sc-topbar a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--sc-yellow);
+  text-decoration-thickness: 2px;
+}
+
+.sc-topbar__home {
+  font-family: var(--sc-mono);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sc-topbar__home span {
+  color: var(--sc-yellow);
+}
+
+.sc-topbar__links {
+  display: flex;
+  gap: 0 1.25rem;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+#header {
+  background: var(--sc-bg) !important;
+  border-bottom: var(--sc-rule);
+  box-shadow: none;
+  --bs-navbar-padding-y: 0.625rem;
+  --bs-navbar-color: var(--sc-ink);
+  --bs-navbar-hover-color: var(--sc-ink);
+  --bs-nav-link-color: var(--sc-ink);
+}
+
+/* Keep everything on one row; the search box gives way first. */
+#header > .container-xxl {
+  flex-wrap: nowrap;
+}
+
+#header form {
+  min-width: 0;
+}
+
+#header .btn,
+#header .navbar-nav {
+  flex: none;
+  white-space: nowrap;
+}
+
+#header .navbar-brand {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+#header .logo {
+  height: 2rem;
+  max-height: 2rem;
+  width: auto;
+}
+
+#header.theme-light .nav-link,
+#header .create-icon,
+#header .search-mobile {
+  color: var(--sc-ink);
+}
+
+#header .placeholder-search {
+  height: 2.5rem;
+  background-color: var(--sc-paper);
+  border: 1px solid var(--sc-line-strong);
+  border-radius: 2px;
+  color: var(--sc-ink);
+}
+
+#header .placeholder-search::placeholder {
+  color: var(--sc-muted);
+}
+
+#header .placeholder-search:focus {
+  background-color: #fff;
+  border-color: var(--sc-ink);
+  box-shadow: 0 0 0 3px rgba(244, 218, 74, 0.8);
+}
+
+#header .btn-link.link-primary {
+  color: var(--sc-ink) !important;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+#header .btn-link.link-primary:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+/* Phones: the header has to hold menu, logo, search, login, and sign up in
+   360px. Answer's spacing classes use !important, hence the id selectors. */
 @media (max-width: 575.98px) {
-  #header .container-xxl {
+  .sc-topbar__inner {
     padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    gap: 0.5rem 0.9rem;
+  }
+  .sc-topbar__links {
+    gap: 0 0.9rem;
+  }
+  .sc-hide-sm {
+    display: none;
+  }
+  #header .container-xxl {
+    padding-left: 0.5rem;
     padding-right: 0.75rem;
   }
   #header .container-xxl > .me-2 {
     margin-right: 0.25rem !important;
   }
-  #header .navbar-brand.nav-text {
-    flex: 0 1 auto;
-    min-width: 0;
-    max-width: 5.5rem;
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-    font-size: 0.95rem;
+  #header .answer-navBar {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+  #header .logo {
+    height: 1.25rem;
+  }
+  /* Signed-in members get four icons and an avatar; tighten them. */
+  #header .nav-link.icon-link {
+    width: 32px;
+  }
+  #header .navbar-nav .me-2 {
+    margin-right: 0.25rem !important;
   }
   #header .btn {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    font-size: 0.875rem;
+    padding: 0.4rem 0.55rem;
+  }
+  #header .btn-link {
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
   }
 }
 
-/* ---------- Top bar (custom header HTML) ---------- */
+/* ---------- Left navigation ---------- */
 
-.sc-topbar {
+#pcSideNav {
+  border-right: var(--sc-hair) !important;
+}
+
+#sideNav .nav-link {
+  color: var(--sc-ink);
+  font-weight: 500;
+  border-radius: 2px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.125rem;
+}
+
+#sideNav .nav-link i {
+  color: var(--sc-muted);
+}
+
+#sideNav .nav-link:hover {
   background: var(--sc-paper);
-  border-bottom: 1.5px solid var(--sc-ink);
-  font-size: 0.875rem;
+  color: var(--sc-ink);
 }
 
-.sc-topbar__inner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 0.75rem;
-  padding: 0.4rem 1rem;
-  max-width: 1320px;
-  margin: 0 auto;
-}
-
-.sc-brand {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4rem;
+#sideNav .nav-link.active,
+#sideNav .nav-link[aria-current='page'] {
+  background: var(--sc-yellow);
   color: var(--sc-ink);
   font-weight: 700;
+}
+
+#sideNav .nav-link.active i,
+#sideNav .nav-link[aria-current='page'] i {
+  color: var(--sc-ink);
+}
+
+/* ---------- Page headings and sort tabs ---------- */
+
+.page-main h5.fs-5 {
+  font-size: 1.625rem !important;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+/* Answer's sort buttons become text tabs with the claims site's yellow
+   "current page" underline. */
+.page-main .btn-group-sm > .btn-outline-secondary,
+.page-main .btn-group-sm > .btn-group > .btn-outline-secondary {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--sc-muted);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  padding: 0.3rem 0.55rem;
+  box-shadow: none;
+}
+
+.page-main .btn-group-sm > .btn-outline-secondary:hover,
+.page-main .btn-group-sm > .btn-group > .btn-outline-secondary:hover,
+.page-main .btn-group-sm > .btn-group > .btn-outline-secondary.show {
+  color: var(--sc-ink);
+  background: transparent;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.35em;
+}
+
+.page-main .btn-group-sm > .btn-outline-secondary.active {
+  color: var(--sc-ink);
+  background: transparent;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: var(--sc-yellow);
+  text-decoration-thickness: 4px;
+  text-underline-offset: 0.45em;
+}
+
+/* The phone sort menu and the list-density menu stay as small buttons. */
+.page-main div.dropdown:not(.btn-group) > .btn-outline-secondary {
+  border-color: var(--sc-line-strong);
+  background: var(--sc-paper);
+  color: var(--sc-ink);
+}
+
+.page-main div.dropdown:not(.btn-group) > .btn-outline-secondary:hover,
+.page-main div.dropdown:not(.btn-group) > .btn-outline-secondary.show {
+  border-color: var(--sc-ink);
+  background: var(--sc-paper);
+  color: var(--sc-ink);
+}
+
+/* ---------- Question list (rows like the claims site's guide list) ---------- */
+
+.page-main .list-group.rounded-0 {
+  border-top: var(--sc-rule);
+}
+
+.page-main .list-group.rounded-0 > .list-group-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 1rem;
+  align-items: center;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  border-bottom: var(--sc-hair);
+  border-radius: 0;
+  padding: 1.15rem 0.5rem 1.1rem 0.25rem !important;
+}
+
+.page-main .list-group.rounded-0 > .list-group-item:last-child {
+  border-bottom: var(--sc-rule);
+}
+
+.page-main .list-group.rounded-0 > .list-group-item:hover {
+  background: var(--sc-paper);
+}
+
+.page-main .list-group-item > h5 {
+  grid-row: 1;
+  grid-column: 1 / -1;
+  font-size: 1.1875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0 0 0.3rem;
+}
+
+.page-main .list-group-item > h5 a {
+  color: var(--sc-ink) !important;
   text-decoration: none;
 }
 
-.sc-brand__tag {
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  background: var(--sc-yellow);
-  padding: 0.05rem 0.35rem;
-  border: 1px solid var(--sc-ink);
-  border-radius: 2px;
+.page-main .list-group-item:hover > h5 a {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
-.sc-topbar a {
+.page-main .list-group-item > .text-truncate-2 {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  margin-bottom: 0.7rem !important;
+}
+
+.page-main .list-group-item > .text-truncate-2 a {
+  color: var(--sc-muted) !important;
+  font-size: 0.9375rem !important;
+  line-height: 1.55;
+}
+
+.page-main .list-group-item > .question-tags {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.7rem !important;
+}
+
+.page-main .list-group-item > .question-tags .badge-tag {
+  margin: 0 !important;
+}
+
+/* Author and time go to the bottom left, counts to the bottom right. */
+.page-main .list-group-item > div:first-child {
+  grid-row: 4;
+  grid-column: 1;
+  margin: 0 !important;
+  font-size: 0.8125rem;
+}
+
+.page-main .list-group-item > div:last-child {
+  grid-row: 4;
+  grid-column: 2;
+  font-size: 0.8125rem;
+}
+
+.page-main .list-group-item > div:last-child > div {
+  margin-top: 0 !important;
+}
+
+.page-main .list-group-item > div:first-child img,
+.page-main .list-group-item > div:first-child [title='Reputation'],
+.page-main .list-group-item > div:last-child i {
+  display: none;
+}
+
+.page-main .list-group-item > div:first-child a {
+  color: var(--sc-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.page-main .list-group-item > div:last-child,
+.page-main .list-group-item > div:last-child .text-body {
+  color: var(--sc-muted) !important;
+}
+
+.page-main .list-group-item > div:last-child .fw-medium {
+  font-family: var(--sc-mono);
+  font-weight: 500 !important;
+  color: var(--sc-ink);
+}
+
+@media (max-width: 575.98px) {
+  .page-main .list-group.rounded-0 > .list-group-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .page-main .list-group-item > div:last-child {
+    grid-row: 5;
+    grid-column: 1;
+    margin-top: 0.25rem;
+  }
+}
+
+/* ---------- Right column ---------- */
+
+/* Answer's guest welcome card repeats the header's log in and sign up
+   buttons; the custom sidebar says what the site is instead. */
+.page-right-side .card.mb-4:has(a[href='/users/login']) {
+  display: none;
+}
+
+.page-right-side .card {
+  background: transparent;
+  border: 0;
+  border-top: var(--sc-rule);
+  border-radius: 0;
+  margin-bottom: 2rem;
+}
+
+.page-right-side .card-header {
+  font-family: var(--sc-label);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sc-muted);
+  padding: 0.85rem 0 0.35rem;
+  border: 0;
+}
+
+.page-right-side .card-body {
+  padding: 0.85rem 0 0;
+}
+
+.page-right-side .list-group-item {
+  background: transparent;
+  border-color: var(--sc-line);
+  padding: 0.65rem 0;
+}
+
+.page-right-side .list-group-item:hover {
+  background: transparent;
+}
+
+.page-right-side .list-group-item .link-dark {
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.page-right-side .list-group-item:hover .link-dark {
+  text-decoration: underline;
+}
+
+.page-right-side .list-group-item i {
+  display: none;
+}
+
+.page-right-side .list-group-item .small {
+  font-size: 0.8125rem;
+}
+
+.page-right-side .list-group-item .small .ms-1 {
+  margin-left: 0 !important;
+}
+
+/* Custom sidebar HTML */
+.sc-side {
+  margin-bottom: 0.75rem;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.sc-side__block {
+  border-top: var(--sc-rule);
+  padding: 0.85rem 0 1.25rem;
+}
+
+.sc-side__block p {
+  margin: 0;
+}
+
+.sc-side__intro {
+  font-size: 1rem;
+}
+
+.sc-side__intro mark {
+  background: var(--sc-yellow);
+  color: var(--sc-ink);
+  padding: 0 0.12em;
+}
+
+.sc-steps {
+  list-style: none;
+  counter-reset: sc-step;
+  margin: 0;
+  padding: 0;
+}
+
+.sc-steps li {
+  counter-increment: sc-step;
+  display: grid;
+  grid-template-columns: 1.9rem 1fr;
+  padding: 0.5rem 0;
+  border-bottom: var(--sc-hair);
+}
+
+.sc-steps li:last-child {
+  border-bottom: 0;
+}
+
+.sc-steps li::before {
+  content: counter(sc-step, decimal-leading-zero);
+  font-family: var(--sc-mono);
+  font-size: 0.8125rem;
+  color: var(--sc-muted);
+  padding-top: 0.15rem;
+}
+
+.sc-side details {
+  margin-top: 0.5rem;
+}
+
+.sc-side summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--sc-green);
+  width: fit-content;
+}
+
+.sc-side summary:hover {
+  color: var(--sc-ink);
+}
+
+.sc-side details .sc-steps {
+  margin-top: 0.4rem;
+  font-size: 0.875rem;
+  color: var(--sc-muted);
+}
+
+.sc-linklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sc-linklist li + li {
+  border-top: var(--sc-hair);
+}
+
+.sc-linklist a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  min-height: 2.75rem;
+  color: var(--sc-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sc-linklist a::after {
+  content: '→';
+  font-family: var(--sc-mono);
+  font-weight: 400;
   color: var(--sc-green);
 }
 
-/* ---------- Footer (custom footer HTML) ---------- */
+.sc-linklist a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+.sc-linklist small {
+  display: block;
+  font-weight: 400;
+  color: var(--sc-muted);
+  font-size: 0.8125rem;
+}
+
+/* ---------- Question page ---------- */
+
+.questionDetailPage h1.h3 {
+  font-size: clamp(1.6rem, 1.35rem + 0.9vw, 2.125rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.questionDetailPage h1 a {
+  text-decoration: none;
+}
+
+.questionDetailPage .border-bottom {
+  border-bottom: var(--sc-rule) !important;
+}
+
+.questionDetailPage article.fmt,
+.answer-item article.fmt {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+
+.fmt blockquote {
+  border-left: 4px solid var(--sc-yellow);
+  background: var(--sc-paper);
+}
+
+.fmt code,
+.fmt pre {
+  font-family: var(--sc-mono);
+  background: var(--sc-sunk);
+  border-radius: 2px;
+}
+
+#answerHeader {
+  border-top: var(--sc-rule);
+  padding-top: 1rem;
+}
+
+#answerHeader h5,
+.questionDetailPage form label h5 {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.answer-item {
+  border-bottom: var(--sc-hair);
+}
+
+.btn-reaction {
+  font-size: 0.8125rem;
+}
+
+/* ---------- Tag page, forms ---------- */
+
+.tag-box h3 {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.tag-box h3 a {
+  text-decoration: none;
+}
+
+.page-wrap h3.text-center {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- Footer ---------- */
+
+/* Answer's own footer line is replaced by the custom footer below. */
+#root footer {
+  display: none !important;
+}
 
 .sc-footer {
-  border-top: 1.5px solid var(--sc-ink);
-  margin-top: 3rem;
-  padding: 2rem 1rem;
+  border-top: var(--sc-rule);
+  margin-top: 2rem;
+  padding: 2.5rem 0 2rem;
   background: var(--sc-bg);
-  font-size: 0.875rem;
-  color: var(--sc-muted);
+  color: var(--sc-ink);
+  font-size: 0.9375rem;
 }
 
 .sc-footer__inner {
   max-width: 1320px;
   margin: 0 auto;
+  padding: 0 36px 0 28px;
+}
+
+.sc-footer p {
+  margin: 0;
 }
 
 .sc-disclosure {
   display: inline-block;
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  border: 1.5px solid var(--sc-ink);
+  max-width: 62rem;
+  font-family: var(--sc-label);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  border: var(--sc-rule);
   border-radius: 2px;
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.85rem;
   background: var(--sc-paper);
   color: var(--sc-ink);
-  margin: 0 0 1rem;
+  margin-bottom: 2rem !important;
 }
 
-.sc-footer p {
-  margin: 0 0 0.75rem;
-}
-
-.sc-footer a {
-  color: var(--sc-green);
-}
-
-/* ---------- Sidebar rules (custom sidebar HTML) ---------- */
-
-.sc-rules {
-  background: var(--sc-paper);
-  border: 1.5px solid var(--sc-ink);
-  border-radius: 2px;
-  padding: 0.875rem 1rem;
-  margin-bottom: 1rem;
-  font-size: 0.875rem;
-}
-
-.sc-rules h2 {
-  font-size: 1rem;
-  font-weight: 700;
-  margin: 0 0 0.5rem;
-}
-
-.sc-rules ol {
-  padding-left: 1.1rem;
-  margin: 0 0 0.75rem;
-}
-
-.sc-rules li {
-  margin-bottom: 0.35rem;
-}
-
-.sc-rules .sc-en {
+.sc-disclosure span {
   display: block;
+}
+
+.sc-disclosure span + span {
+  margin-top: 0.35rem;
+  color: var(--sc-muted);
+}
+
+.sc-disclosure span:lang(en) {
+  font-family: var(--sc-mono);
+}
+
+.sc-footer__cols {
+  display: grid;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (min-width: 720px) {
+  .sc-footer__cols {
+    grid-template-columns: repeat(3, minmax(0, 16rem));
+  }
+}
+
+.sc-footer ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: var(--sc-hair);
+}
+
+.sc-footer li a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  color: var(--sc-ink);
+  text-decoration: none;
+}
+
+.sc-footer li a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+.sc-footer__legal {
+  max-width: 62rem;
   color: var(--sc-muted);
   font-size: 0.8125rem;
+  line-height: 1.6;
+  margin-bottom: 0.75rem !important;
 }
 
-.sc-rules__links {
-  border-top: 1px solid var(--sc-line);
-  padding-top: 0.6rem;
-  margin: 0;
+.sc-footer__legal span {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.sc-footer__legal a {
+  color: var(--sc-muted);
+}
+
+@media (max-width: 575.98px) {
+  .sc-footer__inner {
+    padding: 0 1rem;
+  }
 }
