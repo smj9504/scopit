@@ -49,7 +49,7 @@ const CabinetSection: React.FC = () => (
         </p>
         <div className="lp-tool__ctas">
           <Link to="/register" className="lp-btn">Price a kitchen</Link>
-          <span className="lp-note">3D view · PDF quote · Purchase order</span>
+          <Link to="/kitchen-cabinet-estimate" className="lp-link">How cabinet estimates work</Link>
         </div>
       </div>
       <div className="lp-tray" aria-hidden="true">
@@ -102,7 +102,7 @@ const BathroomSection: React.FC = () => (
         </p>
         <div className="lp-tool__ctas">
           <Link to="/register" className="lp-btn">Price a bathroom</Link>
-          <span className="lp-note">3D view · PDF with the sketch</span>
+          <Link to="/bathroom-estimate" className="lp-link">How bathroom estimates work</Link>
         </div>
       </div>
       <div className="lp-tray" aria-hidden="true">

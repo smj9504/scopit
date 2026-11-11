@@ -10,6 +10,8 @@ Allow: /fire-damage-contents-estimate
 Allow: /demo/packing
 Allow: /packing-estimate
 Allow: /in-person-contract-signing
+Allow: /kitchen-cabinet-estimate
+Allow: /bathroom-estimate
 
 # Authenticated app - not useful to searchers, keep out of the index
 Disallow: /app/
