@@ -42,7 +42,7 @@ PUBLIC_CONTACT_EMAIL = "claims@scopit.work"
 [[env.preview.d1_databases]]
 binding = "DB"
 database_name = "scopit-claims-preview"
-database_id = "00000000-0000-0000-0000-000000000001"
+database_id = "62c4b067-ac2d-46ff-bc47-35f744d913e8"   # ENAM (eastern North America)
 migrations_dir = "migrations"
 
 # ---- Production ----
