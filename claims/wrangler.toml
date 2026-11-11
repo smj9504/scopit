@@ -21,8 +21,7 @@ NEWSLETTER_PROVIDER = "log"
 [[d1_databases]]
 binding = "DB"
 database_name = "scopit-claims"
-# Replace with the id printed by `npx wrangler d1 create scopit-claims` (see docs/DEPLOY.md).
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "c2792f78-542b-4a6b-b29b-c88d0d605778"   # ENAM (eastern North America)
 migrations_dir = "migrations"
 
 # ---- Preview deployments (non-production branches) ----
@@ -61,5 +60,5 @@ PUBLIC_CONTACT_EMAIL = "claims@scopit.work"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "scopit-claims"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "c2792f78-542b-4a6b-b29b-c88d0d605778"   # ENAM (eastern North America)
 migrations_dir = "migrations"
