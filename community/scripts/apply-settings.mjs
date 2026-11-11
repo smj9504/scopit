@@ -125,6 +125,7 @@ console.log('tag settings: ok');
 const files = settings.customCssHtml;
 const read = (p) => readFile(join(root, p), 'utf8');
 await admin('PUT', '/siteinfo/custom-css-html', {
+  custom_head: await read(files.head),
   custom_css: await read(files.css),
   custom_header: await read(files.header),
   custom_footer: await read(files.footer),

@@ -1,43 +1,81 @@
 #!/usr/bin/env node
 /**
- * Render the Scopit Community logo and icons in theme/brand/ from the claims
- * site's own Plex fonts and favicon, so "Scopit [COMMUNITY]" matches the
- * claims site's "Scopit [CLAIMS]" header exactly.
+ * Render theme/brand/: the header logo (the theme's sphere plus "Scopit
+ * Community"), the favicon, and the app icon. They are drawn with the theme's
+ * own CSS (.sc-orb in theme/custom.css) and font, so they match the site.
  *
- * Needs Playwright with Chromium (not a dependency of this repo):
+ * Needs Playwright with Chromium (not a dependency of this repo) and the
+ * Pretendard files that scripts/fetch-fonts.sh installs:
+ *   PRETENDARD_DIR=<answer data>/uploads/branding/fonts/pretendard \
  *   node community/scripts/render-brand.mjs
  */
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const fonts = join(root, '..', 'claims', 'public', 'fonts');
+const fontDir = process.env.PRETENDARD_DIR;
+if (!fontDir) {
+  console.error('Set PRETENDARD_DIR to the folder scripts/fetch-fonts.sh filled.');
+  process.exit(1);
+}
 const out = join(root, 'theme', 'brand');
-const font = (name) => 'data:font/woff2;base64,' + readFileSync(join(fonts, name)).toString('base64');
+const theme = await readFile(join(root, 'theme', 'custom.css'), 'utf8');
+const fonts = await readFile(join(root, 'theme', 'head.html'), 'utf8');
+
+// Serve the page from a made-up origin so the font URLs in head.html
+// (/uploads/branding/fonts/pretendard/...) resolve to PRETENDARD_DIR.
+const origin = 'http://brand.local';
+const fontPrefix = '/uploads/branding/fonts/pretendard/';
 
 const css = `
-@font-face{font-family:Plex;src:url(${font('ibm-plex-sans-latin-700-normal.woff2')});font-weight:700}
-@font-face{font-family:PlexMono;src:url(${font('ibm-plex-mono-latin-500-normal.woff2')});font-weight:500}
-html,body{margin:0;background:transparent}
-.logo{display:inline-flex;align-items:center;gap:9px;padding:2px 1px;height:32px;box-sizing:border-box;color:#15201b}
-.name{font:700 26px/1 Plex;letter-spacing:-0.02em;position:relative;top:-1px}
-.tag{font:500 13px/1 PlexMono;text-transform:uppercase;letter-spacing:0.08em;background:#f4da4a;border:1.5px solid #15201b;border-radius:2px;padding:4px 6px 3px}
+html,body{margin:0;background:transparent!important}
+.brand{display:inline-flex;align-items:center;height:32px;padding:0 2px;font-family:var(--sc-font);font-size:21px;line-height:1;letter-spacing:-0.02em}
+.brand .sc-orb{--orb:22px;margin-right:9px}
+.brand__name{font-weight:650;color:var(--sc-ink)}
+.brand__sub{font-weight:400;color:var(--sc-muted);margin-left:5px}
+.icon{display:grid;place-items:center}
 `;
+const doc = (body) => `<!doctype html><html><head>${fonts}<style>${theme}</style><style>${css}</style></head><body>${body}</body></html>`;
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ deviceScaleFactor: 3 });
-await page.setContent(`<style>${css}</style><span class="logo"><span class="name">Scopit</span><span class="tag">Community</span></span>`);
-await page.evaluate(() => document.fonts.ready);
-await page.locator('.logo').screenshot({ path: join(out, 'logo.png'), omitBackground: true });
 
-const svg = readFileSync(join(root, '..', 'claims', 'public', 'favicon.svg'), 'utf8');
-for (const [name, size] of [['favicon.png', 48], ['square-icon.png', 192]]) {
-  const icon = await browser.newPage({ viewport: { width: size, height: size } });
-  await icon.setContent(`<style>html,body{margin:0;background:transparent}svg{width:${size}px;height:${size}px;display:block}</style>${svg}`);
+async function open(options) {
+  const context = await browser.newContext(options);
+  await context.route(`${origin}/**`, async (route) => {
+    const { pathname } = new URL(route.request().url());
+    if (pathname.startsWith(fontPrefix)) {
+      const file = normalize(pathname.slice(fontPrefix.length)).replace(/^(\.\.[/\\])+/, '');
+      return route.fulfill({ body: await readFile(join(fontDir, file)), contentType: 'font/woff2' });
+    }
+    return route.fulfill({ body: '<!doctype html><title>brand</title>', contentType: 'text/html' });
+  });
+  const page = await context.newPage();
+  await page.goto(`${origin}/`);
+  return page;
+}
+
+const logo = await open({ deviceScaleFactor: 3 });
+await logo.setContent(
+  doc('<span class="brand"><span class="sc-orb"></span><span class="brand__name">Scopit</span><span class="brand__sub">Community</span></span>'),
+);
+await logo.evaluate(() => document.fonts.ready);
+await logo.locator('.brand').screenshot({ path: join(out, 'logo.png'), omitBackground: true });
+
+// Favicon: the sphere alone on transparent. App icon: the sphere on the cream
+// stage color, since phones do not keep transparency in home screen icons.
+for (const [name, size, orb, background] of [
+  ['favicon.png', 48, 44, 'transparent'],
+  ['square-icon.png', 192, 124, 'var(--sc-stage)'],
+]) {
+  const icon = await open({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
+  await icon.setContent(
+    doc(`<div class="icon" style="width:${size}px;height:${size}px;background:${background}"><span class="sc-orb" style="--orb:${orb}px"></span></div>`),
+  );
   await icon.screenshot({ path: join(out, name), omitBackground: true });
 }
+
 await browser.close();
 console.log('wrote', out);
