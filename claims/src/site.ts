@@ -12,6 +12,8 @@ export const SITE = {
     'Free, plain-language guides to home insurance claims in Virginia, Maryland, and DC, and a directory of license-verified public adjusters. Run by Scopit.',
   locale: 'en_US',
   contactEmail: import.meta.env.PUBLIC_CONTACT_EMAIL || 'claims@scopit.work',
+  /** Scopit Community (homeowner Q&A). Linked from the header and footer once set; leave empty until it is live. */
+  communityUrl: '',
 };
 
 export const PUBLIC_CONFIG = {

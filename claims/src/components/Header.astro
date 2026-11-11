@@ -4,7 +4,7 @@
  * audiences never land in each other's section by accident. No JavaScript:
  * on small screens the groups stack instead of hiding behind a menu.
  */
-import { href, type Section } from '../site';
+import { href, SITE, type Section } from '../site';
 
 
 
@@ -33,14 +33,12 @@ function isCurrent(linkPath: string) {
 ---
 
 <header class="site-header">
-  <div class="container site-header__bar">
+  <div class="container site-header__inner">
     <a class="brand" href={href('/')}>
+      <span class="orb brand__orb" aria-hidden="true"></span>
       <span class="brand__name">Scopit</span>{' '}<span class="brand__tag">Claims</span>
     </a>
-    <a class="site-header__about" href={href('/about/')} aria-current={path === '/about/' ? 'page' : undefined}>About</a>
-  </div>
-  <nav class="site-nav" aria-label="Main">
-    <div class="container site-nav__inner">
+    <nav class="site-nav" aria-label="Main">
       <div class:list={['nav-group', { 'nav-group--active': section === 'homeowners' }]}>
         <a class="nav-group__label" href={href('/')} aria-current={path === '/' ? 'page' : undefined}><span class="nav-group__for">For&nbsp;</span>homeowners</a>
         <ul>
@@ -71,81 +69,102 @@ function isCurrent(linkPath: string) {
           }
         </ul>
       </div>
+    </nav>
+    <div class="site-header__end">
+      {SITE.communityUrl && <a class="site-header__link" href={SITE.communityUrl}>Community</a>}
+      <a class="site-header__link" href={href('/about/')} aria-current={path === '/about/' ? 'page' : undefined}>About</a>
     </div>
-  </nav>
+  </div>
 </header>
 
 <style>
   .site-header {
-    border-bottom: var(--rule);
+    border-bottom: 1px solid var(--rail);
     background: var(--bg);
   }
-  .site-header__bar {
-    display: flex;
+  /* Phones and tablets: brand and About on top, the two nav groups below.
+     Wide screens: one row. */
+  .site-header__inner {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'brand end'
+      'nav nav';
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    min-height: 64px;
+    column-gap: 2rem;
   }
   .brand {
+    grid-area: brand;
     display: inline-flex;
-    align-items: baseline;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 64px;
     color: var(--ink);
     text-decoration: none;
-    padding: 0.5rem 0;
+    justify-self: start;
+  }
+  .brand__orb {
+    --orb: 22px;
+    margin-right: 0.3rem;
   }
   .brand__name {
-    font-weight: 700;
-    font-size: 1.4rem;
+    font-weight: 600;
+    font-size: 1.3rem;
     letter-spacing: -0.02em;
   }
   .brand__tag {
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    background: var(--yellow);
-    padding: 0.05rem 0.4rem;
-    border: 1px solid var(--ink);
-    border-radius: var(--radius);
+    font-weight: 400;
+    font-size: 1.3rem;
+    letter-spacing: -0.02em;
+    color: var(--muted);
   }
-  .site-header__about {
+  .site-header__end {
+    grid-area: end;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .site-header__link {
     display: inline-flex;
     align-items: center;
     min-height: 44px;
-    padding: 0 0.25rem;
+    padding: 0 0.875rem;
+    border-radius: var(--pill);
     color: var(--ink);
-    font-weight: 600;
+    font-size: 1rem;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .site-header__link:hover {
+    background: var(--paper);
+  }
+  .site-header__link[aria-current='page'] {
+    background: var(--paper);
   }
   .site-nav {
-    border-top: var(--hair);
-  }
-  .site-nav__inner {
+    grid-area: nav;
     display: grid;
+    border-top: 1px solid var(--rail);
   }
   .nav-group {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0 1.25rem;
-    min-height: 48px;
+    gap: 0 0.25rem;
+    min-height: 52px;
   }
   .nav-group + .nav-group {
-    border-top: var(--hair);
+    border-top: 1px solid var(--rail);
   }
   .nav-group__label {
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted);
-    text-decoration: none;
     display: inline-flex;
     align-items: center;
     min-height: 44px;
+    margin-right: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
   }
   .nav-group__label:hover {
     color: var(--ink);
@@ -160,57 +179,64 @@ function isCurrent(linkPath: string) {
     padding: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 0 1.25rem;
+    gap: 0 0.125rem;
   }
   .nav-group li a {
     display: inline-flex;
     align-items: center;
-    min-height: 44px;
-    color: var(--ink);
-    text-decoration: none;
+    min-height: 40px;
+    padding: 0 0.75rem;
+    border-radius: var(--pill);
+    color: var(--ink-soft);
+    font-size: 1rem;
     font-weight: 500;
+    text-decoration: none;
   }
   .nav-group li a:hover {
-    text-decoration: underline;
-    text-decoration-thickness: 2px;
+    background: var(--paper);
+    color: var(--ink);
   }
-  .nav-group a[aria-current='page'] {
-    text-decoration: underline;
-    text-decoration-color: var(--yellow);
-    text-decoration-thickness: 4px;
-    text-underline-offset: 0.3em;
+  .nav-group li a[aria-current='page'] {
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .nav-group__label[aria-current='page'] {
+    color: var(--ink);
   }
   @media (max-width: 599px) {
     .nav-group {
       flex-wrap: nowrap;
-      gap: 0 0.85rem;
     }
     .nav-group__for {
       display: none;
     }
     .nav-group__label {
       flex: 0 0 auto;
-      min-width: 6.6rem;
-      font-size: 0.8125rem;
-      letter-spacing: 0.03em;
-    }
-    .nav-group ul {
-      gap: 0 0.85rem;
+      min-width: 6.25rem;
+      margin-right: 0;
     }
     .nav-group li a {
-      font-size: 1rem;
+      padding: 0 0.6rem;
     }
   }
-  @media (min-width: 900px) {
-    .site-nav__inner {
+  @media (min-width: 1040px) {
+    .site-header__inner {
+      grid-template-columns: auto 1fr auto;
+      grid-template-areas: 'brand nav end';
+    }
+    .site-nav {
       grid-template-columns: auto auto;
       justify-content: start;
-      gap: 0 2.5rem;
+      border-top: 0;
+    }
+    .nav-group {
+      min-height: 64px;
     }
     .nav-group + .nav-group {
       border-top: 0;
-      border-left: var(--hair);
-      padding-left: 2.5rem;
+      border-left: 1px solid var(--rail);
+      margin-left: 1rem;
+      padding-left: 1rem;
     }
   }
 </style>

@@ -267,19 +267,23 @@ const hasFixture = adjusters.some((a) => a.data.fixture);
     display: inline-flex;
     align-items: center;
     min-height: 44px;
-    padding: 0 1rem;
-    border: 1.5px solid var(--ink);
-    border-radius: var(--radius);
-    background: var(--paper);
+    padding: 0 1.125rem;
+    border-radius: var(--pill);
+    background: var(--raised);
+    box-shadow: var(--lift);
+    font-size: 1rem;
     font-weight: 500;
+  }
+  .chip:hover span {
+    background: var(--bg);
   }
   .chip input:checked + span {
     background: var(--ink);
-    color: var(--bg);
+    color: #fff;
+    box-shadow: none;
   }
   .chip input:focus-visible + span {
-    outline: 3px solid var(--ink);
-    outline-offset: 3px;
+    box-shadow: var(--lift), var(--ring);
   }
   .count {
     font-size: 0.875rem;
@@ -306,7 +310,8 @@ const hasFixture = adjusters.some((a) => a.data.fixture);
     gap: 0.5rem 1rem;
   }
   .listing__name {
-    font-size: 1.4rem;
+    font-size: 1.375rem;
+    font-weight: 500;
     margin: 0;
   }
   .listing__name a {
@@ -327,7 +332,9 @@ const hasFixture = adjusters.some((a) => a.data.fixture);
     margin-top: var(--space-2);
   }
   .listing__fixture {
-    background: var(--yellow);
+    background: var(--paper);
+    border-radius: var(--pill);
+    padding: 0 0.5rem;
   }
   .no-match {
     margin-top: var(--space-2);
