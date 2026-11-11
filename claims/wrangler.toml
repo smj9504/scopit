@@ -6,7 +6,7 @@
 # Set them in the Cloudflare dashboard (Settings > Variables and Secrets) or
 # with `wrangler pages secret put NAME`. Local values go in .dev.vars.
 
-name = "scopit-claims"
+name = "scopit"   # the Cloudflare Pages project name (production URL: scopit.pages.dev)
 pages_build_output_dir = "./dist"
 compatibility_date = "2026-10-01"
 
@@ -20,7 +20,7 @@ NEWSLETTER_PROVIDER = "log"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "scopit-claims"
+database_name = "scopit"   # the Cloudflare Pages project name (production URL: scopit.pages.dev)
 database_id = "c2792f78-542b-4a6b-b29b-c88d0d605778"   # ENAM (eastern North America)
 migrations_dir = "migrations"
 
@@ -29,7 +29,7 @@ migrations_dir = "migrations"
 # These vars are also read at BUILD time on Cloudflare (scripts/build-env.mjs).
 [env.preview.vars]
 CLAIMS_ENV = "preview"
-CLAIMS_SITE = "https://preview.scopit-claims.pages.dev"
+CLAIMS_SITE = "https://preview.scopit.pages.dev"
 CLAIMS_BASE = ""
 EMAIL_PROVIDER = "resend"
 NEWSLETTER_PROVIDER = "log"
@@ -59,6 +59,6 @@ PUBLIC_CONTACT_EMAIL = "claims@scopit.work"
 
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "scopit-claims"
+database_name = "scopit"   # the Cloudflare Pages project name (production URL: scopit.pages.dev)
 database_id = "c2792f78-542b-4a6b-b29b-c88d0d605778"   # ENAM (eastern North America)
 migrations_dir = "migrations"

@@ -4,7 +4,7 @@ Scopit Claims deploys on its own, to a separate Cloudflare Pages project. Nothin
 
 ```
 GitHub (this repo, claims/)
-  └─ Cloudflare Pages project "scopit-claims"
+  └─ Cloudflare Pages project "scopit"  (scopit.pages.dev)
        ├─ static site  (astro build → dist/)
        ├─ Pages Functions  /api/inquiry, /api/apply, /api/newsletter, /admin
        ├─ D1 database "scopit-claims"  (+ "scopit-claims-preview")
@@ -37,7 +37,7 @@ Cloudflare dashboard > Workers & Pages > Create > Pages > Connect to Git > selec
 
 | Setting | Value |
 | --- | --- |
-| Project name | `scopit-claims` (must match `name` in `wrangler.toml`) |
+| Project name | `scopit` (the existing project; must match `name` in `wrangler.toml`). Production URL `https://scopit.pages.dev` |
 | Production branch | `main` |
 | Framework preset | None (Astro works too) |
 | Root directory | `claims` |
@@ -95,7 +95,7 @@ Non-secret runtime values (`CLAIMS_ENV`, `CLAIMS_SITE`, `CLAIMS_BASE`, `EMAIL_PR
 
 ## 4. Turnstile
 
-Dashboard > Turnstile > Add widget. Name it `scopit-claims`, add hostnames `claims.scopit.work` and `scopit-claims.pages.dev`, mode **Managed**. Put the site key in `PUBLIC_TURNSTILE_SITE_KEY` (build) and the secret in `TURNSTILE_SECRET_KEY` (runtime).
+Dashboard > Turnstile > Add widget. Name it `scopit-claims`, add hostnames `claims.scopit.work` and `scopit.pages.dev`, mode **Managed**. Put the site key in `PUBLIC_TURNSTILE_SITE_KEY` (build) and the secret in `TURNSTILE_SECRET_KEY` (runtime).
 
 Locally, the code falls back to Cloudflare's always-pass test keys, so forms work without a real widget.
 
@@ -113,7 +113,7 @@ Treat the hook URL like a password: anyone with it can trigger builds.
 `scopit.work`'s DNS is at **Namecheap** (nameservers `dns1/dns2.registrar-servers.com`, checked 2026-11-10), not Cloudflare. A Pages custom domain on a subdomain works with outside DNS through one CNAME record:
 
 1. **First** in Cloudflare: Pages > Custom domains > Set up a custom domain > `claims.scopit.work`. Cloudflare then shows the CNAME to add. (Adding the CNAME before this step gives visitors a 522 error.)
-2. Then in Namecheap: Domain List > `scopit.work` > Manage > Advanced DNS > Add New Record > **CNAME**, Host `claims`, Value `scopit-claims.pages.dev` (use exactly what Cloudflare shows).
+2. Then in Namecheap: Domain List > `scopit.work` > Manage > Advanced DNS > Add New Record > **CNAME**, Host `claims`, Value `scopit.pages.dev` (use exactly what Cloudflare shows).
 3. Wait until Pages shows the domain as active with a certificate (minutes to a few hours).
 
 Nothing changes for the existing records (`www` on Vercel, `api` on Render, email forwarding). Don't move the nameservers to Cloudflare just for this site: the Vercel, Render, Resend, and email-forwarding records would all have to move with them.
@@ -125,8 +125,8 @@ The site is served at **claims.scopit.work** (decided 2026-11-09). The base path
 1. Build with `CLAIMS_SITE=https://www.scopit.work` and `CLAIMS_BASE=/claims`, and set `CLAIMS_SITE`/`CLAIMS_BASE` in `wrangler.toml` `[env.production.vars]` the same way.
 2. In `frontend/vercel.json`, add these rewrites **before** the SPA catch-all:
    ```json
-   { "source": "/claims", "destination": "https://scopit-claims.pages.dev/" },
-   { "source": "/claims/:path*", "destination": "https://scopit-claims.pages.dev/:path*" }
+   { "source": "/claims", "destination": "https://scopit.pages.dev/" },
+   { "source": "/claims/:path*", "destination": "https://scopit.pages.dev/:path*" }
    ```
 3. Add `Sitemap: https://www.scopit.work/claims/sitemap.xml` to the main site's `robots.txt`. Crawlers only read `/robots.txt` at the domain root.
 4. Add `www.scopit.work` to the Turnstile widget's hostnames.
