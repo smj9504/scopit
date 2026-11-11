@@ -7,7 +7,7 @@
 | 무엇 | 어디 | 비고 |
 | --- | --- | --- |
 | 사이트 코드와 글 | GitHub 저장소의 `claims/` 폴더 | Scopit 앱(`frontend/`, `backend/`)과 별개 |
-| 배포 | Cloudflare Pages 프로젝트 `scopit-claims` | `main`에 머지하면 자동 배포 |
+| 배포 | Cloudflare Pages 프로젝트 `scopit` (주소 `scopit.pages.dev`) | `main`에 머지하면 자동 배포 |
 | DB (PA, 면허, 문의) | Cloudflare D1 `scopit-claims` (미리보기용은 `scopit-claims-preview`) | Scopit 앱의 Neon DB와 완전히 별개 |
 | 이메일 | `claims@scopit.work` (보내는 주소이자 사이트 연락처). 발송은 Resend, Scopit 앱과 같은 계정 | 무료 한도(하루 100통, 월 3,000통)를 앱과 나눠 씀 |
 | PA 뉴스레터 | Buttondown | 무료: 구독자 100명 |
@@ -53,7 +53,7 @@ npm run db:migrate:preview    # 미리보기 DB
 ### 2-2. Turnstile (스팸 방지) — DEPLOY.md 4
 
 - [ ] Cloudflare 대시보드 > Turnstile > Add widget
-  - 호스트 이름: `claims.scopit.work`, `scopit-claims.pages.dev`
+  - 호스트 이름: `claims.scopit.work`, `scopit.pages.dev`
   - 모드: Managed
 - [ ] **사이트 키**를 `wrangler.toml`의 `PUBLIC_TURNSTILE_SITE_KEY`에 넣기 (공개 값이라 Claude에게 알려 주셔도 됨)
 - [ ] **비밀 키**는 2-4에서 대시보드에만 입력
@@ -62,7 +62,7 @@ npm run db:migrate:preview    # 미리보기 DB
 
 - [ ] Workers & Pages > Create > Pages > Connect to Git > 이 저장소
 - [ ] 설정:
-  - Project name `scopit-claims`
+  - Project name `scopit` (이미 만들어짐)
   - Production branch `main`
   - Root directory `claims`
   - Build command `npm run build`
@@ -123,7 +123,7 @@ Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production�
 - [ ] 빌드 로그에서 두 줄 확인:
   - `using wrangler.toml env "production"`
   - `Loaded N verified listing row(s) from D1`
-- [ ] **`scopit-claims.pages.dev` 주소로만** 시험:
+- [ ] **`https://scopit.pages.dev` 주소로만** 시험:
   - 테스트 PA 신청 → `/admin`에서 면허 확인과 승인 → 테스트 문의
   - 메일이 제대로 오는지 확인
   - 끝나면 테스트 데이터 삭제 (DEPLOY.md 12의 명령)
@@ -142,7 +142,7 @@ Pages > Settings > Variables and Secrets > Add > **Encrypt** 선택. Production�
 ## 4단계: 출시
 
 - [ ] **먼저** Cloudflare Pages > Custom domains > `claims.scopit.work` 추가 (순서가 바뀌면 522 오류)
-- [ ] **그다음** Namecheap > Advanced DNS > CNAME 추가: Host `claims`, Value `scopit-claims.pages.dev` (Cloudflare가 보여 주는 값 그대로)
+- [ ] **그다음** Namecheap > Advanced DNS > CNAME 추가: Host `claims`, Value `scopit.pages.dev` (Cloudflare가 보여 주는 값 그대로)
 - [ ] Pages에서 도메인이 Active가 되고 인증서가 발급될 때까지 대기 (수 분에서 몇 시간)
 - [ ] Search Console에 사이트 등록, `https://claims.scopit.work/sitemap.xml` 제출
 - [ ] `LAUNCH_CHECKLIST.md`의 마지막 확인 항목 점검
