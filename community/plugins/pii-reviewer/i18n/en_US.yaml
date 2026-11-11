@@ -1,0 +1,40 @@
+plugin:
+  scopit_pii_reviewer:
+    backend:
+      info:
+        name:
+          other: Scopit PII reviewer
+        description:
+          other: Holds posts from new members, posts that look like they contain personal details, and requests to talk off the site, for a moderator to review.
+      config:
+        hold_new_user_posts:
+          title:
+            other: New members
+          label:
+            other: Review posts from new members before they appear
+          description:
+            other: A member's posts wait for review until they have the number of approved posts set below.
+        new_user_threshold:
+          title:
+            other: Approved posts before skipping review
+          description:
+            other: "1 means only a member's first post is reviewed. 0 turns this check off."
+        check_personal_info:
+          title:
+            other: Personal details
+          label:
+            other: Review posts with a phone number, email, claim or policy number, street address, or SSN
+          description:
+            other: Insurers can read public posts. Moderators remove the detail and approve, or reject.
+        check_off_site:
+          title:
+            other: Off-site contact
+          label:
+            other: Review posts that ask to move the conversation off the site
+          description:
+            other: Catches phrases like "DM me", "call me", "카톡", or "微信", where adjuster and contractor solicitation tends to happen.
+        extra_phrases:
+          title:
+            other: Extra phrases to review
+          description:
+            other: One per line. A post containing any of them waits for review.
