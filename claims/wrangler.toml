@@ -35,7 +35,7 @@ CLAIMS_BASE = ""
 EMAIL_PROVIDER = "resend"
 NEWSLETTER_PROVIDER = "log"
 CLAIMS_DIRECTORY_SOURCE = "d1"
-PUBLIC_TURNSTILE_SITE_KEY = ""      # set to the Turnstile widget's site key (public value)
+PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAF8Ojs7q-_aVIlkt"   # Turnstile widget "scopit-claims" (public value)
 PUBLIC_PLAUSIBLE_DOMAIN = ""        # leave empty: no analytics on previews
 PUBLIC_CONTACT_EMAIL = "claims@scopit.work"
 
@@ -54,7 +54,7 @@ CLAIMS_BASE = ""
 EMAIL_PROVIDER = "resend"
 NEWSLETTER_PROVIDER = "buttondown"
 CLAIMS_DIRECTORY_SOURCE = "d1"
-PUBLIC_TURNSTILE_SITE_KEY = ""      # set to the Turnstile widget's site key (public value)
+PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAF8Ojs7q-_aVIlkt"   # Turnstile widget "scopit-claims" (public value)
 PUBLIC_PLAUSIBLE_DOMAIN = ""        # analytics off (decided 2026-11-10); set to "claims.scopit.work" to turn on Plausible (paid)
 PUBLIC_CONTACT_EMAIL = "claims@scopit.work"
 
